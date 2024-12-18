@@ -18,7 +18,7 @@
 #if defined(XGBOOST_USE_NCCL)
 #include <nccl.h>
 #elif defined(XGBOOST_USE_RCCL)
-#include <rccl.h>
+#include <rccl/rccl.h>
 #endif
 
 namespace xgboost {

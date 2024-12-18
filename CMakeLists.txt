@@ -308,6 +308,10 @@ if(USE_NCCL)
   find_package(Nccl REQUIRED)
 endif()
 
+if(USE_RCCL)
+  find_package(rccl REQUIRED)
+endif()
+
 if(MSVC)
   if(FORCE_SHARED_CRT)
     message(STATUS "XGBoost: Using dynamically linked MSVC runtime...")

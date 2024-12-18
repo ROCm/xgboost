@@ -15,7 +15,7 @@
 #include "../common/cuda_to_hip.h"
 #include <hip/hip_runtime_api.h>  // for cudaPeekAtLastError
 #include <dlfcn.h>             // for dlclose, dlsym, dlopen
-#include <rccl.h>
+#include <rccl/rccl.h>
 #include <thrust/system/hip/error.h>  // for cuda_category
 #include <thrust/system_error.h>       // for system_error
 #endif

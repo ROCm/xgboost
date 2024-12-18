@@ -15,7 +15,7 @@
 #endif
 
 #include <hip/hip_runtime_api.h>
-#include <rccl.h>
+#include <rccl/rccl.h>
 #endif
 
 #include <string>  // for string

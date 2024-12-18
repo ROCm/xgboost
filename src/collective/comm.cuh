@@ -7,7 +7,7 @@
 #include "nccl.h"
 #elif defined(XGBOOST_USE_RCCL)
 #include "../common/cuda_to_hip.h"
-#include "rccl.h"
+#include <rccl/rccl.h>
 #endif  // XGBOOST_USE_NCCL
 
 #include <utility>  // for move
