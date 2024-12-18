@@ -63,7 +63,7 @@ Run
 
 .. code-block:: bash
 
-  python ./tests/ci_build/test_r_package.py --task=check
+  python ./ops/script/test_r_package.py --task=check
 
 at the root of the project directory. The command builds and checks the XGBoost
 r-package. Alternatively, if you want to just run the tests, you can use the following
@@ -130,10 +130,9 @@ To build and run C++ unit tests enable tests while running CMake:
 
 .. code-block:: bash
 
-  mkdir build
-  cd build
-  cmake -GNinja -DGOOGLE_TEST=ON -DUSE_DMLC_GTEST=ON -DUSE_CUDA=ON -DUSE_NCCL=ON ..
-  ninja
+  cmake -B build -S . -GNinja -DGOOGLE_TEST=ON -DUSE_DMLC_GTEST=ON -DUSE_CUDA=ON -DUSE_NCCL=ON
+  cmake --build build
+  cd ./build
   ./testxgboost
 
 Flags like ``USE_CUDA``, ``USE_DMLC_GTEST`` are optional. For more info about how to build

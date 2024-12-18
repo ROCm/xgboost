@@ -34,7 +34,7 @@ def cd(path):
     path = normpath(path)
     cwd = os.getcwd()
     os.chdir(path)
-    print("cd " + path)
+    print("cd " + path, flush=True)
     try:
         yield path
     finally:
@@ -43,7 +43,7 @@ def cd(path):
 
 def maybe_makedirs(path):
     path = normpath(path)
-    print("mkdir -p " + path)
+    print("mkdir -p " + path, flush=True)
     try:
         os.makedirs(path)
     except OSError as e:
@@ -52,14 +52,14 @@ def maybe_makedirs(path):
 
 
 def run(command, **kwargs):
-    print(command)
+    print(command, flush=True)
     subprocess.run(command, shell=True, check=True, env=os.environ, **kwargs)
 
 
 def cp(source, target):
     source = normpath(source)
     target = normpath(target)
-    print("cp {0} {1}".format(source, target))
+    print("cp {0} {1}".format(source, target), flush=True)
     shutil.copy(source, target)
 
 
@@ -80,7 +80,7 @@ def native_build(args):
             subprocess.check_output("/usr/libexec/java_home").strip().decode()
         )
 
-    print("building Java wrapper")
+    print("building Java wrapper", flush=True)
     with cd(".."):
         build_dir = 'build-gpu' if cli_args.use_cuda == 'ON' or cli_args.use_hip == 'ON' else 'build'
         maybe_makedirs(build_dir)
@@ -129,7 +129,7 @@ def native_build(args):
                         run("cmake .. " + " ".join(args + [generator]))
                         break
                     except subprocess.CalledProcessError as e:
-                        print(f"Failed to build with generator: {generator}", e)
+                        print(f"Failed to build with generator: {generator}", e, flush=True)
                         with cd(os.path.pardir):
                             shutil.rmtree(build_dir)
                             maybe_makedirs(build_dir)
@@ -137,16 +137,8 @@ def native_build(args):
                 run("cmake .. " + " ".join(args))
             run("cmake --build . --config Release" + maybe_parallel_build)
 
-        with cd("demo/CLI/regression"):
-            run(f'"{sys.executable}" mapfeat.py')
-            run(f'"{sys.executable}" mknfold.py machine.txt 1')
 
-    xgboost4j = "xgboost4j-gpu" if cli_args.use_cuda == "ON" or cli_args.use_hip== "ON" else "xgboost4j"
-    xgboost4j_spark = (
-        "xgboost4j-spark-gpu" if cli_args.use_cuda == "ON" or cli_args.use_hip == "ON" else "xgboost4j-spark"
-    )
-
-    print("copying native library")
+    print("copying native library", flush=True)
     library_name, os_folder = {
         "Windows": ("xgboost4j.dll", "windows"),
         "Darwin": ("libxgboost4j.dylib", "macos"),
@@ -161,26 +153,35 @@ def native_build(args):
         "arm64": "aarch64",  # on macOS & Windows ARM 64-bit
         "aarch64": "aarch64",
     }[platform.machine().lower()]
-    output_folder = "{}/src/main/resources/lib/{}/{}".format(
-        xgboost4j, os_folder, arch_folder
+    output_folder = "xgboost4j/src/main/resources/lib/{}/{}".format(
+        os_folder, arch_folder
     )
     maybe_makedirs(output_folder)
     cp("../lib/" + library_name, output_folder)
 
-    print("copying train/test files")
-    maybe_makedirs("{}/src/test/resources".format(xgboost4j_spark))
+    print("copying train/test files", flush=True)
+
+    # for xgboost4j
+    maybe_makedirs("xgboost4j/src/test/resources")
+    for file in glob.glob("../demo/data/agaricus.*"):
+        cp(file, "xgboost4j/src/test/resources")
+
+    # for xgboost4j-spark
+    maybe_makedirs("xgboost4j-spark/src/test/resources")
     with cd("../demo/CLI/regression"):
         run(f'"{sys.executable}" mapfeat.py')
         run(f'"{sys.executable}" mknfold.py machine.txt 1')
-
     for file in glob.glob("../demo/CLI/regression/machine.txt.t*"):
-        cp(file, "{}/src/test/resources".format(xgboost4j_spark))
+        cp(file, "xgboost4j-spark/src/test/resources")
     for file in glob.glob("../demo/data/agaricus.*"):
-        cp(file, "{}/src/test/resources".format(xgboost4j_spark))
+        cp(file, "xgboost4j-spark/src/test/resources")
 
-    maybe_makedirs("{}/src/test/resources".format(xgboost4j))
-    for file in glob.glob("../demo/data/agaricus.*"):
-        cp(file, "{}/src/test/resources".format(xgboost4j))
+    # for xgboost4j-spark-gpu
+    if cli_args.use_cuda == "ON":
+        maybe_makedirs("xgboost4j-spark-gpu/src/test/resources")
+        for file in glob.glob("../demo/data/veterans_lung_cancer.csv"):
+            cp(file, "xgboost4j-spark-gpu/src/test/resources")
+        cp("xgboost4j-spark/src/test/resources/rank.train.csv", "xgboost4j-spark-gpu/src/test/resources")
 
 
 if __name__ == "__main__":

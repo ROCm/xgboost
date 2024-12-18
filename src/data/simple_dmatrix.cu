@@ -1,5 +1,5 @@
 /**
- * Copyright 2019-2023, XGBoost Contributors
+ * Copyright 2019-2024, XGBoost Contributors
  * \file simple_dmatrix.cu
  */
 #include <thrust/copy.h>
@@ -19,7 +19,7 @@ SimpleDMatrix::SimpleDMatrix(AdapterT* adapter, float missing, std::int32_t nthr
                              DataSplitMode data_split_mode) {
   CHECK(data_split_mode != DataSplitMode::kCol)
       << "Column-wise data split is currently not supported on the GPU.";
-  auto device = (adapter->Device().IsCPU() || adapter->NumRows() == 0)
+  auto device = (!adapter->Device().IsCUDA() || adapter->NumRows() == 0)
                     ? DeviceOrd::CUDA(dh::CurrentDevice())
                     : adapter->Device();
   CHECK(device.IsCUDA());
@@ -37,18 +37,18 @@ SimpleDMatrix::SimpleDMatrix(AdapterT* adapter, float missing, std::int32_t nthr
   // Enforce single batch
   CHECK(!adapter->Next());
 
-  info_.num_nonzero_ = CopyToSparsePage(adapter->Value(), device, missing, sparse_page_.get());
+  info_.num_nonzero_ =
+      CopyToSparsePage(&ctx, adapter->Value(), device, missing, sparse_page_.get());
   info_.num_col_ = adapter->NumColumns();
   info_.num_row_ = adapter->NumRows();
-  // Synchronise worker columns
-  info_.data_split_mode = data_split_mode;
-  info_.SynchronizeNumberOfColumns(&ctx);
+
+  this->info_.SynchronizeNumberOfColumns(&ctx, data_split_mode);
 
   this->fmat_ctx_ = ctx;
 }
 
-template SimpleDMatrix::SimpleDMatrix(CudfAdapter* adapter, float missing,
-                                      int nthread, DataSplitMode data_split_mode);
-template SimpleDMatrix::SimpleDMatrix(CupyAdapter* adapter, float missing,
-                                      int nthread, DataSplitMode data_split_mode);
+template SimpleDMatrix::SimpleDMatrix(CudfAdapter* adapter, float missing, std::int32_t nthread,
+                                      DataSplitMode data_split_mode);
+template SimpleDMatrix::SimpleDMatrix(CupyAdapter* adapter, float missing, std::int32_t nthread,
+                                      DataSplitMode data_split_mode);
 }  // namespace xgboost::data

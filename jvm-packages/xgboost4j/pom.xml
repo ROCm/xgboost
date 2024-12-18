@@ -6,11 +6,11 @@
     <parent>
         <groupId>ml.dmlc</groupId>
         <artifactId>xgboost-jvm_2.12</artifactId>
-        <version>2.1.3</version>
+        <version>3.0.0-SNAPSHOT</version>
     </parent>
     <name>xgboost4j</name>
     <artifactId>xgboost4j_2.12</artifactId>
-    <version>2.1.3</version>
+    <version>3.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <dependencies>
@@ -66,7 +66,7 @@
           <plugin>
               <groupId>org.apache.maven.plugins</groupId>
               <artifactId>maven-javadoc-plugin</artifactId>
-              <version>3.6.3</version>
+              <version>3.11.1</version>
               <configuration>
                   <show>protected</show>
                   <nohelp>true</nohelp>
@@ -82,7 +82,7 @@
           <plugin>
               <artifactId>exec-maven-plugin</artifactId>
               <groupId>org.codehaus.mojo</groupId>
-              <version>3.3.0</version>
+              <version>3.5.0</version>
               <executions>
                   <execution>
                       <id>native</id>
@@ -96,6 +96,8 @@
                             <argument>create_jni.py</argument>
                             <argument>--log-capi-invocation</argument>
                             <argument>${log.capi.invocation}</argument>
+                            <argument>--use-cuda</argument>
+                            <argument>${use.cuda}</argument>
                           </arguments>
                           <workingDirectory>${user.dir}</workingDirectory>
                           <skip>${skip.native.build}</skip>
@@ -106,7 +108,7 @@
           <plugin>
               <groupId>org.apache.maven.plugins</groupId>
               <artifactId>maven-jar-plugin</artifactId>
-              <version>3.4.1</version>
+              <version>3.4.2</version>
               <executions>
                   <execution>
                       <goals>

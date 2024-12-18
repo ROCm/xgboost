@@ -79,12 +79,9 @@ function(xgboost_set_cuda_flags target)
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>
-    $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>)
-
-  if(USE_PER_THREAD_DEFAULT_STREAM)
-    target_compile_options(${target} PRIVATE
-            $<$<COMPILE_LANGUAGE:CUDA>:--default-stream per-thread>)
-  endif()
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>
+    $<$<COMPILE_LANGUAGE:CUDA>:--default-stream per-thread>
+  )
 
   if(FORCE_COLORED_OUTPUT)
     if(FORCE_COLORED_OUTPUT AND (CMAKE_GENERATOR STREQUAL "Ninja") AND
@@ -118,8 +115,7 @@ function(xgboost_set_cuda_flags target)
   else()
     # If the downstream user is dynamically linking with libxgboost, it does not
     # need to link with CCCL and CUDA runtime.
-    target_link_libraries(${target}
-      PRIVATE CCCL::CCCL CUDA::cudart_static)
+    target_link_libraries(${target} PRIVATE CCCL::CCCL CUDA::cudart_static)
   endif()
   target_compile_definitions(${target} PRIVATE -DXGBOOST_USE_CUDA=1)
   target_include_directories(
@@ -241,6 +237,12 @@ macro(xgboost_target_properties target)
 
   if(WIN32 AND MINGW)
     target_compile_options(${target} PUBLIC -static-libstdc++)
+  endif()
+
+  if(NOT WIN32 AND ENABLE_ALL_WARNINGS)
+    target_compile_options(${target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Werror=cross-execution-space-call>
+    )
   endif()
 endmacro()
 

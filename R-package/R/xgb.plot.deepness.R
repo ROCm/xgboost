@@ -4,7 +4,8 @@
 #' - `xgb.plot.deepness()` uses base R graphics, while
 #' - `xgb.ggplot.deepness()` uses "ggplot2".
 #'
-#' @param model Either an `xgb.Booster` model, or the "data.table" returned by [xgb.model.dt.tree()].
+#' @param model Either an `xgb.Booster` model, or the "data.table" returned
+#'   by [xgb.model.dt.tree()].
 #' @param which Which distribution to plot (see details).
 #' @param plot Should the plot be shown? Default is `TRUE`.
 #' @param ... Other parameters passed to [graphics::barplot()] or [graphics::plot()].
@@ -48,15 +49,16 @@
 #' data.table::setDTthreads(nthread)
 #'
 #' ## Change max_depth to a higher number to get a more significant result
-#' bst <- xgboost(
-#'   data = agaricus.train$data,
-#'   label = agaricus.train$label,
-#'   max_depth = 6,
-#'   nthread = nthread,
+#' bst <- xgb.train(
+#'   data = xgb.DMatrix(agaricus.train$data, label = agaricus.train$label),
 #'   nrounds = 50,
-#'   objective = "binary:logistic",
-#'   subsample = 0.5,
-#'   min_child_weight = 2
+#'   params = xgb.params(
+#'     max_depth = 6,
+#'     nthread = nthread,
+#'     objective = "binary:logistic",
+#'     subsample = 0.5,
+#'     min_child_weight = 2
+#'   )
 #' )
 #'
 #' xgb.plot.deepness(bst)

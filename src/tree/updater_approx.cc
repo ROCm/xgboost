@@ -52,7 +52,7 @@ auto BatchSpec(TrainParam const &p, common::Span<float> hess) {
 }
 }  // anonymous namespace
 
-class GloablApproxBuilder {
+class GlobalApproxBuilder {
  protected:
   TrainParam const *param_;
   HistMakerTrainParam const *hist_param_{nullptr};
@@ -154,14 +154,16 @@ class GloablApproxBuilder {
     if (!task_->UpdateTreeLeaf()) {
       return;
     }
+    p_out_position->resize(hess.size());
     for (auto const &part : partitioner_) {
-      part.LeafPartition(ctx_, tree, hess, p_out_position);
+      part.LeafPartition(ctx_, tree, hess,
+                         common::Span{p_out_position->data(), p_out_position->size()});
     }
     monitor_->Stop(__func__);
   }
 
  public:
-  explicit GloablApproxBuilder(TrainParam const *param, HistMakerTrainParam const *hist_param,
+  explicit GlobalApproxBuilder(TrainParam const *param, HistMakerTrainParam const *hist_param,
                                MetaInfo const &info, Context const *ctx,
                                std::shared_ptr<common::ColumnSampler> column_sampler,
                                ObjInfo const *task, common::Monitor *monitor)
@@ -248,7 +250,7 @@ class GloablApproxBuilder {
 class GlobalApproxUpdater : public TreeUpdater {
   common::Monitor monitor_;
   // specializations for different histogram precision.
-  std::unique_ptr<GloablApproxBuilder> pimpl_;
+  std::unique_ptr<GlobalApproxBuilder> pimpl_;
   // pointer to the last DMatrix, used for update prediction cache.
   DMatrix *cached_{nullptr};
   std::shared_ptr<common::ColumnSampler> column_sampler_;
@@ -276,7 +278,7 @@ class GlobalApproxUpdater : public TreeUpdater {
     *sampled = linalg::Empty<GradientPair>(ctx_, gpair->Size(), 1);
     auto in = gpair->HostView().Values();
     std::copy(in.data(), in.data() + in.size(), sampled->HostView().Values().data());
-
+    error::NoPageConcat(this->hist_param_.extmem_single_page);
     SampleGradient(ctx_, param, sampled->HostView());
   }
 
@@ -289,7 +291,7 @@ class GlobalApproxUpdater : public TreeUpdater {
     if (!column_sampler_) {
       column_sampler_ = common::MakeColumnSampler(ctx_);
     }
-    pimpl_ = std::make_unique<GloablApproxBuilder>(param, &hist_param_, m->Info(), ctx_,
+    pimpl_ = std::make_unique<GlobalApproxBuilder>(param, &hist_param_, m->Info(), ctx_,
                                                    column_sampler_, task_, &monitor_);
 
     linalg::Matrix<GradientPair> h_gpair;

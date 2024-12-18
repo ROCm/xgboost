@@ -1,0 +1,41 @@
+name: macos_test
+channels:
+- conda-forge
+dependencies:
+- python=3.10
+- pip
+- wheel
+- pyyaml
+- cpplint
+- pylint
+- numpy
+- scipy
+- llvm-openmp
+- scikit-learn>=1.4.1
+- pandas
+- matplotlib
+- dask<=2024.10.0
+- distributed<=2024.10.0
+- graphviz
+- python-graphviz
+- hypothesis<=6.112
+- astroid
+- sphinx
+- sh
+- recommonmark
+- mock
+- breathe
+- pytest
+- pytest-cov
+- python-kubernetes
+- urllib3
+- jsonschema
+- boto3
+- awscli
+- loky
+- pyarrow
+- pyspark>=3.4.0
+- cloudpickle
+- pip:
+  - setuptools
+  - sphinx_rtd_theme

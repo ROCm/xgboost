@@ -17,6 +17,7 @@ from xgboost.testing import (
 )
 from xgboost.testing.data import check_inf, np_dtypes
 from xgboost.testing.data_iter import run_mixed_sparsity
+from xgboost.testing.quantile_dmatrix import check_ref_quantile_cut
 
 
 class TestQuantileDMatrix:
@@ -96,14 +97,15 @@ class TestQuantileDMatrix:
 
         if sparsity == 0.0:
             it = IteratorForTest(
-                *make_batches(n_samples_per_batch, n_features, n_batches, False), None
+                *make_batches(n_samples_per_batch, n_features, n_batches, False),
+                cache=None,
             )
         else:
             it = IteratorForTest(
                 *make_batches_sparse(
                     n_samples_per_batch, n_features, n_batches, sparsity
                 ),
-                None,
+                cache=None,
             )
         Xy = xgb.QuantileDMatrix(it)
         assert Xy.num_row() == n_samples_per_batch * n_batches
@@ -133,14 +135,15 @@ class TestQuantileDMatrix:
         n_batches = 7
         if sparsity == 0.0:
             it = IteratorForTest(
-                *make_batches(n_samples_per_batch, n_features, n_batches, False), None
+                *make_batches(n_samples_per_batch, n_features, n_batches, False),
+                cache=None,
             )
         else:
             it = IteratorForTest(
                 *make_batches_sparse(
                     n_samples_per_batch, n_features, n_batches, sparsity
                 ),
-                None,
+                cache=None,
             )
 
         parameters = {"tree_method": "hist", "max_bin": 256}
@@ -167,13 +170,13 @@ class TestQuantileDMatrix:
             }
             xgb.train(parameters, Xy)
 
-    def run_ref_dmatrix(self, rng: Any, tree_method: str, enable_cat: bool) -> None:
+    def run_ref_dmatrix(self, rng: Any, device: str, enable_cat: bool) -> None:
         n_samples, n_features = 2048, 17
         if enable_cat:
             X, y = make_categorical(
                 n_samples, n_features, n_categories=13, onehot=False
             )
-            if tree_method == "gpu_hist":
+            if device == "cuda":
                 import cudf
 
                 X = cudf.from_pandas(X)
@@ -186,10 +189,12 @@ class TestQuantileDMatrix:
 
         # Use ref
         Xy = xgb.QuantileDMatrix(X, y, enable_categorical=enable_cat)
-        Xy_valid = xgb.QuantileDMatrix(X, y, ref=Xy, enable_categorical=enable_cat)
+        Xy_valid: xgb.DMatrix = xgb.QuantileDMatrix(
+            X, y, ref=Xy, enable_categorical=enable_cat
+        )
         qdm_results: Dict[str, Dict[str, List[float]]] = {}
         xgb.train(
-            {"tree_method": tree_method},
+            {"tree_method": "hist", "device": device},
             Xy,
             evals=[(Xy, "Train"), (Xy_valid, "valid")],
             evals_result=qdm_results,
@@ -198,10 +203,10 @@ class TestQuantileDMatrix:
             qdm_results["Train"]["rmse"], qdm_results["valid"]["rmse"]
         )
         # No ref
-        Xy_valid = xgb.QuantileDMatrix(X, y, enable_categorical=enable_cat)
+        Xy_valid = xgb.DMatrix(X, y, enable_categorical=enable_cat)
         qdm_results = {}
         xgb.train(
-            {"tree_method": tree_method},
+            {"tree_method": "hist", "device": device},
             Xy,
             evals=[(Xy, "Train"), (Xy_valid, "valid")],
             evals_result=qdm_results,
@@ -226,7 +231,7 @@ class TestQuantileDMatrix:
         n_samples, n_features = 256, 17
         if enable_cat:
             X, y = make_categorical(n_samples, n_features, 13, onehot=False)
-            if tree_method == "gpu_hist":
+            if device == "cuda":
                 import cudf
 
                 X = cudf.from_pandas(X)
@@ -243,7 +248,7 @@ class TestQuantileDMatrix:
 
         qdm_results = {}
         xgb.train(
-            {"tree_method": tree_method},
+            {"tree_method": "hist", "device": device},
             Xy,
             evals=[(Xy, "Train"), (Xy_valid, "valid")],
             evals_result=qdm_results,
@@ -251,7 +256,7 @@ class TestQuantileDMatrix:
 
         dm_results: Dict[str, Dict[str, List[float]]] = {}
         xgb.train(
-            {"tree_method": tree_method},
+            {"tree_method": "hist", "device": device},
             dXy,
             evals=[(dXy, "Train"), (dXy_valid, "valid"), (Xy_valid_d, "dvalid")],
             evals_result=dm_results,
@@ -266,10 +271,19 @@ class TestQuantileDMatrix:
             dm_results["dvalid"]["rmse"], qdm_results["valid"]["rmse"]
         )
 
+        Xy_valid = xgb.QuantileDMatrix(X, y, enable_categorical=enable_cat)
+        with pytest.raises(ValueError, match="should be used as a reference"):
+            xgb.train(
+                {"device": device}, dXy, evals=[(dXy, "Train"), (Xy_valid, "Valid")]
+            )
+
+    def test_ref_quantile_cut(self) -> None:
+        check_ref_quantile_cut("cpu")
+
     def test_ref_dmatrix(self) -> None:
         rng = np.random.RandomState(1994)
-        self.run_ref_dmatrix(rng, "hist", True)
-        self.run_ref_dmatrix(rng, "hist", False)
+        self.run_ref_dmatrix(rng, "cpu", True)
+        self.run_ref_dmatrix(rng, "cpu", False)
 
     @pytest.mark.parametrize("sparsity", [0.0, 0.5])
     def test_predict(self, sparsity: float) -> None:

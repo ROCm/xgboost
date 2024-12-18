@@ -1,130 +1,102 @@
 /**
- * Copyright 2014-2023 by XGBoost Contributors
+ * Copyright 2014-2024, XGBoost Contributors
  * \file sparse_page_dmatrix.cc
  *
  * \brief The external memory version of Page Iterator.
  * \author Tianqi Chen
  */
-#include "./sparse_page_dmatrix.h"
+#include "sparse_page_dmatrix.h"
 
-#include "../collective/communicator-inl.h"
-#include "batch_utils.h"  // for RegenGHist
-#include "gradient_index.h"
+#include <algorithm>  // for max
+#include <memory>     // for make_shared
+#include <string>     // for string
+#include <utility>    // for move
+#include <variant>    // for visit
+
+#include "batch_utils.h"         // for RegenGHist
+#include "gradient_index.h"      // for GHistIndexMatrix
+#include "sparse_page_source.h"  // for MakeCachePrefix
 
 namespace xgboost::data {
 MetaInfo &SparsePageDMatrix::Info() { return info_; }
 
 const MetaInfo &SparsePageDMatrix::Info() const { return info_; }
 
-namespace detail {
-// Use device dispatch
-std::size_t NSamplesDevice(DMatrixProxy *)  // NOLINT
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-;  // NOLINT
-#else
-{
-  common::AssertGPUSupport();
-  return 0;
-}
-#endif
-std::size_t NFeaturesDevice(DMatrixProxy *)  // NOLINT
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-;  // NOLINT
-#else
-{
-  common::AssertGPUSupport();
-  return 0;
-}
-#endif
-}  // namespace detail
-
-
 SparsePageDMatrix::SparsePageDMatrix(DataIterHandle iter_handle, DMatrixHandle proxy_handle,
-                                     DataIterResetCallback *reset,
-                                     XGDMatrixCallbackNext *next, float missing,
-                                     int32_t nthreads, std::string cache_prefix)
-    : proxy_{proxy_handle}, iter_{iter_handle}, reset_{reset}, next_{next}, missing_{missing},
-      cache_prefix_{std::move(cache_prefix)} {
+                                     DataIterResetCallback *reset, XGDMatrixCallbackNext *next,
+                                     ExtMemConfig const &config)
+    : proxy_{proxy_handle},
+      iter_{iter_handle},
+      reset_{reset},
+      next_{next},
+      missing_{config.missing},
+      cache_prefix_{config.cache},
+      on_host_{config.on_host},
+      min_cache_page_bytes_{config.min_cache_page_bytes} {
   Context ctx;
-  ctx.nthread = nthreads;
+  ctx.Init(Args{{"nthread", std::to_string(config.n_threads)}});
+  cache_prefix_ = MakeCachePrefix(cache_prefix_);
 
-  cache_prefix_ = cache_prefix_.empty() ? "DMatrix" : cache_prefix_;
-  if (collective::IsDistributed()) {
-    cache_prefix_ += ("-r" + std::to_string(collective::GetRank()));
-  }
   DMatrixProxy *proxy = MakeProxy(proxy_);
   auto iter = DataIterProxy<DataIterResetCallback, XGDMatrixCallbackNext>{
       iter_, reset_, next_};
 
-  uint32_t n_batches = 0;
-  size_t n_features = 0;
-  size_t n_samples = 0;
-  size_t nnz = 0;
-
-  auto num_rows = [&]() {
-    bool type_error {false};
-    size_t n_samples = HostAdapterDispatch(
-        proxy, [](auto const &value) { return value.NumRows(); }, &type_error);
-    if (type_error) {
-      n_samples = detail::NSamplesDevice(proxy);
-    }
-    return n_samples;
-  };
-  auto num_cols = [&]() {
-    bool type_error {false};
-    size_t n_features = HostAdapterDispatch(
-        proxy, [](auto const &value) { return value.NumCols(); }, &type_error);
-    if (type_error) {
-      n_features = detail::NFeaturesDevice(proxy);
-    }
-    return n_features;
-  };
-
-  // the proxy is iterated together with the sparse page source so we can obtain all
+  // The proxy is iterated together with the sparse page source so we can obtain all
   // information in 1 pass.
   for (auto const &page : this->GetRowBatchesImpl(&ctx)) {
     this->info_.Extend(std::move(proxy->Info()), false, false);
-    n_features = std::max(n_features, num_cols());
-    n_samples += num_rows();
-    nnz += page.data.Size();
-    n_batches++;
+    ext_info_.n_features =
+        std::max(static_cast<bst_feature_t>(ext_info_.n_features), BatchColumns(proxy));
+    ext_info_.accumulated_rows += BatchSamples(proxy);
+    ext_info_.nnz += page.data.Size();
+    ext_info_.n_batches++;
+    ext_info_.base_rowids.push_back(page.Size());
+    ext_info_.batch_nnz.push_back(page.data.Size());
   }
+  std::partial_sum(ext_info_.base_rowids.cbegin(), ext_info_.base_rowids.cend(),
+                   ext_info_.base_rowids.begin());
 
   iter.Reset();
 
-  this->n_batches_ = n_batches;
-  this->info_.num_row_ = n_samples;
-  this->info_.num_col_ = n_features;
-  this->info_.num_nonzero_ = nnz;
-
-  info_.SynchronizeNumberOfColumns(&ctx);
-  CHECK_NE(info_.num_col_, 0);
+  ext_info_.SetInfo(&ctx, &this->info_);
 
   fmat_ctx_ = ctx;
 }
 
+SparsePageDMatrix::~SparsePageDMatrix() {
+  // Clear out all resources before deleting the cache file.
+  sparse_page_source_.reset();
+  std::visit([](auto &&ptr) { ptr.reset(); }, ellpack_page_source_);
+  column_source_.reset();
+  sorted_column_source_.reset();
+  ghist_index_source_.reset();
+
+  DeleteCacheFiles(cache_info_);
+}
+
 void SparsePageDMatrix::InitializeSparsePage(Context const *ctx) {
-  auto id = MakeCache(this, ".row.page", cache_prefix_, &cache_info_);
+  auto id = MakeCache(this, ".row.page", false, cache_prefix_, &cache_info_);
   // Don't use proxy DMatrix once this is already initialized, this allows users to
   // release the iterator and data.
   if (cache_info_.at(id)->written) {
-    CHECK(sparse_page_source_);
-    sparse_page_source_->Reset();
+    CHECK(this->sparse_page_source_);
+    this->sparse_page_source_->Reset({});
     return;
   }
 
   auto iter = DataIterProxy<DataIterResetCallback, XGDMatrixCallbackNext>{iter_, reset_, next_};
   DMatrixProxy *proxy = MakeProxy(proxy_);
   sparse_page_source_.reset();  // clear before creating new one to prevent conflicts.
-  sparse_page_source_ = std::make_shared<SparsePageSource>(iter, proxy, this->missing_,
-                                                           ctx->Threads(), this->info_.num_col_,
-                                                           this->n_batches_, cache_info_.at(id));
+  // During initialization, the n_batches is 0.
+  CHECK_EQ(this->ext_info_.n_batches, static_cast<decltype(this->ext_info_.n_batches)>(0));
+  sparse_page_source_ = std::make_shared<SparsePageSource>(
+      iter, proxy, this->missing_, ctx->Threads(), this->info_.num_col_, this->ext_info_.n_batches,
+      cache_info_.at(id));
 }
 
-BatchSet<SparsePage> SparsePageDMatrix::GetRowBatchesImpl(Context const* ctx) {
+BatchSet<SparsePage> SparsePageDMatrix::GetRowBatchesImpl(Context const *ctx) {
   this->InitializeSparsePage(ctx);
-  auto begin_iter = BatchIterator<SparsePage>(sparse_page_source_);
-  return BatchSet<SparsePage>(BatchIterator<SparsePage>(begin_iter));
+  return BatchSet{BatchIterator<SparsePage>{this->sparse_page_source_}};
 }
 
 BatchSet<SparsePage> SparsePageDMatrix::GetRowBatches() {
@@ -133,33 +105,31 @@ BatchSet<SparsePage> SparsePageDMatrix::GetRowBatches() {
 }
 
 BatchSet<CSCPage> SparsePageDMatrix::GetColumnBatches(Context const *ctx) {
-  auto id = MakeCache(this, ".col.page", cache_prefix_, &cache_info_);
+  auto id = MakeCache(this, ".col.page", on_host_, cache_prefix_, &cache_info_);
   CHECK_NE(this->Info().num_col_, 0);
   this->InitializeSparsePage(ctx);
   if (!column_source_) {
-    column_source_ =
-        std::make_shared<CSCPageSource>(this->missing_, ctx->Threads(), this->Info().num_col_,
-                                        this->n_batches_, cache_info_.at(id), sparse_page_source_);
+    column_source_ = std::make_shared<CSCPageSource>(this->missing_, ctx->Threads(),
+                                                     this->Info().num_col_, this->NumBatches(),
+                                                     cache_info_.at(id), sparse_page_source_);
   } else {
-    column_source_->Reset();
+    column_source_->Reset({});
   }
-  auto begin_iter = BatchIterator<CSCPage>(column_source_);
-  return BatchSet<CSCPage>(BatchIterator<CSCPage>(begin_iter));
+  return BatchSet{BatchIterator<CSCPage>{this->column_source_}};
 }
 
 BatchSet<SortedCSCPage> SparsePageDMatrix::GetSortedColumnBatches(Context const *ctx) {
-  auto id = MakeCache(this, ".sorted.col.page", cache_prefix_, &cache_info_);
+  auto id = MakeCache(this, ".sorted.col.page", on_host_, cache_prefix_, &cache_info_);
   CHECK_NE(this->Info().num_col_, 0);
   this->InitializeSparsePage(ctx);
   if (!sorted_column_source_) {
     sorted_column_source_ = std::make_shared<SortedCSCPageSource>(
-        this->missing_, ctx->Threads(), this->Info().num_col_, this->n_batches_, cache_info_.at(id),
-        sparse_page_source_);
+        this->missing_, ctx->Threads(), this->Info().num_col_, this->NumBatches(),
+        cache_info_.at(id), sparse_page_source_);
   } else {
-    sorted_column_source_->Reset();
+    sorted_column_source_->Reset({});
   }
-  auto begin_iter = BatchIterator<SortedCSCPage>(sorted_column_source_);
-  return BatchSet<SortedCSCPage>(BatchIterator<SortedCSCPage>(begin_iter));
+  return BatchSet{BatchIterator<SortedCSCPage>{this->sorted_column_source_}};
 }
 
 BatchSet<GHistIndexMatrix> SparsePageDMatrix::GetGradientIndex(Context const *ctx,
@@ -168,11 +138,11 @@ BatchSet<GHistIndexMatrix> SparsePageDMatrix::GetGradientIndex(Context const *ct
     CHECK_GE(param.max_bin, 2);
   }
   detail::CheckEmpty(batch_param_, param);
-  auto id = MakeCache(this, ".gradient_index.page", cache_prefix_, &cache_info_);
-  this->InitializeSparsePage(ctx);
+  auto id = MakeCache(this, ".gradient_index.page", on_host_, cache_prefix_, &cache_info_);
   if (!cache_info_.at(id)->written || detail::RegenGHist(batch_param_, param)) {
+    this->InitializeSparsePage(ctx);
     cache_info_.erase(id);
-    MakeCache(this, ".gradient_index.page", cache_prefix_, &cache_info_);
+    id = MakeCache(this, ".gradient_index.page", on_host_, cache_prefix_, &cache_info_);
     LOG(INFO) << "Generating new Gradient Index.";
     // Use sorted sketch for approx.
     auto sorted_sketch = param.regen;
@@ -184,21 +154,19 @@ BatchSet<GHistIndexMatrix> SparsePageDMatrix::GetGradientIndex(Context const *ct
     CHECK_NE(cuts.Values().size(), 0);
     auto ft = this->info_.feature_types.ConstHostSpan();
     ghist_index_source_.reset(new GradientIndexPageSource(
-        this->missing_, ctx->Threads(), this->Info().num_col_, this->n_batches_, cache_info_.at(id),
-        param, std::move(cuts), this->IsDense(), ft, sparse_page_source_));
+        this->missing_, ctx->Threads(), this->Info().num_col_, this->NumBatches(),
+        cache_info_.at(id), param, std::move(cuts), this->IsDense(), ft, sparse_page_source_));
   } else {
     CHECK(ghist_index_source_);
-    ghist_index_source_->Reset();
+    ghist_index_source_->Reset(param);
   }
-  auto begin_iter = BatchIterator<GHistIndexMatrix>(ghist_index_source_);
-  return BatchSet<GHistIndexMatrix>(BatchIterator<GHistIndexMatrix>(begin_iter));
+  return BatchSet{BatchIterator<GHistIndexMatrix>{this->ghist_index_source_}};
 }
 
 #if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 BatchSet<EllpackPage> SparsePageDMatrix::GetEllpackBatches(Context const *, const BatchParam &) {
   common::AssertGPUSupport();
-  auto begin_iter = BatchIterator<EllpackPage>(ellpack_page_source_);
-  return BatchSet<EllpackPage>(BatchIterator<EllpackPage>(begin_iter));
+  return BatchSet{BatchIterator<EllpackPage>{nullptr}};
 }
 #endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 }  // namespace data

@@ -1,7 +1,9 @@
 /**
- * Copyright 2017-2023 by XGBoost contributors
+ * Copyright 2017-2024 by XGBoost contributors
  */
-#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
+#ifndef XGBOOST_USE_CUDA
+#ifndef XGBOOST_USE_HIP
+#ifndef XGBOOST_USE_SYCL
 
 // dummy implementation of HostDeviceVector in case CUDA is not used
 
@@ -115,6 +117,11 @@ void HostDeviceVector<T>::Resize(size_t new_size, T v) {
 }
 
 template <typename T>
+void HostDeviceVector<T>::Resize(size_t new_size) {
+  impl_->Vec().resize(new_size, T{});
+}
+
+template <typename T>
 void HostDeviceVector<T>::Fill(T v) {
   std::fill(HostVector().begin(), HostVector().end(), v);
 }
@@ -197,4 +204,6 @@ template class HostDeviceVector<std::size_t>;
 
 }  // namespace xgboost
 
-#endif  // XGBOOST_USE_CUDA && !defined(XGBOOST_USE_HIP)
+#endif  // XGBOOST_USE_SYCL
+#endif  // XGBOOST_USE_HIP
+#endif  // XGBOOST_USE_CUDA

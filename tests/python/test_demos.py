@@ -118,7 +118,13 @@ def test_cross_validation_demo() -> None:
 
 def test_external_memory_demo() -> None:
     script = os.path.join(PYTHON_DEMO_DIR, "external_memory.py")
-    cmd = ["python", script]
+    cmd = ["python", script, "--device=cpu"]
+    subprocess.check_call(cmd)
+
+
+def test_distributed_extmem_basic_demo() -> None:
+    script = os.path.join(PYTHON_DEMO_DIR, "distributed_extmem_basic.py")
+    cmd = ["python", script, "--device=cpu"]
     subprocess.check_call(cmd)
 
 
@@ -168,7 +174,7 @@ def test_quantile_reg() -> None:
 
 @pytest.mark.skipif(**tm.no_ubjson())
 def test_json_model() -> None:
-    script = os.path.join(DEMO_DIR, "json-model", "json_parser.py")
+    script = os.path.join(PYTHON_DEMO_DIR, "model_parser.py")
 
     def run_test(reg: xgboost.XGBRegressor) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

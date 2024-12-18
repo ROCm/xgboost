@@ -3,6 +3,7 @@
  */
 #pragma once
 #include <gtest/gtest.h>
+#include <xgboost/global_config.h>  // for InitNewThread
 
 #include <chrono>   // for seconds
 #include <cstdint>  // for int32_t
@@ -12,10 +13,11 @@
 #include <utility>  // for move
 #include <vector>   // for vector
 
-#include "../../../src/collective/comm.h"
+#include "../../../src/collective/comm.h"              // for RabitComm
 #include "../../../src/collective/communicator-inl.h"  // for Init, Finalize
 #include "../../../src/collective/tracker.h"           // for GetHostAddress
-#include "../../../src/common/common.h"                // for AllVisibleGPUs
+#include "../../../src/common/cuda_rt_utils.h"         // for AllVisibleGPUs
+#include "../../../src/common/threading_utils.h"       // for NameThread
 #include "../helpers.h"                                // for FileExists
 
 #if defined(XGBOOST_USE_FEDERATED)
@@ -50,8 +52,8 @@ class WorkerForTest {
     for (std::int32_t i = 0; i < comm_.World(); ++i) {
       if (i != comm_.Rank()) {
         ASSERT_TRUE(comm_.Chan(i)->Socket()->NonBlocking());
-        ASSERT_TRUE(comm_.Chan(i)->Socket()->SetBufSize(n_bytes).OK());
-        ASSERT_TRUE(comm_.Chan(i)->Socket()->SetNoDelay().OK());
+        SafeColl(comm_.Chan(i)->Socket()->SetBufSize(n_bytes));
+        SafeColl(comm_.Chan(i)->Socket()->SetNoDelay());
       }
     }
   }
@@ -110,9 +112,8 @@ inline Json MakeTrackerConfig(std::string host, std::int32_t n_workers,
 }
 
 template <typename WorkerFn>
-void TestDistributed(std::int32_t n_workers, WorkerFn worker_fn) {
-  std::chrono::seconds timeout{2};
-
+void TestDistributed(std::int32_t n_workers, WorkerFn worker_fn,
+                     std::chrono::seconds timeout = std::chrono::seconds{2}) {
   std::string host;
   auto rc = GetHostAddress(&host);
   SafeColl(rc);
@@ -124,14 +125,17 @@ void TestDistributed(std::int32_t n_workers, WorkerFn worker_fn) {
   std::int32_t port = tracker.Port();
 
   for (std::int32_t i = 0; i < n_workers; ++i) {
-    workers.emplace_back([=] { worker_fn(host, port, timeout, i); });
+    workers.emplace_back([=, init = InitNewThread{}] {
+      init();
+      worker_fn(host, port, timeout, i);
+    });
   }
 
   for (auto& t : workers) {
     t.join();
   }
 
-  ASSERT_TRUE(fut.get().OK());
+  SafeColl(fut.get());
 }
 
 inline auto MakeDistributedTestConfig(std::string host, std::int32_t port,
@@ -150,22 +154,24 @@ template <typename WorkerFn>
 void TestDistributedGlobal(std::int32_t n_workers, WorkerFn worker_fn, bool need_finalize = true,
                            std::chrono::seconds test_timeout = std::chrono::seconds{30}) {
   system::SocketStartup();
-  std::chrono::seconds timeout{1};
+  std::chrono::seconds poll_timeout{5};
 
   std::string host;
   auto rc = GetHostAddress(&host);
   SafeColl(rc);
 
-  RabitTracker tracker{MakeTrackerConfig(host, n_workers, timeout)};
+  RabitTracker tracker{MakeTrackerConfig(host, n_workers, poll_timeout)};
   auto fut = tracker.Run();
 
   std::vector<std::thread> workers;
   std::int32_t port = tracker.Port();
 
   for (std::int32_t i = 0; i < n_workers; ++i) {
-    workers.emplace_back([=] {
+    workers.emplace_back([=, init = InitNewThread{}] {
+      init();
       auto fut = std::async(std::launch::async, [=] {
-        auto config = MakeDistributedTestConfig(host, port, timeout, i);
+        init();
+        auto config = MakeDistributedTestConfig(host, port, poll_timeout, i);
         Init(config);
         worker_fn();
         if (need_finalize) {
@@ -176,14 +182,29 @@ void TestDistributedGlobal(std::int32_t n_workers, WorkerFn worker_fn, bool need
       CHECK(status == std::future_status::ready) << "Test timeout";
       fut.get();
     });
+
+    std::string name = "tw-" + std::to_string(i);
+    common::NameThread(&workers.back(), name.c_str());
   }
 
   for (auto& t : workers) {
     t.join();
   }
 
-  ASSERT_TRUE(fut.get().OK());
+  SafeColl(fut.get());
   system::SocketFinalize();
+}
+
+[[nodiscard]] inline std::int32_t GetWorkerLocalThreads(std::int32_t n_workers) {
+  std::int32_t n_total_threads = std::thread::hardware_concurrency();
+  auto n_threads = std::max(n_total_threads / n_workers, 1);
+  return n_threads;
+}
+
+inline void GetWorkerLocalThreads(std::int32_t n_workers, Context* ctx) {
+  auto n_threads = GetWorkerLocalThreads(n_workers);
+  ctx->UpdateAllowUnknown(
+      Args{{"nthread", std::to_string(n_threads)}, {"device", ctx->DeviceName()}});
 }
 
 class BaseMGPUTest : public ::testing::Test {
@@ -193,8 +214,9 @@ class BaseMGPUTest : public ::testing::Test {
    *                          available.
    */
   template <typename Fn>
-  auto DoTest(Fn&& fn, bool is_federated, bool emulate_if_single = false) const {
-    auto n_gpus = common::AllVisibleGPUs();
+  auto DoTest([[maybe_unused]] Fn&& fn, bool is_federated,
+              [[maybe_unused]] bool emulate_if_single = false) const {
+    auto n_gpus = curt::AllVisibleGPUs();
     if (is_federated) {
 #if defined(XGBOOST_USE_FEDERATED)
       if (n_gpus == 1 && emulate_if_single) {

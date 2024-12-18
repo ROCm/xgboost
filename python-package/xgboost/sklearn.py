@@ -14,6 +14,7 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -29,7 +30,15 @@ from .callback import TrainingCallback
 
 # Do not use class names on scikit-learn directly.  Re-define the classes on
 # .compat to guarantee the behavior without scikit-learn
-from .compat import SKLEARN_INSTALLED, XGBClassifierBase, XGBModelBase, XGBRegressorBase
+from .compat import (
+    SKLEARN_INSTALLED,
+    XGBClassifierBase,
+    XGBModelBase,
+    XGBRegressorBase,
+    _sklearn_Tags,
+    _sklearn_version,
+    import_cupy,
+)
 from .config import config_context
 from .core import (
     Booster,
@@ -40,12 +49,14 @@ from .core import (
     XGBoostError,
     _deprecate_positional_args,
     _parse_eval_str,
+    _parse_version,
+    _py_version,
 )
 from .data import _is_cudf_df, _is_cudf_ser, _is_cupy_alike, _is_pandas_df
 from .training import train
 
 
-class XGBRankerMixIn:  # pylint: disable=too-few-public-methods
+class XGBRankerMixIn:
     """MixIn for ranking, defines the _estimator_type usually defined in scikit-learn
     base classes.
 
@@ -65,11 +76,12 @@ def _check_rf_callback(
         )
 
 
-def _can_use_qdm(tree_method: Optional[str]) -> bool:
-    return tree_method in ("hist", "gpu_hist", None, "auto")
+def _can_use_qdm(tree_method: Optional[str], device: Optional[str]) -> bool:
+    not_sycl = (device is None) or (not device.startswith("sycl"))
+    return tree_method in ("hist", "gpu_hist", None, "auto") and not_sycl
 
 
-class _SklObjWProto(Protocol):  # pylint: disable=too-few-public-methods
+class _SklObjWProto(Protocol):
     def __call__(
         self,
         y_true: ArrayLike,
@@ -414,7 +426,7 @@ __model_doc = f"""
 
         Metric used for monitoring the training result and early stopping.  It can be a
         string or list of strings as names of predefined metric in XGBoost (See
-        doc/parameter.rst), one of the metrics in :py:mod:`sklearn.metrics`, or any
+        :doc:`/parameter`), one of the metrics in :py:mod:`sklearn.metrics`, or any
         other user defined metric that looks like `sklearn.metrics`.
 
         If custom objective is also provided, then custom metric should implement the
@@ -517,7 +529,14 @@ __custom_obj_note = """
                 The value of the gradient for each sample point.
             hess: array_like of shape [n_samples]
                 The value of the second derivative for each sample point
+
+            Note that, if the custom objective produces negative values for
+            the Hessian, these will be clipped. If the objective is non-convex,
+            one might also consider using the expected Hessian (Fisher
+            information) instead.
 """
+
+TDoc = TypeVar("TDoc", bound=Type)
 
 
 def xgboost_model_doc(
@@ -525,7 +544,7 @@ def xgboost_model_doc(
     items: List[str],
     extra_parameters: Optional[str] = None,
     end_note: Optional[str] = None,
-) -> Callable[[Type], Type]:
+) -> Callable[[TDoc], TDoc]:
     """Obtain documentation for Scikit-Learn wrappers
 
     Parameters
@@ -551,7 +570,7 @@ def xgboost_model_doc(
         }
         return __doc[item]
 
-    def adddoc(cls: Type) -> Type:
+    def adddoc(cls: TDoc) -> TDoc:
         doc = [
             """
 Parameters
@@ -574,6 +593,7 @@ Parameters
 
 
 def _wrap_evaluation_matrices(
+    *,
     missing: float,
     X: Any,
     y: Any,
@@ -688,8 +708,10 @@ DEFAULT_N_ESTIMATORS = 100
 )
 class XGBModel(XGBModelBase):
     # pylint: disable=too-many-arguments, too-many-instance-attributes, missing-docstring
+    @_deprecate_positional_args
     def __init__(
         self,
+        *,
         max_depth: Optional[int] = None,
         max_leaves: Optional[int] = None,
         max_bin: Optional[int] = None,
@@ -787,8 +809,82 @@ class XGBModel(XGBModelBase):
             tags["non_deterministic"] = True
         return tags
 
+    @staticmethod
+    def _update_sklearn_tags_from_dict(
+        *,
+        tags: _sklearn_Tags,
+        tags_dict: Dict[str, bool],
+    ) -> _sklearn_Tags:
+        """Update ``sklearn.utils.Tags`` inherited from ``scikit-learn`` base classes.
+
+        ``scikit-learn`` 1.6 introduced a dataclass-based interface for estimator tags.
+        ref: https://github.com/scikit-learn/scikit-learn/pull/29677
+
+        This method handles updating that instance based on the values in ``self._more_tags()``.
+        """
+        tags.non_deterministic = tags_dict.get("non_deterministic", False)
+        tags.no_validation = tags_dict["no_validation"]
+        tags.input_tags.allow_nan = tags_dict["allow_nan"]
+        return tags
+
+    def __sklearn_tags__(self) -> _sklearn_Tags:
+        # XGBModelBase.__sklearn_tags__() cannot be called unconditionally,
+        # because that method isn't defined for scikit-learn<1.6
+        if not hasattr(XGBModelBase, "__sklearn_tags__"):
+            err_msg = (
+                "__sklearn_tags__() should not be called when using scikit-learn<1.6. "
+                f"Detected version: {_sklearn_version}"
+            )
+            raise AttributeError(err_msg)
+
+        # take whatever tags are provided by BaseEstimator, then modify
+        # them with XGBoost-specific values
+        return self._update_sklearn_tags_from_dict(
+            tags=super().__sklearn_tags__(),  # pylint: disable=no-member
+            tags_dict=self._more_tags(),
+        )
+
     def __sklearn_is_fitted__(self) -> bool:
         return hasattr(self, "_Booster")
+
+    @property
+    def _doc_link_module(self) -> str:
+        return "xgboost"
+
+    @property
+    def _doc_link_template(self) -> str:
+        ver = _py_version()
+        (major, minor, _), post = _parse_version(ver)
+
+        if post == "dev":
+            rel = "latest"
+        else:
+            # RTD tracks the release branch. We don't have independent branches for
+            # patch releases.
+            rel = f"release_{major}.{minor}.0"
+
+        module = self.__class__.__module__
+        # All sklearn estimators are forwarded to the top level module in both source
+        # code and sphinx api doc.
+        if module == "xgboost.sklearn":
+            module = module.split(".")[0]
+        name = self.__class__.__name__
+
+        base = "https://xgboost.readthedocs.io/en"
+        return f"{base}/{rel}/python/python_api.html#{module}.{name}"
+
+    def _wrapper_params(self) -> Set[str]:
+        wrapper_specific = {
+            "importance_type",
+            "kwargs",
+            "missing",
+            "n_estimators",
+            "enable_categorical",
+            "early_stopping_rounds",
+            "callbacks",
+            "feature_types",
+        }
+        return wrapper_specific
 
     def get_booster(self) -> Booster:
         """Get the underlying xgboost Booster of this model.
@@ -841,13 +937,27 @@ class XGBModel(XGBModelBase):
         """Get parameters."""
         # Based on: https://stackoverflow.com/questions/59248211
         # The basic flow in `get_params` is:
-        # 0. Return parameters in subclass first, by using inspect.
-        # 1. Return parameters in `XGBModel` (the base class).
+        # 0. Return parameters in subclass (self.__class__) first, by using inspect.
+        # 1. Return parameters in all parent classes (especially `XGBModel`).
         # 2. Return whatever in `**kwargs`.
         # 3. Merge them.
+        #
+        # This needs to accommodate being called recursively in the following
+        # inheritance graphs (and similar for classification and ranking):
+        #
+        #   XGBRFRegressor -> XGBRegressor -> XGBModel -> BaseEstimator
+        #                     XGBRegressor -> XGBModel -> BaseEstimator
+        #                                     XGBModel -> BaseEstimator
+        #
         params = super().get_params(deep)
         cp = copy.copy(self)
-        cp.__class__ = cp.__class__.__bases__[0]
+        # If the immediate parent defines get_params(), use that.
+        if callable(getattr(cp.__class__.__bases__[0], "get_params", None)):
+            cp.__class__ = cp.__class__.__bases__[0]
+        # Otherwise, skip it and assume the next class will have it.
+        # This is here primarily for cases where the first class in MRO is a scikit-learn mixin.
+        else:
+            cp.__class__ = cp.__class__.__bases__[1]
         params.update(cp.__class__.get_params(cp, deep))
         # if kwargs is a dict, update params accordingly
         if hasattr(self, "kwargs") and isinstance(self.kwargs, dict):
@@ -868,16 +978,7 @@ class XGBModel(XGBModelBase):
         params: Dict[str, Any] = self.get_params()
 
         # Parameters that should not go into native learner.
-        wrapper_specific = {
-            "importance_type",
-            "kwargs",
-            "missing",
-            "n_estimators",
-            "enable_categorical",
-            "early_stopping_rounds",
-            "callbacks",
-            "feature_types",
-        }
+        wrapper_specific = self._wrapper_params()
         filtered = {}
         for k, v in params.items():
             if k not in wrapper_specific and not callable(v):
@@ -998,7 +1099,7 @@ class XGBModel(XGBModelBase):
 
     def _create_dmatrix(self, ref: Optional[DMatrix], **kwargs: Any) -> DMatrix:
         # Use `QuantileDMatrix` to save memory.
-        if _can_use_qdm(self.tree_method) and self.booster != "gblinear":
+        if _can_use_qdm(self.tree_method, self.device) and self.booster != "gblinear":
             try:
                 return QuantileDMatrix(
                     **kwargs, ref=ref, nthread=self.n_jobs, max_bin=self.max_bin
@@ -1140,9 +1241,11 @@ class XGBModel(XGBModelBase):
             iteration_range = (0, 0)
         return iteration_range
 
+    @_deprecate_positional_args
     def predict(
         self,
         X: ArrayLike,
+        *,
         output_margin: bool = False,
         validate_features: bool = True,
         base_margin: Optional[ArrayLike] = None,
@@ -1192,9 +1295,9 @@ class XGBModel(XGBModelBase):
                         validate_features=validate_features,
                     )
                     if _is_cupy_alike(predts):
-                        import cupy  # pylint: disable=import-error
+                        cp = import_cupy()
 
-                        predts = cupy.asnumpy(predts)  # ensure numpy array is used.
+                        predts = cp.asnumpy(predts)  # ensure numpy array is used.
                     return predts
                 except TypeError:
                     # coo, csc, dt
@@ -1431,7 +1534,7 @@ def _cls_predict_proba(n_classes: int, prediction: PredtT, vstack: Callable) -> 
         Number of boosting rounds.
 """,
 )
-class XGBClassifier(XGBModel, XGBClassifierBase):
+class XGBClassifier(XGBClassifierBase, XGBModel):
     # pylint: disable=missing-docstring,invalid-name,too-many-instance-attributes
     @_deprecate_positional_args
     def __init__(
@@ -1445,6 +1548,12 @@ class XGBClassifier(XGBModel, XGBClassifierBase):
     def _more_tags(self) -> Dict[str, bool]:
         tags = super()._more_tags()
         tags["multilabel"] = True
+        return tags
+
+    def __sklearn_tags__(self) -> _sklearn_Tags:
+        tags = super().__sklearn_tags__()
+        tags_dict = self._more_tags()
+        tags.classifier_tags.multi_label = tags_dict["multilabel"]
         return tags
 
     @_deprecate_positional_args
@@ -1469,13 +1578,13 @@ class XGBClassifier(XGBModel, XGBClassifierBase):
             # booster in a Python property. This way we can have efficient and
             # thread-safe prediction.
             if _is_cudf_df(y) or _is_cudf_ser(y):
-                import cupy as cp  # pylint: disable=E0401
+                cp = import_cupy()
 
                 classes = cp.unique(y.values)
                 self.n_classes_ = len(classes)
                 expected_classes = cp.array(self.classes_)
             elif _is_cupy_alike(y):
-                import cupy as cp  # pylint: disable=E0401
+                cp = import_cupy()
 
                 classes = cp.unique(y)
                 self.n_classes_ = len(classes)
@@ -1553,9 +1662,11 @@ class XGBClassifier(XGBModel, XGBClassifierBase):
         "Fit gradient boosting model", "Fit gradient boosting classifier", 1
     )
 
+    @_deprecate_positional_args
     def predict(
         self,
         X: ArrayLike,
+        *,
         output_margin: bool = False,
         validate_features: bool = True,
         base_margin: Optional[ArrayLike] = None,
@@ -1717,7 +1828,7 @@ class XGBRFClassifier(XGBClassifier):
     "Implementation of the scikit-learn API for XGBoost regression.",
     ["estimators", "model", "objective"],
 )
-class XGBRegressor(XGBModel, XGBRegressorBase):
+class XGBRegressor(XGBRegressorBase, XGBModel):
     # pylint: disable=missing-docstring
     @_deprecate_positional_args
     def __init__(
@@ -1729,6 +1840,13 @@ class XGBRegressor(XGBModel, XGBRegressorBase):
         tags = super()._more_tags()
         tags["multioutput"] = True
         tags["multioutput_only"] = False
+        return tags
+
+    def __sklearn_tags__(self) -> _sklearn_Tags:
+        tags = super().__sklearn_tags__()
+        tags_dict = self._more_tags()
+        tags.target_tags.multi_output = tags_dict["multioutput"]
+        tags.target_tags.single_output = not tags_dict["multioutput_only"]
         return tags
 
 
@@ -1858,7 +1976,7 @@ See :doc:`Learning to Rank </tutorials/learning_to_rank>` for an introducion.
         `qid` can be a special column of input `X` instead of a separated parameter, see
         :py:meth:`fit` for more info.""",
 )
-class XGBRanker(XGBModel, XGBRankerMixIn):
+class XGBRanker(XGBRankerMixIn, XGBModel):
     # pylint: disable=missing-docstring,too-many-arguments,invalid-name
     @_deprecate_positional_args
     def __init__(self, *, objective: str = "rank:ndcg", **kwargs: Any):
@@ -2036,9 +2154,11 @@ class XGBRanker(XGBModel, XGBRankerMixIn):
             self._set_evaluation_result(evals_result)
             return self
 
+    @_deprecate_positional_args
     def predict(
         self,
         X: ArrayLike,
+        *,
         output_margin: bool = False,
         validate_features: bool = True,
         base_margin: Optional[ArrayLike] = None,
@@ -2047,9 +2167,9 @@ class XGBRanker(XGBModel, XGBRankerMixIn):
         X, _ = _get_qid(X, None)
         return super().predict(
             X,
-            output_margin,
-            validate_features,
-            base_margin,
+            output_margin=output_margin,
+            validate_features=validate_features,
+            base_margin=base_margin,
             iteration_range=iteration_range,
         )
 

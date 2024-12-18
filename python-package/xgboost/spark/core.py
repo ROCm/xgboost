@@ -2,12 +2,13 @@
 
 import base64
 
-# pylint: disable=fixme, too-many-ancestors, protected-access, no-member, invalid-name
-# pylint: disable=too-few-public-methods, too-many-lines, too-many-branches
+# pylint: disable=fixme, protected-access, no-member, invalid-name
+# pylint: disable=too-many-lines, too-many-branches
 import json
 import logging
 import os
 from collections import namedtuple
+from dataclasses import asdict
 from typing import (
     Any,
     Callable,
@@ -59,14 +60,13 @@ from pyspark.sql.types import (
 )
 from scipy.special import expit, softmax  # pylint: disable=no-name-in-module
 
-import xgboost
-from xgboost import XGBClassifier
-from xgboost.compat import is_cudf_available, is_cupy_available
-from xgboost.core import Booster, _check_distributed_params
-from xgboost.sklearn import DEFAULT_N_ESTIMATORS, XGBModel, _can_use_qdm
-from xgboost.training import train as worker_train
-
 from .._typing import ArrayLike
+from ..collective import Config
+from ..compat import import_cupy, is_cudf_available, is_cupy_available
+from ..config import config_context, get_config
+from ..core import Booster, _check_distributed_params, _py_version
+from ..sklearn import DEFAULT_N_ESTIMATORS, XGBClassifier, XGBModel, _can_use_qdm
+from ..training import train as worker_train
 from .data import (
     _read_csr_matrix_from_unwrapped_spark_vec,
     alias,
@@ -86,6 +86,7 @@ from .utils import (
     CommunicatorContext,
     _get_default_params_from_func,
     _get_gpu_id,
+    _get_host_ip,
     _get_max_num_concurrent_tasks,
     _get_rabit_args,
     _get_spark_session,
@@ -121,6 +122,8 @@ _pyspark_specific_params = [
     "repartition_random_shuffle",
     "pred_contrib_col",
     "use_gpu",
+    "launch_tracker_on_driver",
+    "coll_cfg",
 ]
 
 _non_booster_params = ["missing", "n_estimators", "feature_types", "feature_weights"]
@@ -246,6 +249,25 @@ class _SparkXGBParams(
         "A list of str to specify feature names.",
         TypeConverters.toList,
     )
+    launch_tracker_on_driver = Param(
+        Params._dummy(),
+        "launch_tracker_on_driver",
+        "A boolean variable. Set launch_tracker_on_driver to true if you want the tracker to be "
+        "launched on the driver side; otherwise, it will be launched on the executor side.",
+        TypeConverters.toBoolean,
+    )
+    coll_cfg = Param(
+        Params._dummy(),
+        "coll_cfg",
+        "xgboost.collective.Config. The collective configuration.",
+        TypeConverters.identity,
+    )
+
+    def set_coll_cfg(self, value: Config) -> "_SparkXGBParams":
+        """Set collective configuration"""
+        assert isinstance(value, Config)
+        self.set(self.coll_cfg, value)
+        return self
 
     def set_device(self, value: str) -> "_SparkXGBParams":
         """Set device, optional value: cpu, cuda, gpu"""
@@ -453,10 +475,7 @@ class _SparkXGBParams(
                 )
 
         if self.getOrDefault("early_stopping_rounds") is not None:
-            if not (
-                self.isDefined(self.validationIndicatorCol)
-                and self.getOrDefault(self.validationIndicatorCol) != ""
-            ):
+            if not self._col_is_defined_not_empty(self.validationIndicatorCol):
                 raise ValueError(
                     "If 'early_stopping_rounds' param is set, you need to set "
                     "'validation_indicator_col' param as well."
@@ -494,6 +513,9 @@ class _SparkXGBParams(
             or self.getOrDefault(self.use_gpu)
             or self.getOrDefault(self.getParam("tree_method")) == "gpu_hist"
         )
+
+    def _col_is_defined_not_empty(self, param: "Param[str]") -> bool:
+        return self.isDefined(param) and self.getOrDefault(param) != ""
 
 
 def _validate_and_convert_feature_col_as_float_col_list(
@@ -596,6 +618,8 @@ FeatureProp = namedtuple(
     ("enable_sparse_data_optim", "has_validation_col", "features_cols_names"),
 )
 
+_MODEL_CHUNK_SIZE = 4096 * 1024
+
 
 _MODEL_CHUNK_SIZE = 4096 * 1024
 
@@ -620,6 +644,7 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
             feature_names=None,
             feature_types=None,
             arbitrary_params_dict={},
+            launch_tracker_on_driver=True,
         )
 
         self.logger = get_logger(self.__class__.__name__)
@@ -739,7 +764,7 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
         cls, train_params: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         xgb_train_default_args = _get_default_params_from_func(
-            xgboost.train, _unsupported_train_params
+            worker_train, _unsupported_train_params
         )
         booster_params, kwargs_params = {}, {}
         for key, value in train_params.items():
@@ -783,16 +808,13 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
                 )
                 select_cols.append(features_array_col)
 
-        if self.isDefined(self.weightCol) and self.getOrDefault(self.weightCol) != "":
+        if self._col_is_defined_not_empty(self.weightCol):
             select_cols.append(
                 col(self.getOrDefault(self.weightCol)).alias(alias.weight)
             )
 
         has_validation_col = False
-        if (
-            self.isDefined(self.validationIndicatorCol)
-            and self.getOrDefault(self.validationIndicatorCol) != ""
-        ):
+        if self._col_is_defined_not_empty(self.validationIndicatorCol):
             select_cols.append(
                 col(self.getOrDefault(self.validationIndicatorCol)).alias(alias.valid)
             )
@@ -801,15 +823,12 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
             # which will cause exception or hanging issue when creating DMatrix.
             has_validation_col = True
 
-        if (
-            self.isDefined(self.base_margin_col)
-            and self.getOrDefault(self.base_margin_col) != ""
-        ):
+        if self._col_is_defined_not_empty(self.base_margin_col):
             select_cols.append(
                 col(self.getOrDefault(self.base_margin_col)).alias(alias.margin)
             )
 
-        if self.isDefined(self.qid_col) and self.getOrDefault(self.qid_col) != "":
+        if self._col_is_defined_not_empty(self.qid_col):
             select_cols.append(col(self.getOrDefault(self.qid_col)).alias(alias.qid))
 
         feature_prop = FeatureProp(
@@ -840,17 +859,22 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
             )
 
         if self._repartition_needed(dataset):
-            # If validationIndicatorCol defined, and if user unionise train and validation
-            # dataset, users must set force_repartition to true to force repartition.
-            # Or else some partitions might contain only train or validation dataset.
-            if self.getOrDefault(self.repartition_random_shuffle):
-                # In some cases, spark round-robin repartition might cause data skew
-                # use random shuffle can address it.
-                dataset = dataset.repartition(num_workers, rand(1))
+            if self._col_is_defined_not_empty(self.qid_col):
+                # For ranking problem, we need to try best the put the instances with
+                # same group into the same partition
+                dataset = dataset.repartitionByRange(num_workers, alias.qid)
             else:
-                dataset = dataset.repartition(num_workers)
+                # If validationIndicatorCol defined, and if user unionise train and validation
+                # dataset, users must set force_repartition to true to force repartition.
+                # Or else some partitions might contain only train or validation dataset.
+                if self.getOrDefault(self.repartition_random_shuffle):
+                    # In some cases, spark round-robin repartition might cause data skew
+                    # use random shuffle can address it.
+                    dataset = dataset.repartition(num_workers, rand(1))
+                else:
+                    dataset = dataset.repartition(num_workers)
 
-        if self.isDefined(self.qid_col) and self.getOrDefault(self.qid_col) != "":
+        if self._col_is_defined_not_empty(self.qid_col):
             # XGBoost requires qid to be sorted for each partition
             dataset = dataset.sortWithinPartitions(alias.qid, ascending=True)
 
@@ -999,6 +1023,33 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
         )
         return rdd.withResources(rp)
 
+    def _get_tracker_args(self) -> Tuple[bool, Dict[str, Any]]:
+        """Start the tracker and return the tracker envs on the driver side"""
+        launch_tracker_on_driver = self.getOrDefault(self.launch_tracker_on_driver)
+        rabit_args = {}
+        if launch_tracker_on_driver:
+            conf = Config()
+            if self.isDefined(self.coll_cfg):
+                conf = self.getOrDefault(self.coll_cfg)
+                assert isinstance(conf, Config)
+
+            if conf.tracker_host_ip is None:
+                conf.tracker_host_ip = (
+                    _get_spark_session().sparkContext.getConf().get("spark.driver.host")
+                )
+            num_workers = self.getOrDefault(self.num_workers)
+            rabit_args.update(_get_rabit_args(conf, num_workers))
+        else:
+            if self.isDefined(self.coll_cfg):
+                conf = self.getOrDefault(self.coll_cfg)
+                assert isinstance(conf, Config)
+                if conf.tracker_host_ip is not None:
+                    raise ValueError(
+                        f"You must enable launch_tracker_on_driver to use "
+                        f"tracker host: {conf.tracker_host_ip}"
+                    )
+        return launch_tracker_on_driver, rabit_args
+
     def _fit(self, dataset: DataFrame) -> "_SparkXGBModel":
         # pylint: disable=too-many-statements, too-many-locals
         self._validate_params()
@@ -1017,7 +1068,14 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
 
         num_workers = self.getOrDefault(self.num_workers)
 
+        launch_tracker_on_driver, rabit_args = self._get_tracker_args()
+        conf: Optional[Config] = (
+            self.getOrDefault(self.coll_cfg) if self.isSet(self.coll_cfg) else None
+        )
+
         log_level = get_logger_level(_LOG_TAG)
+
+        use_rmm = get_config()["use_rmm"]
 
         def _train_booster(
             pandas_df_iter: Iterator[pd.DataFrame],
@@ -1029,9 +1087,13 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
             from pyspark import BarrierTaskContext
 
             context = BarrierTaskContext.get()
+            context.barrier()
 
             dev_ordinal = None
-            use_qdm = _can_use_qdm(booster_params.get("tree_method", None))
+            use_qdm = _can_use_qdm(
+                booster_params.get("tree_method", None),
+                booster_params.get("device", None),
+            )
             verbosity = booster_params.get("verbosity", 1)
             msg = "Training on CPUs"
             if run_on_gpu:
@@ -1051,35 +1113,41 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
 
             if use_qdm and (booster_params.get("max_bin", None) is not None):
                 dmatrix_kwargs["max_bin"] = booster_params["max_bin"]
-
-            _rabit_args = {}
+            _rabit_args = rabit_args
             if context.partitionId() == 0:
-                _rabit_args = _get_rabit_args(context, num_workers)
+                if not launch_tracker_on_driver:
+                    _conf = conf if conf is not None else Config()
+                    _conf.tracker_host_ip = _get_host_ip(context)
+                    _rabit_args = _get_rabit_args(_conf, num_workers)
                 get_logger(_LOG_TAG, log_level).info(msg)
 
-            worker_message = {
-                "rabit_msg": _rabit_args,
+            worker_message: Dict[str, Any] = {
                 "use_qdm": use_qdm,
             }
+
+            if not launch_tracker_on_driver:
+                worker_message["rabit_msg"] = _rabit_args
 
             messages = context.allGather(message=json.dumps(worker_message))
             if len(set(json.loads(x)["use_qdm"] for x in messages)) != 1:
                 raise RuntimeError("The workers' cudf environments are in-consistent ")
 
-            _rabit_args = json.loads(messages[0])["rabit_msg"]
+            if not launch_tracker_on_driver:
+                _rabit_args = json.loads(messages[0])["rabit_msg"]
 
             evals_result: Dict[str, Any] = {}
-            with CommunicatorContext(context, **_rabit_args):
-                with xgboost.config_context(verbosity=verbosity):
-                    dtrain, dvalid = create_dmatrix_from_partitions(
-                        pandas_df_iter,
-                        feature_prop.features_cols_names,
-                        dev_ordinal,
-                        use_qdm,
-                        dmatrix_kwargs,
-                        enable_sparse_data_optim=feature_prop.enable_sparse_data_optim,
-                        has_validation_col=feature_prop.has_validation_col,
-                    )
+            with config_context(
+                verbosity=verbosity, use_rmm=use_rmm
+            ), CommunicatorContext(context, **_rabit_args):
+                dtrain, dvalid = create_dmatrix_from_partitions(
+                    iterator=pandas_df_iter,
+                    feature_cols=feature_prop.features_cols_names,
+                    dev_ordinal=dev_ordinal,
+                    use_qdm=use_qdm,
+                    kwargs=dmatrix_kwargs,
+                    enable_sparse_data_optim=feature_prop.enable_sparse_data_optim,
+                    has_validation_col=feature_prop.has_validation_col,
+                )
                 if dvalid is not None:
                     dval = [(dtrain, "training"), (dvalid, "validation")]
                 else:
@@ -1121,7 +1189,7 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
             "\n\tbooster params: %s"
             "\n\ttrain_call_kwargs_params: %s"
             "\n\tdmatrix_kwargs: %s",
-            xgboost._py_version(),
+            _py_version(),
             num_workers,
             booster_params,
             train_call_kwargs_params,
@@ -1240,10 +1308,7 @@ class _SparkXGBModel(Model, _SparkXGBParams, MLReadable, MLWritable):
     def _get_pred_contrib_col_name(self) -> Optional[str]:
         """Return the pred_contrib_col col name"""
         pred_contrib_col_name = None
-        if (
-            self.isDefined(self.pred_contrib_col)
-            and self.getOrDefault(self.pred_contrib_col) != ""
-        ):
+        if self._col_is_defined_not_empty(self.pred_contrib_col):
             pred_contrib_col_name = self.getOrDefault(self.pred_contrib_col)
 
         return pred_contrib_col_name
@@ -1347,10 +1412,7 @@ class _SparkXGBModel(Model, _SparkXGBParams, MLReadable, MLWritable):
         xgb_sklearn_model = self._xgb_sklearn_model
 
         base_margin_col = None
-        if (
-            self.isDefined(self.base_margin_col)
-            and self.getOrDefault(self.base_margin_col) != ""
-        ):
+        if self._col_is_defined_not_empty(self.base_margin_col):
             base_margin_col = col(self.getOrDefault(self.base_margin_col)).alias(
                 alias.margin
             )
@@ -1384,7 +1446,7 @@ class _SparkXGBModel(Model, _SparkXGBParams, MLReadable, MLWritable):
             if run_on_gpu:
                 if is_cudf_available() and is_cupy_available():
                     if is_local:
-                        import cupy as cp  # pylint: disable=import-error
+                        cp = import_cupy()
 
                         total_gpus = cp.cuda.runtime.getDeviceCount()
                         if total_gpus > 0:
@@ -1410,8 +1472,8 @@ class _SparkXGBModel(Model, _SparkXGBParams, MLReadable, MLWritable):
             def to_gpu_if_possible(data: ArrayLike) -> ArrayLike:
                 """Move the data to gpu if possible"""
                 if dev_ordinal >= 0:
-                    import cudf  # pylint: disable=import-error
-                    import cupy as cp  # pylint: disable=import-error
+                    import cudf
+                    import cupy as cp
 
                     # We must set the device after import cudf, which will change the device id to 0
                     # See https://github.com/rapidsai/cudf/issues/11386
@@ -1426,7 +1488,7 @@ class _SparkXGBModel(Model, _SparkXGBParams, MLReadable, MLWritable):
                     X = _read_csr_matrix_from_unwrapped_spark_vec(data)
                 else:
                     if feature_col_names is not None:
-                        tmp = data[feature_col_names]
+                        tmp: ArrayLike = data[feature_col_names]
                     else:
                         tmp = stack_series(data[alias.data])
                     X = to_gpu_if_possible(tmp)
@@ -1562,7 +1624,7 @@ class _SparkXGBSharedReadWrite:
         xgboost.spark._SparkXGBModel.
         """
         instance._validate_params()
-        skipParams = ["callbacks", "xgb_model"]
+        skipParams = ["callbacks", "xgb_model", "coll_cfg"]
         jsonParams = {}
         for p, v in instance._paramMap.items():  # pylint: disable=protected-access
             if p.name not in skipParams:
@@ -1583,6 +1645,12 @@ class _SparkXGBSharedReadWrite:
         init_booster = instance.getOrDefault("xgb_model")
         if init_booster is not None:
             extraMetadata["init_booster"] = _INIT_BOOSTER_SAVE_PATH
+
+        if instance.isDefined("coll_cfg"):
+            conf: Config = instance.getOrDefault("coll_cfg")
+            if conf is not None:
+                extraMetadata["coll_cfg"] = asdict(conf)
+
         DefaultParamsWriter.saveMetadata(
             instance, path, sc, extraMetadata=extraMetadata, paramMap=jsonParams
         )
@@ -1624,6 +1692,8 @@ class _SparkXGBSharedReadWrite:
                     f"Fails to load the callbacks param due to {e}. Please set the "
                     "callbacks param manually for the loaded estimator."
                 )
+        if "coll_cfg" in metadata:
+            pyspark_xgb.set_coll_cfg(Config(**metadata["coll_cfg"]))
 
         if "init_booster" in metadata:
             load_path = os.path.join(path, metadata["init_booster"])

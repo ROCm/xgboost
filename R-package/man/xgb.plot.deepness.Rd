@@ -18,7 +18,8 @@ xgb.plot.deepness(
 )
 }
 \arguments{
-\item{model}{Either an \code{xgb.Booster} model, or the "data.table" returned by \code{\link[=xgb.model.dt.tree]{xgb.model.dt.tree()}}.}
+\item{model}{Either an \code{xgb.Booster} model, or the "data.table" returned
+by \code{\link[=xgb.model.dt.tree]{xgb.model.dt.tree()}}.}
 
 \item{which}{Which distribution to plot (see details).}
 
@@ -73,15 +74,16 @@ nthread <- 2
 data.table::setDTthreads(nthread)
 
 ## Change max_depth to a higher number to get a more significant result
-bst <- xgboost(
-  data = agaricus.train$data,
-  label = agaricus.train$label,
-  max_depth = 6,
-  nthread = nthread,
+bst <- xgb.train(
+  data = xgb.DMatrix(agaricus.train$data, label = agaricus.train$label),
   nrounds = 50,
-  objective = "binary:logistic",
-  subsample = 0.5,
-  min_child_weight = 2
+  params = xgb.params(
+    max_depth = 6,
+    nthread = nthread,
+    objective = "binary:logistic",
+    subsample = 0.5,
+    min_child_weight = 2
+  )
 )
 
 xgb.plot.deepness(bst)

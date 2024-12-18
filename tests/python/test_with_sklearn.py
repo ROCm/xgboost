@@ -2,6 +2,7 @@ import json
 import os
 import pickle
 import random
+import re
 import tempfile
 import warnings
 from typing import Callable, Optional
@@ -336,6 +337,36 @@ def test_feature_importances_weight():
         cls.feature_importances_
 
 
+def test_feature_importances_weight_vector_leaf() -> None:
+    from sklearn.datasets import make_multilabel_classification
+
+    X, y = make_multilabel_classification(random_state=1994)
+    with pytest.raises(ValueError, match="gain/total_gain"):
+        clf = xgb.XGBClassifier(multi_strategy="multi_output_tree")
+        clf.fit(X, y)
+        clf.feature_importances_
+
+    with pytest.raises(ValueError, match="cover/total_cover"):
+        clf = xgb.XGBClassifier(
+            multi_strategy="multi_output_tree", importance_type="cover"
+        )
+        clf.fit(X, y)
+        clf.feature_importances_
+
+    clf = xgb.XGBClassifier(
+        multi_strategy="multi_output_tree",
+        importance_type="weight",
+        colsample_bynode=0.2,
+    )
+    clf.fit(X, y, feature_weights=np.arange(0, X.shape[1]))
+    fi = clf.feature_importances_
+    assert fi[0] == 0.0
+    assert fi[-1] > fi[1] * 5
+
+    w = np.polynomial.Polynomial.fit(np.arange(0, X.shape[1]), fi, deg=1)
+    assert w.coef[1] > 0.03
+
+
 @pytest.mark.skipif(**tm.no_pandas())
 def test_feature_importances_gain():
     from sklearn.datasets import load_digits
@@ -630,7 +661,7 @@ def test_sklearn_plotting():
     ax = xgb.plot_importance(classifier)
     assert isinstance(ax, Axes)
     assert ax.get_title() == 'Feature importance'
-    assert ax.get_xlabel() == 'F score'
+    assert ax.get_xlabel() == 'Importance score'
     assert ax.get_ylabel() == 'Features'
     assert len(ax.patches) == 4
 
@@ -793,6 +824,32 @@ def test_parameters_access():
     assert clf.get_params()["tree_method"] == "hist"
     clf = save_load(clf)
     assert clf.get_params()["tree_method"] is None
+
+
+def test_get_params_works_as_expected():
+    # XGBModel -> BaseEstimator
+    params = xgb.XGBModel(max_depth=2).get_params()
+    assert params["max_depth"] == 2
+    # 'objective' defaults to None in the signature of XGBModel
+    assert params["objective"] is None
+
+    # XGBRegressor -> XGBModel -> BaseEstimator
+    params = xgb.XGBRegressor(max_depth=3).get_params()
+    assert params["max_depth"] == 3
+    # 'objective' defaults to 'reg:squarederror' in the signature of XGBRegressor
+    assert params["objective"] == "reg:squarederror"
+    # 'colsample_bynode' defaults to 'None' for XGBModel (which XGBRegressor inherits from), so it
+    # should be in get_params() output
+    assert params["colsample_bynode"] is None
+
+    # XGBRFRegressor -> XGBRegressor -> XGBModel -> BaseEstimator
+    params = xgb.XGBRFRegressor(max_depth=4, objective="reg:tweedie").get_params()
+    assert params["max_depth"] == 4
+    # 'objective' is a keyword argument for XGBRegressor, so it should be in get_params() output
+    # ... but values passed through kwargs should override the default from the signature of XGBRegressor
+    assert params["objective"] == "reg:tweedie"
+    # 'colsample_bynode' defaults to 0.8 for XGBRFRegressor...that should be preferred to the None from XGBRegressor
+    assert params["colsample_bynode"] == 0.8
 
 
 def test_kwargs_error():
@@ -1040,7 +1097,7 @@ def test_parameter_validation():
 def test_deprecate_position_arg():
     from sklearn.datasets import load_digits
     X, y = load_digits(return_X_y=True, n_class=2)
-    w = y
+    w = np.random.default_rng(0).uniform(size=y.size)
     with pytest.warns(FutureWarning):
         xgb.XGBRegressor(3, learning_rate=0.1)
     model = xgb.XGBRegressor(n_estimators=1)
@@ -1129,16 +1186,26 @@ def test_feature_weights(tree_method):
     for i in range(kCols):
         fw[i] *= float(i)
 
-    parser_path = os.path.join(tm.demo_dir(__file__), "json-model", "json_parser.py")
+    parser_path = os.path.join(tm.demo_dir(__file__), "guide-python", "model_parser.py")
     poly_increasing = get_feature_weights(
-        X, y, fw, parser_path, tree_method, xgb.XGBRegressor
+        X=X,
+        y=y,
+        fw=fw,
+        parser_path=parser_path,
+        tree_method=tree_method,
+        model=xgb.XGBRegressor,
     )
 
     fw = np.ones(shape=(kCols,))
     for i in range(kCols):
         fw[i] *= float(kCols - i)
     poly_decreasing = get_feature_weights(
-        X, y, fw, parser_path, tree_method, xgb.XGBRegressor
+        X=X,
+        y=y,
+        fw=fw,
+        parser_path=parser_path,
+        tree_method=tree_method,
+        model=xgb.XGBRegressor,
     )
 
     # Approxmated test, this is dependent on the implementation of random
@@ -1477,10 +1544,75 @@ def test_tags() -> None:
         assert tags["multioutput"] is True
         assert tags["multioutput_only"] is False
 
-    for clf in [xgb.XGBClassifier()]:
+    for clf in [xgb.XGBClassifier(), xgb.XGBRFClassifier()]:
         tags = clf._more_tags()
         assert "multioutput" not in tags
         assert tags["multilabel"] is True
 
     tags = xgb.XGBRanker()._more_tags()
     assert "multioutput" not in tags
+
+
+# the try-excepts in this test should be removed once xgboost's
+# minimum supported scikit-learn version is at least 1.6
+def test_sklearn_tags():
+
+    def _assert_has_xgbmodel_tags(tags):
+        # values set by XGBModel.__sklearn_tags__()
+        assert tags.non_deterministic is False
+        assert tags.no_validation is True
+        assert tags.input_tags.allow_nan is True
+
+    for reg in [xgb.XGBRegressor(), xgb.XGBRFRegressor()]:
+        try:
+            # if no AttributeError was thrown, we must be using scikit-learn>=1.6,
+            # and so the actual effects of __sklearn_tags__() should be tested
+            tags = reg.__sklearn_tags__()
+            _assert_has_xgbmodel_tags(tags)
+            # regressor-specific values
+            assert tags.estimator_type == "regressor"
+            assert tags.regressor_tags is not None
+            assert tags.classifier_tags is None
+            assert tags.target_tags.multi_output is True
+            assert tags.target_tags.single_output is True
+        except AttributeError as err:
+            # only the exact error we expected to be raised should be raised
+            assert bool(re.search(r"__sklearn_tags__.* should not be called", str(err)))
+
+    for clf in [xgb.XGBClassifier(), xgb.XGBRFClassifier()]:
+        try:
+            # if no AttributeError was thrown, we must be using scikit-learn>=1.6,
+            # and so the actual effects of __sklearn_tags__() should be tested
+            tags = clf.__sklearn_tags__()
+            _assert_has_xgbmodel_tags(tags)
+            # classifier-specific values
+            assert tags.estimator_type == "classifier"
+            assert tags.regressor_tags is None
+            assert tags.classifier_tags is not None
+            assert tags.classifier_tags.multi_label is True
+        except AttributeError as err:
+            # only the exact error we expected to be raised should be raised
+            assert bool(re.search(r"__sklearn_tags__.* should not be called", str(err)))
+
+    for rnk in [xgb.XGBRanker(),]:
+        try:
+            # if no AttributeError was thrown, we must be using scikit-learn>=1.6,
+            # and so the actual effects of __sklearn_tags__() should be tested
+            tags = rnk.__sklearn_tags__()
+            _assert_has_xgbmodel_tags(tags)
+        except AttributeError as err:
+            # only the exact error we expected to be raised should be raised
+            assert bool(re.search(r"__sklearn_tags__.* should not be called", str(err)))
+
+
+def test_doc_link() -> None:
+    for est in [
+        xgb.XGBRegressor(),
+        xgb.XGBClassifier(),
+        xgb.XGBRanker(),
+        xgb.XGBRFRegressor(),
+        xgb.XGBRFClassifier(),
+    ]:
+        name = est.__class__.__name__
+        link = est._get_doc_link()
+        assert f"xgboost.{name}" in link

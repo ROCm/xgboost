@@ -43,6 +43,10 @@
 #include "../common/linalg_op.cuh"
 #endif  // defined(XGBOOST_USE_CUDA), defined(XGBOOST_USE_HIP)
 
+#if defined(XGBOOST_USE_SYCL)
+#include "../../plugin/sycl/common/linalg_op.h"
+#endif
+
 namespace xgboost::obj {
 namespace {
 void CheckRegInputs(MetaInfo const& info, HostDeviceVector<bst_float> const& preds) {
@@ -58,7 +62,7 @@ DMLC_REGISTRY_FILE_TAG(regression_obj_gpu);
 
 
 template<typename Loss>
-class RegLossObj : public FitIntercept {
+class RegLossObj : public FitInterceptGlmLike {
  protected:
   HostDeviceVector<float> additional_input_;
 
@@ -83,6 +87,15 @@ class RegLossObj : public FitIntercept {
           common::AssertGPUSupport();
           return false;
 #endif  // defined(XGBOOST_USE_CUDA)
+        },
+        [&] {
+#if defined(XGBOOST_USE_SYCL)
+          return sycl::linalg::Validate(ctx_->Device(), label,
+                                        [](float y) -> bool { return Loss::CheckLabel(y); });
+#else
+          common::AssertSYCLSupport();
+          return false;
+#endif  // defined(XGBOOST_USE_SYCL)
         });
     if (!valid) {
       LOG(FATAL) << Loss::LabelErrorMsg();
@@ -119,7 +132,7 @@ class RegLossObj : public FitIntercept {
     additional_input_.HostVector().begin()[1] = is_null_weight;
 
     const size_t nthreads = ctx_->Threads();
-    bool on_device = device.IsCUDA();
+    bool on_device = !device.IsCPU();
     // On CPU we run the transformation each thread processing a contigious block of data
     // for better performance.
     const size_t n_data_blocks = std::max(static_cast<size_t>(1), (on_device ? ndata : nthreads));
@@ -253,8 +266,8 @@ class PseudoHuberRegression : public FitIntercept {
     auto predt = linalg::MakeTensorView(ctx_, &preds, info.num_row_, this->Targets(info));
 
     info.weights_.SetDevice(ctx_->Device());
-    common::OptionalWeights weight{ctx_->IsCUDA() ? info.weights_.ConstDeviceSpan()
-                                                  : info.weights_.ConstHostSpan()};
+    common::OptionalWeights weight{ctx_->IsCPU() ? info.weights_.ConstHostSpan()
+                                                 : info.weights_.ConstDeviceSpan()};
 
     linalg::ElementWiseKernel(
         ctx_, labels, [=] XGBOOST_DEVICE(std::size_t i, std::size_t j) mutable {
@@ -310,7 +323,7 @@ struct PoissonRegressionParam : public XGBoostParameter<PoissonRegressionParam> 
 };
 
 // poisson regression for count
-class PoissonRegression : public FitIntercept {
+class PoissonRegression : public FitInterceptGlmLike {
  public:
   // declare functions
   void Configure(const std::vector<std::pair<std::string, std::string> >& args) override {
@@ -511,7 +524,7 @@ struct TweedieRegressionParam : public XGBoostParameter<TweedieRegressionParam> 
 };
 
 // tweedie regression
-class TweedieRegression : public FitIntercept {
+class TweedieRegression : public FitInterceptGlmLike {
  public:
   // declare functions
   void Configure(const std::vector<std::pair<std::string, std::string> >& args) override {
@@ -632,8 +645,8 @@ class MeanAbsoluteError : public ObjFunction {
     preds.SetDevice(ctx_->Device());
     auto predt = linalg::MakeTensorView(ctx_, &preds, info.num_row_, this->Targets(info));
     info.weights_.SetDevice(ctx_->Device());
-    common::OptionalWeights weight{ctx_->IsCUDA() ? info.weights_.ConstDeviceSpan()
-                                                  : info.weights_.ConstHostSpan()};
+    common::OptionalWeights weight{ctx_->IsCPU() ? info.weights_.ConstHostSpan()
+                                                 : info.weights_.ConstDeviceSpan()};
 
     linalg::ElementWiseKernel(
         ctx_, labels, [=] XGBOOST_DEVICE(std::size_t i, std::size_t j) mutable {

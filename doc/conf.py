@@ -286,7 +286,7 @@ latex_documents = [
 ]
 
 intersphinx_mapping = {
-    "python": ("https://docs.python.org/3.8", None),
+    "python": ("https://docs.python.org/3.10", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
     "scipy": ("https://docs.scipy.org/doc/scipy/", None),
     "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
@@ -294,6 +294,7 @@ intersphinx_mapping = {
     "dask": ("https://docs.dask.org/en/stable/", None),
     "distributed": ("https://distributed.dask.org/en/stable/", None),
     "pyspark": ("https://spark.apache.org/docs/latest/api/python/", None),
+    "rmm": ("https://docs.rapids.ai/api/rmm/nightly/", None),
 }
 
 

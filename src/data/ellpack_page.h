@@ -17,6 +17,8 @@ class EllpackPageImpl;
  *
  * This class uses the PImpl idiom (https://en.cppreference.com/w/cpp/language/pimpl) to avoid
  * including CUDA-specific implementation details in the header.
+ *
+ * See @ref EllpackPageImpl .
  */
 class EllpackPage {
  public:
@@ -35,13 +37,12 @@ class EllpackPage {
    */
   explicit EllpackPage(Context const* ctx, DMatrix* dmat, const BatchParam& param);
 
-  /*! \brief Destructor. */
-  ~EllpackPage();
+  ~EllpackPage() noexcept(false);
 
   EllpackPage(EllpackPage&& that);
 
   /*! \return Number of instances in the page. */
-  [[nodiscard]] size_t Size() const;
+  [[nodiscard]] bst_idx_t Size() const;
 
   /*! \brief Set the base row id for this page. */
   void SetBaseRowId(std::size_t row_id);
@@ -49,8 +50,8 @@ class EllpackPage {
   [[nodiscard]] const EllpackPageImpl* Impl() const { return impl_.get(); }
   EllpackPageImpl* Impl() { return impl_.get(); }
 
-  [[nodiscard]] common::HistogramCuts& Cuts();
   [[nodiscard]] common::HistogramCuts const& Cuts() const;
+  [[nodiscard]] bst_idx_t BaseRowId() const;
 
  private:
   std::unique_ptr<EllpackPageImpl> impl_;

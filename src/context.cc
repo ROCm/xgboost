@@ -1,5 +1,5 @@
 /**
- * Copyright 2014-2023 by XGBoost Contributors
+ * Copyright 2014-2024, XGBoost Contributors
  *
  * \brief Context object used for controlling runtime parameters.
  */
@@ -11,8 +11,9 @@
 #include <optional>   // for optional
 #include <regex>      // for regex_replace, regex_match
 
-#include "common/common.h"     // AssertGPUSupport
-#include "common/error_msg.h"  // WarnDeprecatedGPUId
+#include "common/common.h"         // AssertGPUSupport
+#include "common/cuda_rt_utils.h"  // for AllVisibleGPUs
+#include "common/error_msg.h"      // WarnDeprecatedGPUId
 #include "common/threading_utils.h"
 #include "xgboost/string_view.h"
 
@@ -37,7 +38,7 @@ DeviceOrd CUDAOrdinal(DeviceOrd device, bool) {
 [[nodiscard]] DeviceOrd CUDAOrdinal(DeviceOrd device, bool fail_on_invalid) {
   // When booster is loaded from a memory image (Python pickle or R raw model), number of
   // available GPUs could be different.  Wrap around it.
-  std::int32_t n_visible = common::AllVisibleGPUs();
+  std::int32_t n_visible = curt::AllVisibleGPUs();
   if (n_visible == 0) {
     if (device.IsCUDA()) {
       LOG(WARNING) << "No visible GPU is found, setting device to CPU.";
@@ -54,7 +55,7 @@ DeviceOrd CUDAOrdinal(DeviceOrd device, bool) {
   }
 
   if (device.IsCUDA()) {
-    common::SetDevice(device.ordinal);
+    curt::SetDevice(device.ordinal);
   }
   return device;
 }

@@ -1,11 +1,7 @@
 /**
- * Copyright (c) 2022-2024, XGBoost Contributors
+ * Copyright 2022-2024, XGBoost Contributors
  */
 #pragma once
-
-#if !defined(NOMINMAX) && defined(_WIN32)
-#define NOMINMAX
-#endif                   // !defined(NOMINMAX)
 
 #include <cerrno>        // errno, EINTR, EBADF
 #include <climits>       // HOST_NAME_MAX
@@ -18,18 +14,12 @@
 
 #if defined(__linux__)
 #include <sys/ioctl.h>  // for TIOCOUTQ, FIONREAD
-#endif  // defined(__linux__)
-
-#if !defined(xgboost_IS_MINGW)
-
-#if defined(__MINGW32__)
-#define xgboost_IS_MINGW 1
-#endif  // defined(__MINGW32__)
-
-#endif  // xgboost_IS_MINGW
+#endif                  // defined(__linux__)
 
 #if defined(_WIN32)
-
+// Guard the include.
+#include <xgboost/windefs.h>
+// Socket API
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -41,9 +31,9 @@ using in_port_t = std::uint16_t;
 
 #if !defined(xgboost_IS_MINGW)
 using ssize_t = int;
-#endif                    // !xgboost_IS_MINGW()
+#endif  // !xgboost_IS_MINGW()
 
-#else                     // UNIX
+#else  // UNIX
 
 #include <arpa/inet.h>    // inet_ntop
 #include <fcntl.h>        // fcntl, F_GETFL, O_NONBLOCK
@@ -109,6 +99,7 @@ inline auto ThrowAtError(StringView fn_name, std::int32_t errsv = LastError()) {
 using SocketT = SOCKET;
 #else
 using SocketT = int;
+#define INVALID_SOCKET -1
 #endif  // defined(_WIN32)
 
 #if !defined(xgboost_CHECK_SYS_CALL)
@@ -286,7 +277,7 @@ class TCPSocket {
   SockDomain domain_{SockDomain::kV4};
 #endif
 
-  constexpr static HandleT InvalidSocket() { return -1; }
+  constexpr static HandleT InvalidSocket() { return INVALID_SOCKET; }
 
   explicit TCPSocket(HandleT newfd) : handle_{newfd} {}
 
@@ -608,10 +599,15 @@ class TCPSocket {
       return std::make_pair(Success(), std::int32_t{ntohs(res_addr.sin6_port)});
     }
   }
-
+  /**
+   * @brief Bind the socket to the address.
+   *
+   * @param ip[in]        The IP address.
+   * @param port [in,out] Let the system choose a port if this parameter is set to 0.
+   */
   [[nodiscard]] Result Bind(StringView ip, std::int32_t *port) {
     // bind socket handle_ to ip
-    auto addr = MakeSockAddress(ip, 0);
+    auto addr = MakeSockAddress(ip, *port);
     std::int32_t errc{0};
     if (addr.IsV4()) {
       auto handle = reinterpret_cast<sockaddr const *>(&addr.V4().Handle());
@@ -627,7 +623,13 @@ class TCPSocket {
     if (!rc.OK()) {
       return std::move(rc);
     }
-    *port = new_port;
+    if (*port == 0) {
+      *port = new_port;
+      return Success();
+    }
+    if (*port != new_port) {
+      return Fail("Got an invalid port from bind.");
+    }
     return Success();
   }
 
@@ -693,8 +695,11 @@ class TCPSocket {
    * \return size of data actually received return -1 if error occurs
    */
   auto Recv(void *buf, std::size_t len, std::int32_t flags = 0) {
-    char *_buf = reinterpret_cast<char *>(buf);
+    char *_buf = static_cast<char *>(buf);
+    // See https://github.com/llvm/llvm-project/issues/104241 for skipped tidy analysis
+    // NOLINTBEGIN(clang-analyzer-unix.BlockInCriticalSection)
     return recv(handle_, _buf, len, flags);
+    // NOLINTEND(clang-analyzer-unix.BlockInCriticalSection)
   }
   /**
    * \brief Send string, format is matched with the Python socket wrapper in RABIT.
@@ -836,7 +841,3 @@ Result INetNToP(H const &host, std::string *p_out) {
 }  // namespace xgboost
 
 #undef xgboost_CHECK_SYS_CALL
-
-#if defined(xgboost_IS_MINGW)
-#undef xgboost_IS_MINGW
-#endif

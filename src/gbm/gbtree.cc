@@ -1,5 +1,5 @@
 /**
- * Copyright 2014-2023 by Contributors
+ * Copyright 2014-2024, XGBoost Contributors
  * \file gbtree.cc
  * \brief gradient boosted tree implementation.
  * \author Tianqi Chen
@@ -10,14 +10,14 @@
 #include <dmlc/parameter.h>
 
 #include <algorithm>  // for equal
-#include <cinttypes>  // for uint32_t
-#include <limits>
+#include <cstdint>    // for uint32_t
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "../common/common.h"
+#include "../common/cuda_rt_utils.h"  // for AllVisibleGPUs
 #include "../common/error_msg.h"  // for UnknownDevice, WarnOldSerialization, InplacePredictProxy
 #include "../common/random.h"
 #include "../common/threading_utils.h"
@@ -52,7 +52,8 @@ std::string MapTreeMethodToUpdaters(Context const* ctx, TreeMethod tree_method) 
     case TreeMethod::kAuto:  // Use hist as default in 2.0
     case TreeMethod::kHist: {
       return ctx->DispatchDevice([] { return "grow_quantile_histmaker"; },
-                                 [] { return "grow_gpu_hist"; });
+                                 [] { return "grow_gpu_hist"; },
+                                 [] { return "grow_quantile_histmaker_sycl"; });
     }
     case TreeMethod::kApprox: {
       return ctx->DispatchDevice([] { return "grow_histmaker"; }, [] { return "grow_gpu_approx"; });
@@ -104,7 +105,7 @@ void GBTree::Configure(Args const& cfg) {
   }
   cpu_predictor_->Configure(cfg);
 #if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-  auto n_gpus = common::AllVisibleGPUs();
+  auto n_gpus = curt::AllVisibleGPUs();
   if (!gpu_predictor_) {
     gpu_predictor_ = std::unique_ptr<Predictor>(Predictor::Create("gpu_predictor", this->ctx_));
   }
@@ -166,7 +167,6 @@ void CopyGradient(Context const* ctx, linalg::Matrix<GradientPair> const* in_gpa
     GPUCopyGradient(ctx, in_gpair, group_id, out_gpair);
   } else {
     auto const& in = *in_gpair;
-    auto target_gpair = in.Slice(linalg::All(), group_id);
     auto h_tmp = out_gpair->HostView();
     auto h_in = in.HostView().Slice(linalg::All(), group_id);
     CHECK_EQ(h_tmp.Size(), h_in.Size());
@@ -216,10 +216,6 @@ void GBTree::DoBoost(DMatrix* p_fmat, linalg::Matrix<GradientPair>* in_gpair,
   auto out = linalg::MakeTensorView(ctx_, &predt->predictions, p_fmat->Info().num_row_,
                                     model_.learner_model_param->OutputLength());
   CHECK_NE(n_groups, 0);
-
-  if (!p_fmat->SingleColBlock() && obj->Task().UpdateTreeLeaf()) {
-    LOG(FATAL) << "Current objective doesn't support external memory.";
-  }
 
   // The node position for each row, 1 HDV for each tree in the forest.  Note that the
   // position is negated if the row is sampled out.
@@ -347,7 +343,7 @@ void GBTree::LoadConfig(Json const& in) {
   // This would cause all trees to be pushed to trees_to_update
   // e.g. updating a model, then saving and loading it would result in an empty model
   tparam_.process_type = TreeProcessType::kDefault;
-  std::int32_t const n_gpus = xgboost::common::AllVisibleGPUs();
+  std::int32_t const n_gpus = curt::AllVisibleGPUs();
 
   auto msg = StringView{
       R"(
@@ -752,7 +748,7 @@ class Dart : public GBTree {
     auto n_groups = model_.learner_model_param->num_output_group;
 
     PredictionCacheEntry predts;  // temporary storage for prediction
-    if (ctx_->IsCUDA()) {
+    if (!ctx_->IsCPU()) {
       predts.predictions.SetDevice(ctx_->Device());
     }
     predts.predictions.Resize(p_fmat->Info().num_row_ * n_groups, 0);

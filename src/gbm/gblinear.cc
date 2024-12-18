@@ -10,12 +10,12 @@
 
 #include <algorithm>
 #include <numeric>
-#include <sstream>
 #include <string>
 #include <vector>
 
 #include "../common/common.h"
-#include "../common/error_msg.h"  // NoCategorical, DeprecatedFunc
+#include "../common/cuda_rt_utils.h"  // for AllVisibleGPUs
+#include "../common/error_msg.h"      // NoCategorical, DeprecatedFunc
 #include "../common/threading_utils.h"
 #include "../common/timer.h"
 #include "gblinear_model.h"
@@ -37,7 +37,7 @@ struct GBLinearTrainParam : public XGBoostParameter<GBLinearTrainParam> {
   size_t max_row_perbatch;
 
   void CheckGPUSupport() {
-    auto n_gpus = common::AllVisibleGPUs();
+    auto n_gpus = curt::AllVisibleGPUs();
     if (n_gpus == 0 && this->updater == "gpu_coord_descent") {
       common::AssertGPUSupport();
       this->UpdateAllowUnknown(Args{{"updater", "coord_descent"}});

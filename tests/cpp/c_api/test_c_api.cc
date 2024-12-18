@@ -8,49 +8,22 @@
 #include <xgboost/learner.h>
 #include <xgboost/version_config.h>
 
-#include <array>      // for array
-#include <cstddef>    // std::size_t
-#include <filesystem> // std::filesystem
-#include <limits>     // std::numeric_limits
-#include <string>     // std::string
+#include <array>       // for array
+#include <cstddef>     // std::size_t
+#include <filesystem>  // std::filesystem
+#include <limits>      // std::numeric_limits
+#include <string>      // std::string
 #include <vector>
 
 #include "../../../src/c_api/c_api_error.h"
 #include "../../../src/common/io.h"
 #include "../../../src/data/adapter.h"              // for ArrayAdapter
 #include "../../../src/data/array_interface.h"      // for ArrayInterface
+#include "../../../src/data/batch_utils.h"          // for MatchingPageBytes
 #include "../../../src/data/gradient_index.h"       // for GHistIndexMatrix
 #include "../../../src/data/iterative_dmatrix.h"    // for IterativeDMatrix
 #include "../../../src/data/sparse_page_dmatrix.h"  // for SparsePageDMatrix
 #include "../helpers.h"
-
-TEST(CAPI, XGDMatrixCreateFromMatDT) {
-  std::vector<int> col0 = {0, -1, 3};
-  std::vector<float> col1 = {-4.0f, 2.0f, 0.0f};
-  const char *col0_type = "int32";
-  const char *col1_type = "float32";
-  std::vector<void *> data = {col0.data(), col1.data()};
-  std::vector<const char *> types = {col0_type, col1_type};
-  DMatrixHandle handle;
-  XGDMatrixCreateFromDT(data.data(), types.data(), 3, 2, &handle,
-                        0);
-  std::shared_ptr<xgboost::DMatrix> *dmat =
-      static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-  xgboost::MetaInfo &info = (*dmat)->Info();
-  ASSERT_EQ(info.num_col_, 2ul);
-  ASSERT_EQ(info.num_row_, 3ul);
-  ASSERT_EQ(info.num_nonzero_, 6ul);
-
-  for (const auto &batch : (*dmat)->GetBatches<xgboost::SparsePage>()) {
-    auto page = batch.GetView();
-    ASSERT_EQ(page[0][0].fvalue, 0.0f);
-    ASSERT_EQ(page[0][1].fvalue, -4.0f);
-    ASSERT_EQ(page[2][0].fvalue, 3.0f);
-    ASSERT_EQ(page[2][1].fvalue, 0.0f);
-  }
-
-  delete dmat;
-}
 
 TEST(CAPI, XGDMatrixCreateFromMatOmp) {
   std::vector<bst_ulong> num_rows = {100, 11374, 15000};
@@ -482,9 +455,9 @@ auto MakeQDMForTest(Context const *ctx, bst_idx_t n_samples, bst_feature_t n_fea
   } else {
     iter_1 = std::make_unique<NumpyArrayIterForTest>(0.0f, n_samples, n_features, n_batches);
   }
-  auto Xy =
-      std::make_shared<data::IterativeDMatrix>(iter_1.get(), iter_1->Proxy(), nullptr, Reset, Next,
-                                               std::numeric_limits<float>::quiet_NaN(), 0, n_bins);
+  auto Xy = std::make_shared<data::IterativeDMatrix>(
+      iter_1.get(), iter_1->Proxy(), nullptr, Reset, Next, std::numeric_limits<float>::quiet_NaN(),
+      0, n_bins, std::numeric_limits<std::int64_t>::max());
   return std::pair{p_fmat, Xy};
 }
 
@@ -500,8 +473,13 @@ auto MakeExtMemForTest(bst_idx_t n_samples, bst_feature_t n_features, Json dconf
            0);
 
   NumpyArrayIterForTest iter_1{0.0f, n_samples, n_features, n_batches};
-  auto Xy = std::make_shared<data::SparsePageDMatrix>(
-      &iter_1, iter_1.Proxy(), Reset, Next, std::numeric_limits<float>::quiet_NaN(), 0, "");
+  auto config = ExtMemConfig{"",
+                             false,
+                             cuda_impl::MatchingPageBytes(),
+                             std::numeric_limits<float>::quiet_NaN(),
+                             cuda_impl::MaxNumDevicePages(),
+                             0};
+  auto Xy = std::make_shared<data::SparsePageDMatrix>(&iter_1, iter_1.Proxy(), Reset, Next, config);
   MakeLabelForTest(Xy, p_fmat);
   return std::pair{p_fmat, Xy};
 }

@@ -1,17 +1,16 @@
 /**
  * Copyright 2023-2024, XGBoost Contributors
  */
-#include "rabit/internal/socket.h"
+
 #if defined(__unix__) || defined(__APPLE__)
 #include <netdb.h>       // gethostbyname
 #include <sys/socket.h>  // socket, AF_INET6, AF_INET, connect, getsockname
 #endif                   // defined(__unix__) || defined(__APPLE__)
 
-#if !defined(NOMINMAX) && defined(_WIN32)
-#define NOMINMAX
-#endif  // !defined(NOMINMAX)
-
 #if defined(_WIN32)
+// Guard the include
+#include <xgboost/windefs.h>
+// Socket API
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #endif  // defined(_WIN32)
@@ -24,12 +23,15 @@
 #include <utility>    // for move, forward
 
 #include "../common/json_utils.h"
+#include "../common/threading_utils.h"  // for NameThread
 #include "comm.h"
 #include "protocol.h"  // for kMagic, PeerInfo
 #include "tracker.h"
-#include "xgboost/collective/result.h"  // for Result, Fail, Success
-#include "xgboost/collective/socket.h"  // for GetHostName, FailWithCode, MakeSockAddress, ...
-#include "xgboost/json.h"               // for Json
+#include "xgboost/collective/poll_utils.h"  // for PollHelper
+#include "xgboost/collective/result.h"      // for Result, Fail, Success
+#include "xgboost/collective/socket.h"      // for GetHostName, FailWithCode, MakeSockAddress, ...
+#include "xgboost/global_config.h"          // for InitNewThread
+#include "xgboost/json.h"                   // for Json
 
 namespace xgboost::collective {
 
@@ -68,6 +70,8 @@ Result Tracker::WaitUntilReady() const {
 
 RabitTracker::WorkerProxy::WorkerProxy(std::int32_t world, TCPSocket sock, SockAddress addr)
     : sock_{std::move(sock)} {
+  LOG(DEBUG) << "[tracker]: Connected by the worker: "
+             << (addr.IsV4() ? addr.V4().Addr() : addr.V6().Addr());
   std::int32_t rank{0};
   Json jcmd;
   std::int32_t port{0};
@@ -110,12 +114,14 @@ RabitTracker::WorkerProxy::WorkerProxy(std::int32_t world, TCPSocket sock, SockA
 }
 
 RabitTracker::RabitTracker(Json const& config) : Tracker{config} {
-  std::string self;
   auto rc = Success() << [&] {
-    return collective::GetHostAddress(&self);
+    host_.clear();
+    host_ = OptionalArg<String>(config, "host", std::string{});
+    if (host_.empty()) {
+      return collective::GetHostAddress(&host_);
+    }
+    return Success();
   } << [&] {
-    host_ = OptionalArg<String>(config, "host", self);
-
     auto addr = MakeSockAddress(xgboost::StringView{host_}, 0);
     listener_ = TCPSocket::Create(addr.IsV4() ? SockDomain::kV4 : SockDomain::kV6);
     return listener_.Bind(host_, &this->port_);
@@ -136,12 +142,15 @@ Result RabitTracker::Bootstrap(std::vector<WorkerProxy>* p_workers) {
     auto& worker = workers[r];
     auto next = BootstrapNext(r, n_workers_);
     auto const& next_w = workers[next];
-    bootstrap_threads.emplace_back([next, &worker, &next_w] {
+    bootstrap_threads.emplace_back([next, &worker, &next_w, init = InitNewThread{}] {
+      init();
       auto jnext = proto::PeerInfo{next_w.Host(), next_w.Port(), next}.ToJson();
       std::string str;
       Json::Dump(jnext, &str);
       worker.Send(StringView{str});
     });
+    std::string name = "tkbs_t-" + std::to_string(r);
+    common::NameThread(&bootstrap_threads.back(), name.c_str());
   }
 
   for (auto& t : bootstrap_threads) {
@@ -223,8 +232,8 @@ Result RabitTracker::Bootstrap(std::vector<WorkerProxy>* p_workers) {
   auto handle_error = [&](WorkerProxy const& worker) {
     auto msg = worker.Msg();
     auto code = worker.Code();
-    LOG(WARNING) << "Recieved error from [" << worker.Host() << ":" << worker.Rank() << "]: " << msg
-                 << " code:" << code;
+    LOG(WARNING) << "[tracker]: Recieved error from [" << worker.Host() << ":" << worker.Rank()
+                 << "]: " << msg << " code:" << code;
     auto host = worker.Host();
     // We signal all workers for the error, if they haven't aborted already.
     for (auto& w : worker_error_handles_) {
@@ -248,7 +257,8 @@ Result RabitTracker::Bootstrap(std::vector<WorkerProxy>* p_workers) {
     return Success();
   };
 
-  return std::async(std::launch::async, [this, handle_error] {
+  return std::async(std::launch::async, [this, handle_error, init = InitNewThread{}] {
+    init();
     State state{this->n_workers_};
 
     auto select_accept = [&](TCPSocket* sock, auto* addr) {
@@ -414,7 +424,7 @@ Result RabitTracker::Bootstrap(std::vector<WorkerProxy>* p_workers) {
       addresses.emplace_back(SockAddrV6{*ipv6});
     }
   }
-  // If not v4 address is found, we try v6
+  // If no v4 address is found, we try v6
   for (auto const& addr : addresses) {
     if (addr.IsV6()) {
       auto ip = addr.V6().Addr();

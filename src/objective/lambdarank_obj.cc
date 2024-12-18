@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023, XGBoost contributors
+ * Copyright 2023-2024, XGBoost contributors
  */
 #include "lambdarank_obj.h"
 
@@ -23,7 +23,6 @@
 #include "../common/optional_weight.h"     // for MakeOptionalWeights, OptionalWeights
 #include "../common/ranking_utils.h"       // for RankingCache, LambdaRankParam, MAPCache, NDCGC...
 #include "../common/threading_utils.h"     // for ParallelFor, Sched
-#include "../common/transform_iterator.h"  // for IndexTransformIter
 #include "init_estimation.h"               // for FitIntercept
 #include "xgboost/base.h"                  // for bst_group_t, GradientPair, kRtEps, GradientPai...
 #include "xgboost/context.h"               // for Context
@@ -113,8 +112,11 @@ class LambdaRankObj : public FitIntercept {
                                               lj_full_.View(ctx_->Device()), &ti_plus_, &tj_minus_,
                                               &li_, &lj_, p_cache_);
     } else {
-      cpu_impl::LambdaRankUpdatePositionBias(ctx_, li_full_.View(ctx_->Device()),
-                                             lj_full_.View(ctx_->Device()), &ti_plus_, &tj_minus_,
+      // This function doesn't have sycl-specific implementation yet.
+      // For that reason we transfer data to host in case of sycl is used for propper execution.
+      auto device = ctx_->Device().IsSycl() ? DeviceOrd::CPU() : ctx_->Device();
+      cpu_impl::LambdaRankUpdatePositionBias(ctx_, li_full_.View(device),
+                                             lj_full_.View(device), &ti_plus_, &tj_minus_,
                                              &li_, &lj_, p_cache_);
     }
 
@@ -344,7 +346,7 @@ class LambdaRankNDCG : public LambdaRankObj<LambdaRankNDCG, ltr::NDCGCache> {
                               common::Span<double const> discount, bst_group_t g) {
     auto delta = [&](auto y_high, auto y_low, std::size_t rank_high, std::size_t rank_low,
                      bst_group_t g) {
-      static_assert(std::is_floating_point<decltype(y_high)>::value);
+      static_assert(std::is_floating_point_v<decltype(y_high)>);
       return DeltaNDCG<exp_gain>(y_high, y_low, rank_high, rank_low, inv_IDCG(g), discount);
     };
     this->CalcLambdaForGroup<unbiased>(iter, g_predt, g_label, w, g_rank, g, delta, g_gpair);

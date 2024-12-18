@@ -14,6 +14,8 @@ Global Configuration
 
 .. autofunction:: xgboost.get_config
 
+.. autofunction:: xgboost.build_info
+
 Core Data Structure
 -------------------
 .. automodule:: xgboost.core
@@ -24,11 +26,18 @@ Core Data Structure
 
 .. autoclass:: xgboost.QuantileDMatrix
     :members:
+    :inherited-members:
+    :show-inheritance:
+
+.. autoclass:: xgboost.ExtMemQuantileDMatrix
+    :members:
+    :inherited-members:
     :show-inheritance:
 
 .. autoclass:: xgboost.Booster
     :members:
     :show-inheritance:
+    :special-members: __getitem__
 
 .. autoclass:: xgboost.DataIter
     :members:
@@ -184,3 +193,17 @@ PySpark API
     :members:
     :inherited-members:
     :show-inheritance:
+
+
+Collective
+----------
+
+.. automodule:: xgboost.collective
+
+.. autoclass:: xgboost.collective.Config
+
+.. autofunction:: xgboost.collective.init
+
+.. automodule:: xgboost.tracker
+
+.. autoclass:: xgboost.tracker.RabitTracker

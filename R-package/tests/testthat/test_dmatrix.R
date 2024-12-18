@@ -41,13 +41,13 @@ test_that("xgb.DMatrix: basic construction", {
 
   params <- list(tree_method = "hist", nthread = n_threads)
   bst_fd <- xgb.train(
-    params, nrounds = 8, fd, evals = list(train = fd)
+    params, nrounds = 8, fd, evals = list(train = fd), verbose = 0
   )
   bst_dgr <- xgb.train(
-    params, nrounds = 8, fdgr, evals = list(train = fdgr)
+    params, nrounds = 8, fdgr, evals = list(train = fdgr), verbose = 0
   )
   bst_dgc <- xgb.train(
-    params, nrounds = 8, fdgc, evals = list(train = fdgc)
+    params, nrounds = 8, fdgc, evals = list(train = fdgc), verbose = 0
   )
 
   raw_fd <- xgb.save.raw(bst_fd, raw_format = "ubj")
@@ -103,8 +103,10 @@ test_that("xgb.DMatrix: saving, loading", {
   on.exit(unlink(tmp_file))
   expect_true(xgb.DMatrix.save(dtest1, tmp_file))
   # read from a local file
+  xgb.set.config(verbosity = 2)
   expect_output(dtest3 <- xgb.DMatrix(tmp_file), "entries loaded from")
-  expect_output(dtest3 <- xgb.DMatrix(tmp_file, silent = TRUE), NA)
+  xgb.set.config(verbosity = 1)
+  expect_output(dtest3 <- xgb.DMatrix(tmp_file), NA)
   unlink(tmp_file)
   expect_equal(getinfo(dtest1, 'label'), getinfo(dtest3, 'label'))
 
@@ -128,6 +130,7 @@ test_that("xgb.DMatrix: saving, loading", {
   expect_equal(length(cnames), 126)
   tmp_file <- tempfile('xgb.DMatrix_')
   xgb.DMatrix.save(dtrain, tmp_file)
+  xgb.set.config(verbosity = 0)
   dtrain <- xgb.DMatrix(tmp_file)
   expect_equal(colnames(dtrain), cnames)
 
@@ -400,12 +403,10 @@ test_that("xgb.DMatrix: can take multi-dimensional 'base_margin'", {
     ),
     nround = 1
   )
-  pred_only_x <- predict(model, x, nthread = n_threads, reshape = TRUE)
+  pred_only_x <- predict(model, x)
   pred_w_base <- predict(
     model,
-    xgb.DMatrix(data = x, base_margin = b, nthread = n_threads),
-    nthread = n_threads,
-    reshape = TRUE
+    xgb.DMatrix(data = x, base_margin = b)
   )
   expect_equal(pred_only_x, pred_w_base - b, tolerance = 1e-5)
 })
@@ -480,7 +481,7 @@ test_that("xgb.DMatrix: QuantileDMatrix is not accepted by exact method", {
   })
 })
 
-test_that("xgb.DMatrix: ExternalDMatrix produces the same results as regular DMatrix", {
+test_that("xgb.DMatrix: ExtMemDMatrix produces the same results as regular DMatrix", {
   data(mtcars)
   y <- mtcars[, 1]
   x <- as.matrix(mtcars[, -1])
@@ -495,6 +496,7 @@ test_that("xgb.DMatrix: ExternalDMatrix produces the same results as regular DMa
     nrounds = 5
   )
   pred <- predict(model, x)
+  pred <- unname(pred)
 
   iterator_env <- as.environment(
     list(
@@ -529,8 +531,8 @@ test_that("xgb.DMatrix: ExternalDMatrix produces the same results as regular DMa
     f_reset = iterator_reset
   )
   cache_prefix <- tempdir()
-  edm <- xgb.ExternalDMatrix(data_iterator, cache_prefix, nthread = 1)
-  expect_true(inherits(edm, "xgb.ExternalDMatrix"))
+  edm <- xgb.ExtMemDMatrix(data_iterator, cache_prefix, nthread = 1)
+  expect_true(inherits(edm, "xgb.ExtMemDMatrix"))
   expect_true(inherits(edm, "xgb.DMatrix"))
   set.seed(123)
   model_ext <- xgb.train(
@@ -540,7 +542,7 @@ test_that("xgb.DMatrix: ExternalDMatrix produces the same results as regular DMa
   )
 
   pred_model1_edm <- predict(model, edm)
-  pred_model2_mat <- predict(model_ext, x)
+  pred_model2_mat <- predict(model_ext, x) |> unname()
   pred_model2_edm <- predict(model_ext, edm)
 
   expect_equal(pred_model1_edm, pred)
@@ -569,6 +571,7 @@ test_that("xgb.DMatrix: External QDM produces same results as regular QDM", {
     nrounds = 5
   )
   pred <- predict(model, x)
+  pred <- unname(pred)
 
   iterator_env <- as.environment(
     list(
@@ -618,7 +621,7 @@ test_that("xgb.DMatrix: External QDM produces same results as regular QDM", {
   )
 
   pred_model1_qdm <- predict(model, qdm)
-  pred_model2_mat <- predict(model_ext, x)
+  pred_model2_mat <- predict(model_ext, x) |> unname()
   pred_model2_qdm <- predict(model_ext, qdm)
 
   expect_equal(pred_model1_qdm, pred)
@@ -660,7 +663,7 @@ test_that("xgb.DMatrix: R errors thrown on DataIterator are thrown back to the u
     f_reset = iterator_reset
   )
   expect_error(
-    {xgb.ExternalDMatrix(data_iterator, nthread = 1)},
+    {xgb.ExtMemDMatrix(data_iterator, nthread = 1)},
     "custom error"
   )
 })

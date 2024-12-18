@@ -1,5 +1,5 @@
 /**
- * Copyright 2022-2023 by XGBoost Contributors
+ * Copyright 2022-2024, XGBoost Contributors
  */
 #ifndef XGBOOST_COMMON_STATS_H_
 #define XGBOOST_COMMON_STATS_H_
@@ -8,13 +8,15 @@
 #include <limits>
 #include <vector>
 
-#include "algorithm.h"           // for StableSort
-#include "common.h"              // AssertGPUSupport, OptionalWeights
-#include "optional_weight.h"     // OptionalWeights
-#include "transform_iterator.h"  // MakeIndexTransformIter
-#include "xgboost/context.h"     // Context
-#include "xgboost/linalg.h"      // TensorView,VectorView
-#include "xgboost/logging.h"     // CHECK_GE
+#include "algorithm.h"        // for StableSort
+#include "optional_weight.h"  // OptionalWeights
+#include "xgboost/context.h"  // Context
+#include "xgboost/linalg.h"   // TensorView,VectorView
+#include "xgboost/logging.h"  // CHECK_GE
+
+#if !defined(XGBOOST_USE_CUDA)
+#include "common.h"  // AssertGPUSupport
+#endif
 
 namespace xgboost {
 namespace common {
@@ -49,7 +51,7 @@ float Quantile(Context const* ctx, double alpha, Iter const& begin, Iter const& 
   }
 
   auto val = [&](size_t i) { return *(begin + sorted_idx[i]); };
-  static_assert(std::is_same<decltype(val(0)), float>::value);
+  static_assert(std::is_same_v<decltype(val(0)), float>);
 
   if (alpha <= (1 / (n + 1))) {
     return val(0);
@@ -112,6 +114,13 @@ void Median(Context const* ctx, linalg::TensorView<float const, 2> t, OptionalWe
 
 void Mean(Context const* ctx, linalg::VectorView<float const> v, linalg::VectorView<float> out);
 
+void SampleMean(Context const* ctx, bool is_column_split, linalg::MatrixView<float const> d_v,
+                linalg::VectorView<float> d_out);
+
+void WeightedSampleMean(Context const* ctx, bool is_column_split,
+                        linalg::MatrixView<float const> d_v, common::Span<float const> d_w,
+                        linalg::VectorView<float> d_out);
+
 #if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 inline void Median(Context const*, linalg::TensorView<float const, 2>, OptionalWeights,
                    linalg::Tensor<float, 1>*) {
@@ -120,16 +129,43 @@ inline void Median(Context const*, linalg::TensorView<float const, 2>, OptionalW
 inline void Mean(Context const*, linalg::VectorView<float const>, linalg::VectorView<float>) {
   common::AssertGPUSupport();
 }
-#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
+
+inline void SampleMean(Context const*, bool, linalg::MatrixView<float const>,
+                       linalg::VectorView<float>) {
+  common::AssertGPUSupport();
+}
+
+inline void WeightedSampleMean(Context const*, bool, linalg::MatrixView<float const>,
+                               common::Span<float const>, linalg::VectorView<float>) {
+  common::AssertGPUSupport();
+}
+
+#endif  // !defined(XGBOOST_USE_CUDA)
 }  // namespace cuda_impl
 
 /**
- * \brief Calculate medians for each column of the input matrix.
+ * @brief Calculate medians for each column of the input matrix.
  */
-void Median(Context const* ctx, linalg::Tensor<float, 2> const& t,
+void Median(Context const* ctx, linalg::Matrix<float> const& t,
             HostDeviceVector<float> const& weights, linalg::Tensor<float, 1>* out);
 
+/**
+ * @brief Calculate the mean value of a vector.
+ */
 void Mean(Context const* ctx, linalg::Vector<float> const& v, linalg::Vector<float>* out);
+
+/**
+ * @brief Calculate the mean value for the first axis.
+ */
+void SampleMean(Context const* ctx, bool is_column_split, linalg::Matrix<float> const& v,
+                linalg::Vector<float>* out);
+
+/**
+ * @brief Calculate the weighted mean value for the first axis, weights are assumed to be
+ *        equal to or greater than zero.
+ */
+void WeightedSampleMean(Context const* ctx, bool is_column_split, linalg::Matrix<float> const& v,
+                        HostDeviceVector<float> const& w, linalg::Vector<float>* out);
 }  // namespace common
 }  // namespace xgboost
 #endif  // XGBOOST_COMMON_STATS_H_

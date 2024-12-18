@@ -33,17 +33,16 @@ xgb.plot.shap(
 )
 }
 \arguments{
-\item{data}{The data to explain as a \code{matrix} or \code{dgCMatrix}.}
+\item{data}{The data to explain as a \code{matrix}, \code{dgCMatrix}, or \code{data.frame}.}
 
 \item{shap_contrib}{Matrix of SHAP contributions of \code{data}.
 The default (\code{NULL}) computes it from \code{model} and \code{data}.}
 
-\item{features}{Vector of column indices or feature names to plot.
-When \code{NULL} (default), the \code{top_n} most important features are selected
-by \code{\link[=xgb.importance]{xgb.importance()}}.}
+\item{features}{Vector of column indices or feature names to plot. When \code{NULL}
+(default), the \code{top_n} most important features are selected by \code{\link[=xgb.importance]{xgb.importance()}}.}
 
 \item{top_n}{How many of the most important features (<= 100) should be selected?
-By default 1 for SHAP dependence and 10 for SHAP summary).
+By default 1 for SHAP dependence and 10 for SHAP summary.
 Only used when \code{features = NULL}.}
 
 \item{model}{An \code{xgb.Booster} model. Only required when \code{shap_contrib = NULL} or
@@ -55,7 +54,7 @@ Only used when \code{features = NULL}.}
 averages the SHAP values over all classes. Pass a (0-based) class index
 to show only SHAP values of that class.}
 
-\item{approxcontrib}{Passed to \code{predict()} when \code{shap_contrib = NULL}.}
+\item{approxcontrib}{Passed to \code{\link[=predict.xgb.Booster]{predict.xgb.Booster()}} when \code{shap_contrib = NULL}.}
 
 \item{subsample}{Fraction of data points randomly picked for plotting.
 The default (\code{NULL}) will use up to 100k data points.}
@@ -135,16 +134,17 @@ nthread <- 1
 data.table::setDTthreads(nthread)
 nrounds <- 20
 
-bst <- xgboost(
-  agaricus.train$data,
-  agaricus.train$label,
+bst <- xgb.train(
+  data = xgb.DMatrix(agaricus.train$data, agaricus.train$label),
   nrounds = nrounds,
-  eta = 0.1,
-  max_depth = 3,
-  subsample = 0.5,
-  objective = "binary:logistic",
-  nthread = nthread,
-  verbose = 0
+  verbose = 0,
+  params = xgb.params(
+    learning_rate = 0.1,
+    max_depth = 3,
+    subsample = 0.5,
+    objective = "binary:logistic",
+    nthread = nthread
+  )
 )
 
 xgb.plot.shap(agaricus.test$data, model = bst, features = "odor=none")
@@ -161,20 +161,21 @@ x <- as.matrix(iris[, -5])
 set.seed(123)
 is.na(x[sample(nrow(x) * 4, 30)]) <- TRUE # introduce some missing values
 
-mbst <- xgboost(
-  data = x,
-  label = as.numeric(iris$Species) - 1,
+mbst <- xgb.train(
+  data = xgb.DMatrix(x, label = as.numeric(iris$Species) - 1),
   nrounds = nrounds,
-  max_depth = 2,
-  eta = 0.3,
-  subsample = 0.5,
-  nthread = nthread,
-  objective = "multi:softprob",
-  num_class = nclass,
-  verbose = 0
+  verbose = 0,
+  params = xgb.params(
+    max_depth = 2,
+    subsample = 0.5,
+    nthread = nthread,
+    objective = "multi:softprob",
+    num_class = nclass
+  )
 )
-trees0 <- seq(from = 0, by = nclass, length.out = nrounds)
+trees0 <- seq(from = 1, by = nclass, length.out = nrounds)
 col <- rgb(0, 0, 1, 0.5)
+
 xgb.plot.shap(
   x,
   model = mbst,

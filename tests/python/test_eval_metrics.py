@@ -92,7 +92,7 @@ class TestEvalMetrics:
             10,
             watchlist,
             early_stopping_rounds=2,
-            feval=self.evalerror_01,
+            custom_metric=self.evalerror_01,
         )
         gbdt_02 = xgb.train(
             self.xgb_params_02,
@@ -100,7 +100,7 @@ class TestEvalMetrics:
             10,
             watchlist,
             early_stopping_rounds=2,
-            feval=self.evalerror_02,
+            custom_metric=self.evalerror_02,
         )
         gbdt_03 = xgb.train(
             self.xgb_params_03,
@@ -108,7 +108,7 @@ class TestEvalMetrics:
             10,
             watchlist,
             early_stopping_rounds=2,
-            feval=self.evalerror_03,
+            custom_metric=self.evalerror_03,
         )
         gbdt_04 = xgb.train(
             self.xgb_params_04,
@@ -116,7 +116,7 @@ class TestEvalMetrics:
             10,
             watchlist,
             early_stopping_rounds=2,
-            feval=self.evalerror_04,
+            custom_metric=self.evalerror_04,
         )
         assert gbdt_01.predict(dvalid)[0] == gbdt_02.predict(dvalid)[0]
         assert gbdt_01.predict(dvalid)[0] == gbdt_03.predict(dvalid)[0]
@@ -146,7 +146,7 @@ class TestEvalMetrics:
         score = reg.predict(X)
         gamma_dev = float(booster.eval(xgb.DMatrix(X, y)).split(":")[1].split(":")[0])
         skl_gamma_dev = mean_gamma_deviance(y, score)
-        np.testing.assert_allclose(gamma_dev, skl_gamma_dev, rtol=1e-6)
+        np.testing.assert_allclose(gamma_dev, skl_gamma_dev, atol=1e-6)
 
     @pytest.mark.skipif(**tm.no_sklearn())
     def test_gamma_lik(self) -> None:

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019-2023, XGBoost Contributors
+ * Copyright 2019-2024, XGBoost Contributors
  */
 #ifndef XGBOOST_JSON_IO_H_
 #define XGBOOST_JSON_IO_H_
@@ -7,11 +7,8 @@
 #include <xgboost/base.h>
 #include <xgboost/json.h>
 
-#include <cinttypes>
+#include <cstdint>  // for int8_t
 #include <limits>
-#include <map>
-#include <memory>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -111,7 +108,7 @@ class JsonReader {
 };
 
 class JsonWriter {
-  template <typename T, std::enable_if_t<!std::is_same<Json, T>::value>* = nullptr>
+  template <typename T, std::enable_if_t<!std::is_same_v<Json, T>>* = nullptr>
   void Save(T const& v) {
     this->Save(Json{v});
   }
@@ -143,7 +140,9 @@ class JsonWriter {
   virtual void Visit(JsonArray  const* arr);
   virtual void Visit(F32Array  const* arr);
   virtual void Visit(F64Array const*) { LOG(FATAL) << "Only UBJSON format can handle f64 array."; }
-  virtual void Visit(U8Array  const* arr);
+  virtual void Visit(I8Array  const* arr);
+  virtual void Visit(U8Array const* arr);
+  virtual void Visit(I16Array const* arr);
   virtual void Visit(I32Array  const* arr);
   virtual void Visit(I64Array  const* arr);
   virtual void Visit(JsonObject const* obj);
@@ -221,7 +220,7 @@ class UBJReader : public JsonReader {
   }
 
   template <typename TypedArray>
-  auto ParseTypedArray(int64_t n) {
+  auto ParseTypedArray(std::int64_t n) {
     TypedArray results{static_cast<size_t>(n)};
     for (int64_t i = 0; i < n; ++i) {
       auto v = this->ReadPrimitive<typename TypedArray::Type>();
@@ -247,7 +246,9 @@ class UBJWriter : public JsonWriter {
   void Visit(JsonArray const* arr) override;
   void Visit(F32Array const* arr) override;
   void Visit(F64Array const* arr) override;
+  void Visit(I8Array  const* arr) override;
   void Visit(U8Array  const* arr) override;
+  void Visit(I16Array  const* arr) override;
   void Visit(I32Array  const* arr) override;
   void Visit(I64Array  const* arr) override;
   void Visit(JsonObject const* obj) override;

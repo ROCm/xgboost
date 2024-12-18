@@ -119,7 +119,8 @@ void TestUnbiasedNDCG(Context const* ctx) {
   obj->Configure(Args{{"lambdarank_pair_method", "topk"},
                       {"lambdarank_unbiased", "true"},
                       {"lambdarank_bias_norm", "0"}});
-  std::shared_ptr<DMatrix> p_fmat{RandomDataGenerator{10, 1, 0.0f}.GenerateDMatrix(true, false, 2)};
+  std::shared_ptr<DMatrix> p_fmat{
+      RandomDataGenerator{10, 1, 0.0f}.Classes(2).GenerateDMatrix(true)};
   auto h_label = p_fmat->Info().labels.HostView().Values();
   // Move clicked samples to the beginning.
   std::sort(h_label.begin(), h_label.end(), std::greater<>{});
@@ -245,9 +246,9 @@ void TestMAPStat(Context const* ctx) {
 
     predt.SetDevice(ctx->Device());
     auto rank_idx =
-        p_cache->SortedIdx(ctx, ctx->IsCPU() ? predt.ConstHostSpan() : predt.ConstDeviceSpan());
+        p_cache->SortedIdx(ctx, !ctx->IsCUDA() ? predt.ConstHostSpan() : predt.ConstDeviceSpan());
 
-    if (ctx->IsCPU()) {
+    if (!ctx->IsCUDA()) {
       obj::cpu_impl::MAPStat(ctx, info.labels.HostView().Slice(linalg::All(), 0), rank_idx,
                              p_cache);
     } else {
@@ -282,9 +283,9 @@ void TestMAPStat(Context const* ctx) {
 
     predt.SetDevice(ctx->Device());
     auto rank_idx =
-        p_cache->SortedIdx(ctx, ctx->IsCPU() ? predt.ConstHostSpan() : predt.ConstDeviceSpan());
+        p_cache->SortedIdx(ctx, !ctx->IsCUDA() ? predt.ConstHostSpan() : predt.ConstDeviceSpan());
 
-    if (ctx->IsCPU()) {
+    if (!ctx->IsCUDA()) {
       obj::cpu_impl::MAPStat(ctx, info.labels.HostView().Slice(linalg::All(), 0), rank_idx,
                              p_cache);
     } else {

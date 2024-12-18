@@ -1,5 +1,5 @@
 /**
- * Copyright 2015-2023 by XGBoost Contributors
+ * Copyright 2015-2024, XGBoost Contributors
  * \file common.h
  * \brief Common utilities
  */
@@ -19,9 +19,8 @@
 #include "xgboost/base.h"     // for XGBOOST_DEVICE
 #include "xgboost/logging.h"  // for LOG, LOG_FATAL, LogMessageFatal
 
+// magic to define functions based on the compiler.
 #if defined(__CUDACC__)
-#include <thrust/system/cuda/error.h>
-#include <thrust/system_error.h>
 
 #define WITH_CUDA() true
 
@@ -38,23 +37,22 @@
 
 #endif  // defined(__CUDACC__)
 
+#if defined(XGBOOST_USE_CUDA)
+#include <cuda_runtime_api.h>
+#elif defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime_api.h>
+#endif
+
 namespace dh {
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(XGBOOST_USE_CUDA) || defined(__HIPCC__)
 /*
- * Error handling  functions
+ * Error handling functions
  */
+void ThrowOnCudaError(cudaError_t code, const char *file, int line);
+
 #define safe_cuda(ans) ThrowOnCudaError((ans), __FILE__, __LINE__)
 
-inline cudaError_t ThrowOnCudaError(cudaError_t code, const char *file, int line)
-{
-  if (code != cudaSuccess) {
-    LOG(FATAL) << thrust::system_error(code, thrust::cuda_category(),
-                                       std::string{file} + ": " +  // NOLINT
-                                       std::to_string(line)).what();
-  }
-  return code;
-}
-#endif
+#endif  // defined(XGBOOST_USE_CUDA)
 }  // namespace dh
 
 namespace xgboost::common {
@@ -174,8 +172,6 @@ class Range {
   Iterator end_;
 };
 
-int AllVisibleGPUs();
-
 inline void AssertGPUSupport() {
 #if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
     LOG(FATAL) << "XGBoost version not compiled with GPU support.";
@@ -194,16 +190,6 @@ inline void AssertSYCLSupport() {
 #endif  // XGBOOST_USE_SYCL
 }
 
-void SetDevice(std::int32_t device);
-
-#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
-inline void SetDevice(std::int32_t device) {
-  if (device >= 0) {
-    AssertGPUSupport();
-  }
-}
-#endif
-
 /**
  * @brief Last index of a group in a CSR style of index pointer.
  */
@@ -211,5 +197,8 @@ template <typename Indexable>
 XGBOOST_DEVICE size_t LastOf(size_t group, Indexable const &indptr) {
   return indptr[group + 1] - 1;
 }
+
+// Convert the number of bytes to a human readable unit.
+std::string HumanMemUnit(std::size_t n_bytes);
 }  // namespace xgboost::common
 #endif  // XGBOOST_COMMON_COMMON_H_

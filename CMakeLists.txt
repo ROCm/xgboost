@@ -1,12 +1,10 @@
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 
 if(PLUGIN_SYCL)
-  set(CMAKE_CXX_COMPILER  "g++")
-  set(CMAKE_C_COMPILER  "gcc")
   string(REPLACE " -isystem ${CONDA_PREFIX}/include" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endif()
 
-project(xgboost LANGUAGES CXX C VERSION 2.1.3)
+project(xgboost LANGUAGES CXX C VERSION 3.0.0)
 include(cmake/Utils.cmake)
 list(APPEND CMAKE_MODULE_PATH "${xgboost_SOURCE_DIR}/cmake/modules")
 
@@ -73,7 +71,6 @@ option(HIDE_CXX_SYMBOLS "Build shared library and hide all C++ symbols" OFF)
 option(KEEP_BUILD_ARTIFACTS_IN_BINARY_DIR "Output build artifacts in CMake binary dir" OFF)
 ## CUDA
 option(USE_CUDA  "Build with GPU acceleration" OFF)
-option(USE_PER_THREAD_DEFAULT_STREAM "Build with per-thread default stream" ON)
 option(USE_NCCL  "Build with NCCL to enable distributed GPU support." OFF)
 # This is specifically designed for PyPI binary release and should be disabled for most of the cases.
 option(USE_DLOPEN_NCCL "Whether to load nccl dynamically." OFF)
@@ -239,11 +236,12 @@ if(USE_CUDA)
   if(DEFINED GPU_COMPUTE_VER)
     compute_cmake_cuda_archs("${GPU_COMPUTE_VER}")
   endif()
-  add_subdirectory(${PROJECT_SOURCE_DIR}/gputreeshap)
 
   find_package(CUDAToolkit REQUIRED)
   find_package(CCCL CONFIG)
-  if(NOT CCCL_FOUND)
+  if(CCCL_FOUND)
+    message(STATUS "Standalone CCCL found.")
+  else()
     message(STATUS "Standalone CCCL not found. Attempting to use CCCL from CUDA Toolkit...")
     find_package(CCCL CONFIG
       HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
@@ -259,6 +257,10 @@ if(USE_CUDA)
       add_library(CCCL::CCCL INTERFACE IMPORTED GLOBAL)
       target_link_libraries(CCCL::CCCL INTERFACE libcudacxx::libcudacxx CUB::CUB Thrust)
     endif()
+  endif()
+  # Define guard macros to prevent windows.h from conflicting with winsock2.h
+  if(WIN32)
+    target_compile_definitions(CCCL::CCCL INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN _WINSOCKAPI_)
   endif()
 endif()
 
@@ -400,7 +402,6 @@ if(BUILD_DEPRECATED_CLI)
     PRIVATE
     ${xgboost_SOURCE_DIR}/include
     ${xgboost_SOURCE_DIR}/dmlc-core/include
-    ${xgboost_SOURCE_DIR}/rabit/include
   )
   set_target_properties(runxgboost PROPERTIES OUTPUT_NAME xgboost)
   xgboost_target_properties(runxgboost)

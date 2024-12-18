@@ -1,5 +1,5 @@
 /**
- * Copyright 2017-2023 by Contributors
+ * Copyright 2017-2024, XGBoost Contributors
  * \file predictor.h
  * \brief Interface of predictor,
  *  performs predictions for a gradient booster.
@@ -15,7 +15,6 @@
 #include <functional>  // for function
 #include <memory>      // for shared_ptr
 #include <string>
-#include <utility>  // for make_pair
 #include <vector>
 
 // Forward declarations
@@ -54,7 +53,7 @@ class PredictionContainer : public DMatrixCache<PredictionCacheEntry> {
   PredictionContainer() : DMatrixCache<PredictionCacheEntry>{DefaultSize()} {}
   PredictionCacheEntry& Cache(std::shared_ptr<DMatrix> m, DeviceOrd device) {
     auto p_cache = this->CacheItem(m);
-    if (device.IsCUDA()) {
+    if (!device.IsCPU()) {
       p_cache->predictions.SetDevice(device);
     }
     return *p_cache;

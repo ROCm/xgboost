@@ -5,11 +5,11 @@ dm <- xgb.DMatrix(agaricus.train$data, label = agaricus.train$label, nthread = 1
 # Note: here need large step sizes in order for the predictions
 # to have substantially different leaf assignments on each tree
 model <- xgb.train(
-  params = list(objective = "binary:logistic", nthread = 1, max_depth = 4, eta = 0.5),
+  params = xgb.params(objective = "binary:logistic", nthread = 1, max_depth = 4),
   data = dm,
   nrounds = 20
 )
-pred <- predict(model, dm, predleaf = TRUE, reshape = TRUE)
+pred <- predict(model, dm, predleaf = TRUE)
 
 test_that("Slicing full model", {
   new_model <- xgb.slice.Booster(model, 1, 0)
@@ -24,32 +24,32 @@ test_that("Slicing full model", {
 
 test_that("Slicing sequence from start", {
   new_model <- xgb.slice.Booster(model, 1, 10)
-  new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+  new_pred <- predict(new_model, dm, predleaf = TRUE)
   expect_equal(new_pred, pred[, seq(1, 10)])
 
   new_model <- model[1:10]
-  new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+  new_pred <- predict(new_model, dm, predleaf = TRUE)
   expect_equal(new_pred, pred[, seq(1, 10)])
 })
 
 test_that("Slicing sequence from middle", {
   new_model <- xgb.slice.Booster(model, 5, 10)
-  new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+  new_pred <- predict(new_model, dm, predleaf = TRUE)
   expect_equal(new_pred, pred[, seq(5, 10)])
 
   new_model <- model[5:10]
-  new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+  new_pred <- predict(new_model, dm, predleaf = TRUE)
   expect_equal(new_pred, pred[, seq(5, 10)])
 })
 
 test_that("Slicing with non-unit step", {
   for (s in 2:5) {
     new_model <- xgb.slice.Booster(model, 1, 17, s)
-    new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+    new_pred <- predict(new_model, dm, predleaf = TRUE)
     expect_equal(new_pred, pred[, seq(1, 17, s)])
 
     new_model <- model[seq(1, 17, s)]
-    new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+    new_pred <- predict(new_model, dm, predleaf = TRUE)
     expect_equal(new_pred, pred[, seq(1, 17, s)])
   }
 })
@@ -57,11 +57,11 @@ test_that("Slicing with non-unit step", {
 test_that("Slicing with non-unit step from middle", {
   for (s in 2:5) {
     new_model <- xgb.slice.Booster(model, 4, 17, s)
-    new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+    new_pred <- predict(new_model, dm, predleaf = TRUE)
     expect_equal(new_pred, pred[, seq(4, 17, s)])
 
     new_model <- model[seq(4, 17, s)]
-    new_pred <- predict(new_model, dm, predleaf = TRUE, reshape = TRUE)
+    new_pred <- predict(new_model, dm, predleaf = TRUE)
     expect_equal(new_pred, pred[, seq(4, 17, s)])
   }
 })

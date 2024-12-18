@@ -426,7 +426,7 @@ class LearnerConfiguration : public Learner {
         info.Validate(Ctx()->Device());
         // We estimate it from input data.
         linalg::Tensor<float, 1> base_score;
-        InitEstimation(info, &base_score);
+        this->InitEstimation(info, &base_score);
         CHECK_EQ(base_score.Size(), 1);
         mparam_.base_score = base_score(0);
         CHECK(!std::isnan(mparam_.base_score));
@@ -860,6 +860,7 @@ class LearnerIO : public LearnerConfiguration {
   // Will be removed once JSON takes over.  Right now we still loads some RDS files from R.
   std::string const serialisation_header_ { u8"CONFIG-offset:" };
 
+ protected:
   void ClearCaches() { this->prediction_container_ = PredictionContainer{}; }
 
  public:
@@ -1264,6 +1265,28 @@ class LearnerImpl : public LearnerIO {
     return out_impl;
   }
 
+  void Reset() override {
+    this->Configure();
+    this->CheckModelInitialized();
+    // Global data
+    auto local_map = LearnerAPIThreadLocalStore::Get();
+    if (local_map->find(this) != local_map->cend()) {
+      local_map->erase(this);
+    }
+
+    // Model
+    std::string buf;
+    common::MemoryBufferStream fo(&buf);
+    this->Save(&fo);
+
+    common::MemoryFixSizeBuffer fs(buf.data(), buf.size());
+    this->Load(&fs);
+
+    // Learner self cache. Prediction is cleared in the load method
+    CHECK(this->prediction_container_.Container().empty());
+    this->gpair_ = decltype(this->gpair_){};
+  }
+
   void UpdateOneIter(int iter, std::shared_ptr<DMatrix> train) override {
     monitor_.Start("UpdateOneIter");
     TrainingObserver::Instance().Update(iter);
@@ -1321,7 +1344,7 @@ class LearnerImpl : public LearnerIO {
     std::ostringstream os;
     os.precision(std::numeric_limits<double>::max_digits10);
     os << '[' << iter << ']' << std::setiosflags(std::ios::fixed);
-    if (metrics_.empty() && tparam_.disable_default_eval_metric <= 0) {
+    if (metrics_.empty() && !tparam_.disable_default_eval_metric) {
       metrics_.emplace_back(Metric::Create(obj_->DefaultEvalMetric(), &ctx_));
       auto config = obj_->DefaultMetricConfig();
       if (!IsA<Null>(config)) {
