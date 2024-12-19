@@ -62,3 +62,13 @@ params["device"] = "cuda"
 params["tree_method"] = "hist"
 ...
 ```
+
+# R Installation
+
+1. clone code
+1. update submodules
+1. mkdir build; cd build
+1. cmake .. -DUSE_HIP=ON -DR_LIB=ON
+1. make -j && make install
+1. cd R-package-install/R-package/
+1. R CMD INSTALL .
