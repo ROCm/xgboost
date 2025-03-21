@@ -14,6 +14,8 @@
 #if defined(XGBOOST_USE_HIP)
 #include <hip/hip_cooperative_groups.h>
 #include <GPUTreeShap/gpu_treeshap.h>
+
+int warp_size_hip_xgb = 0;
 #endif
 
 namespace xgboost::tree {
@@ -88,9 +90,11 @@ class EvaluateSplitAgent {
         parent_sum(dh::LDGIterator<GradientPairInt64>(&inputs.parent_sum)[0]),
         param(shared_inputs.param), evaluator(evaluator),
         missing(parent_sum - ReduceFeature()) {
+#if defined(XGBOOST_USE_CUDA)
     static_assert(
         kBlockSize == WARP_SIZE,
         "This kernel relies on the assumption block_size == warp_size");
+#endif
     // There should be no missing value gradients for a dense matrix
     KERNEL_CHECK(!shared_inputs.is_dense || missing.GetQuantisedHess() == 0);
   }
@@ -380,7 +384,21 @@ void GPUHistEvaluator::LaunchEvaluateSplits(
   dh::TemporaryArray<DeviceSplitCandidate> feature_best_splits(
       combined_num_features, DeviceSplitCandidate());
 
+  // chck warp size
+#if defined(XGBOOST_USE_HIP)
+  int WARP_SIZE = 0;
+  if (warp_size_hip_xgb <= 0) {
+    dh::safe_cuda(hipDeviceGetAttribute(&warp_size_hip_xgb, hipDeviceAttributeWarpSize, 0));
+    if (warp_size_hip_xgb <= 0) {
+      printf("failed to detect wavefront size...\n");
+      exit(-1);
+    }
+  }
+  WARP_SIZE = warp_size_hip_xgb;
+#endif
+
   // One block for each feature
+#if defined(XGBOOST_USE_CUDA)
   uint32_t constexpr kBlockThreads = WARP_SIZE;
   dh::LaunchKernel {static_cast<uint32_t>(combined_num_features), kBlockThreads,
                     0}(
@@ -388,6 +406,26 @@ void GPUHistEvaluator::LaunchEvaluateSplits(
       shared_inputs,
       this->SortedIdx(d_inputs.size(), shared_inputs.feature_values.size()),
       evaluator, dh::ToSpan(feature_best_splits));
+#elif defined(XGBOOST_USE_HIP)
+  if (WARP_SIZE == 32) {
+    uint32_t constexpr kBlockThreads = 32;
+    dh::LaunchKernel {static_cast<uint32_t>(combined_num_features), kBlockThreads,
+        0}(
+      EvaluateSplitsKernel<kBlockThreads>, max_active_features, d_inputs,
+      shared_inputs,
+      this->SortedIdx(d_inputs.size(), shared_inputs.feature_values.size()),
+      evaluator, dh::ToSpan(feature_best_splits));
+  }
+  else if (WARP_SIZE == 64) {
+    uint32_t constexpr kBlockThreads = 64;
+    dh::LaunchKernel {static_cast<uint32_t>(combined_num_features), kBlockThreads,
+        0}(
+      EvaluateSplitsKernel<kBlockThreads>, max_active_features, d_inputs,
+      shared_inputs,
+      this->SortedIdx(d_inputs.size(), shared_inputs.feature_values.size()),
+      evaluator, dh::ToSpan(feature_best_splits));
+  }
+#endif
 
   // Reduce to get best candidate for left and right child over all features
   auto reduce_offset =
