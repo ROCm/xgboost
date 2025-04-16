@@ -96,7 +96,9 @@ class EvaluateSplitAgent {
         "This kernel relies on the assumption block_size == warp_size");
 #endif
     // There should be no missing value gradients for a dense matrix
+#if !defined(XGBOOST_USE_HIP) // disable on Navi due to a ROCm bug
     KERNEL_CHECK(!shared_inputs.is_dense || missing.GetQuantisedHess() == 0);
+#endif
   }
   __device__ GradientPairInt64 ReduceFeature() {
     GradientPairInt64 local_sum;
