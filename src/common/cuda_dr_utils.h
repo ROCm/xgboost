@@ -8,8 +8,12 @@
  */
 #pragma once
 
+#if defined(XGBOOST_USE_CUDA)
 #include <cuda.h>
 #include <cuda_runtime_api.h>
+#elif defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime_api.h>
+#endif
 
 #include <cstdint>  // for int32_t
 

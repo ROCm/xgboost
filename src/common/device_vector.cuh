@@ -25,6 +25,7 @@
 
 #endif  // defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
 
+#if defined(XGBOOST_USE_CUDA)
 #include <cuda.h>  // for CUmemGenericAllocationHandle
 
 #include <atomic>                  // for atomic, memory_order
@@ -32,6 +33,16 @@
 #include <cstdint>                 // for int64_t
 #include <cub/util_allocator.cuh>  // for CachingDeviceAllocator
 #include <cub/util_device.cuh>     // for CurrentDevice
+#elif defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime_api.h>  // for CUmemGenericAllocationHandle
+
+#include <atomic>                  // for atomic, memory_order
+#include <cstddef>                 // for size_t
+#include <cstdint>                 // for int64_t
+#include <hipcub/util_allocator.hpp>  // for CachingDeviceAllocator
+#include <hipcub/util_device.hpp>     // for CurrentDevice
+#endif
+
 #include <memory>                  // for unique_ptr
 
 #include "common.h"         // for safe_cuda, HumanMemUnit
