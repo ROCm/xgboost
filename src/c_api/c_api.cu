@@ -17,13 +17,20 @@
 #include "xgboost/learner.h"
 #if defined(XGBOOST_USE_NCCL)
 #include <nccl.h>
+#elif defined(XGBOOST_USE_RCCL)
+#include <rccl/rccl.h>
 #endif
 
 namespace xgboost {
 void XGBBuildInfoDevice(Json *p_info) {
   auto &info = *p_info;
 
+#if defined(XGBOOST_USE_CUDA)
   info["USE_CUDA"] = true;
+#elif defined(XGBOOST_USE_HIP)
+  info["USE_CUDA"] = true;
+  info["USE_HIP"] = true;
+#endif
 
   std::vector<Json> v{Json{Integer{THRUST_MAJOR_VERSION}}, Json{Integer{THRUST_MINOR_VERSION}},
                       Json{Integer{THRUST_SUBMINOR_VERSION}}};
@@ -36,16 +43,29 @@ void XGBBuildInfoDevice(Json *p_info) {
   info["USE_NCCL"] = Boolean{true};
   v = {Json{Integer{NCCL_MAJOR}}, Json{Integer{NCCL_MINOR}}, Json{Integer{NCCL_PATCH}}};
   info["NCCL_VERSION"] = v;
-
 #if defined(XGBOOST_USE_DLOPEN_NCCL)
   info["USE_DLOPEN_NCCL"] = Boolean{true};
 #else
   info["USE_DLOPEN_NCCL"] = Boolean{false};
 #endif  // defined(XGBOOST_USE_DLOPEN_NCCL)
-
+#elif defined(XGBOOST_USE_RCCL)
+  info["USE_NCCL"] = Boolean{true};
+  info["USE_RCCL"] = Boolean{true};
+  v = {Json{Integer{NCCL_MAJOR}}, Json{Integer{NCCL_MINOR}}, Json{Integer{NCCL_PATCH}}};
+  info["RCCL_VERSION"] = v;
+  info["NCCL_VERSION"] = v;
+#if defined(XGBOOST_USE_DLOPEN_RCCL)
+  info["USE_DLOPEN_NCCL"] = Boolean{true};
+  info["USE_DLOPEN_RCCL"] = Boolean{true};
+#else
+  info["USE_DLOPEN_NCCL"] = Boolean{false};
+  info["USE_DLOPEN_RCCL"] = Boolean{false};
+#endif  // defined(XGBOOST_USE_DLOPEN_RCCL)
 #else
   info["USE_NCCL"] = Boolean{false};
   info["USE_DLOPEN_NCCL"] = Boolean{false};
+  info["USE_RCCL"] = Boolean{false};
+  info["USE_DLOPEN_RCCL"] = Boolean{false};
 #endif
 
 #if defined(XGBOOST_USE_RMM)

@@ -64,7 +64,7 @@ option(ENABLE_ALL_WARNINGS "Enable all compiler warnings. Only effective for GCC
 option(LOG_CAPI_INVOCATION "Log all C API invocations for debugging" OFF)
 option(GOOGLE_TEST "Build google tests" OFF)
 option(USE_DMLC_GTEST "Use google tests bundled with dmlc-core submodule" OFF)
-option(USE_DEVICE_DEBUG "Generate CUDA device debug info." OFF)
+option(USE_DEVICE_DEBUG "Generate CUDA/HIP device debug info." OFF)
 option(USE_NVTX "Build with cuda profiling annotations. Developers only." OFF)
 set(NVTX_HEADER_DIR "" CACHE PATH "Path to the stand-alone nvtx header")
 option(HIDE_CXX_SYMBOLS "Build shared library and hide all C++ symbols" OFF)
@@ -95,6 +95,12 @@ cmake_dependent_option(USE_CUDA_LTO
   "${CMAKE_INTERPROCEDURAL_OPTIMIZATION}"
   "CMAKE_VERSION VERSION_GREATER_EQUAL 3.25;USE_CUDA;CMAKE_INTERPROCEDURAL_OPTIMIZATION"
   OFF)
+## HIP
+option(USE_HIP  "Build with GPU acceleration" OFF)
+option(USE_RCCL "Build with RCCL to enable distributed GPU support." OFF)
+# This is specifically designed for PyPI binary release and should be disabled for most of the cases.
+option(USE_DLOPEN_RCCL "Whether to load nccl dynamically." OFF)
+option(BUILD_WITH_SHARED_RCCL "Build with shared RCCL library." OFF)
 ## Sanitizers
 option(USE_SANITIZER "Use santizer flags" OFF)
 option(SANITIZER_PATH "Path to sanitizes.")
@@ -135,6 +141,18 @@ if(USE_DLOPEN_NCCL AND (NOT USE_NCCL))
 endif()
 if(USE_DLOPEN_NCCL AND (NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux")))
   message(SEND_ERROR "`USE_DLOPEN_NCCL` supports only Linux at the moment.")
+endif()
+if(USE_RCCL AND NOT (USE_HIP))
+    message(SEND_ERROR "`USE_RCCL` must be enabled with `USE_HIP` flag.")
+endif()
+if(BUILD_WITH_SHARED_RCCL AND (NOT USE_RCCL))
+  message(SEND_ERROR "Build XGBoost with -DUSE_RCCL=ON to enable BUILD_WITH_SHARED_RCCL.")
+endif()
+if(USE_DLOPEN_RCCL AND (NOT USE_RCCL))
+  message(SEND_ERROR "Build XGBoost with -DUSE_RCCL=ON to enable USE_DLOPEN_RCCL.")
+endif()
+if(USE_DLOPEN_RCCL AND (NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux")))
+  message(SEND_ERROR "`USE_DLOPEN_RCCL` supports only Linux at the moment.")
 endif()
 if(JVM_BINDINGS AND R_LIB)
   message(SEND_ERROR "`R_LIB' is not compatible with `JVM_BINDINGS' as they both have customized configurations.")
@@ -255,6 +273,24 @@ if(USE_CUDA)
   endif()
 endif()
 
+if (USE_HIP)
+  set(USE_OPENMP ON CACHE BOOL "HIP requires OpenMP" FORCE)
+  # `export CXX=' is ignored by CMake HIP.
+  set(CMAKE_HIP_HOST_COMPILER ${CMAKE_CXX_COMPILER})
+  message(STATUS "Configured HIP host compiler: ${CMAKE_HIP_HOST_COMPILER}")
+
+  enable_language(HIP)
+  find_package(hip REQUIRED)
+  find_package(rocthrust REQUIRED)
+  find_package(hipcub REQUIRED)
+
+  set(CMAKE_HIP_FLAGS "${CMAKE_HIP_FLAGS} -I${HIP_INCLUDE_DIRS}")
+  set(CMAKE_HIP_FLAGS "${CMAKE_HIP_FLAGS} -Wunused-result -w")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__HIP_PLATFORM_AMD__")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${HIP_INCLUDE_DIRS}")
+  add_subdirectory(${PROJECT_SOURCE_DIR}/rocgputreeshap)
+endif (USE_HIP)
+
 if(FORCE_COLORED_OUTPUT AND (CMAKE_GENERATOR STREQUAL "Ninja") AND
     ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
       (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")))
@@ -291,6 +327,10 @@ if(MSVC)
     message(STATUS "XGBoost: Using statically linked MSVC runtime...")
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   endif()
+endif()
+
+if(USE_RCCL)
+  find_package(rccl REQUIRED)
 endif()
 
 # dmlc-core

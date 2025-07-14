@@ -47,6 +47,7 @@ void CopyTensorInfoImpl(CUDAContext const* ctx, Json arr_interface, linalg::Tens
       std::copy(array.shape, array.shape + D, shape.data());
       // set data
       data->Resize(array.n);
+
       dh::safe_cuda(cudaMemcpyAsync(data->DevicePointer(), array.data, array.n * sizeof(T),
                                     cudaMemcpyDefault, ctx->Stream()));
     });
@@ -100,8 +101,10 @@ void CopyQidImpl(Context const* ctx, ArrayInterface<1> array_interface,
     }
   });
   bool non_dec = true;
+
   dh::safe_cuda(cudaMemcpy(&non_dec, flag.data().get(), sizeof(bool),
                            cudaMemcpyDeviceToHost));
+
   CHECK(non_dec) << "`qid` must be sorted in increasing order along with data.";
   size_t bytes = 0;
   dh::caching_device_vector<uint32_t> out(array_interface.Shape<0>());

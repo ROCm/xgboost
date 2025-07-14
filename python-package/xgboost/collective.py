@@ -301,7 +301,7 @@ class CommunicatorContext:
             return
 
         binfo = build_info()
-        if not binfo["USE_DLOPEN_NCCL"]:
+        if not binfo["USE_DLOPEN_NCCL"] and not binfo["USE_DLOPEN_RCCL"]:
             return
 
         try:

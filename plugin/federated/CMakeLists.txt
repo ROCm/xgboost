@@ -42,6 +42,10 @@ target_sources(
 if(USE_CUDA)
   target_sources(objxgboost PRIVATE federated_comm.cu federated_coll.cu)
 endif()
+if(USE_HIP)
+  target_sources(objxgboost PRIVATE federated_comm.hip federated_coll.hip)
+endif()
+
 
 target_link_libraries(objxgboost PRIVATE federated_client "-Wl,--exclude-libs,ALL")
 target_compile_definitions(objxgboost PUBLIC -DXGBOOST_USE_FEDERATED=1)

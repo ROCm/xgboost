@@ -13,6 +13,6 @@ DMLC_REGISTRY_FILE_TAG(regression_obj);
 }  // namespace obj
 }  // namespace xgboost
 
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "regression_obj.cu"
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA && defined(XGBOOST_USE_HIP)

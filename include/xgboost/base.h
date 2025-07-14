@@ -58,19 +58,19 @@
 /*!
  * \brief Tag function as usable by device
  */
-#if defined (__CUDA__) || defined(__NVCC__)
+#if defined (__CUDA__) || defined(__NVCC__) || defined(__HIPCC__)
 #define XGBOOST_DEVICE __host__ __device__
 #else
 #define XGBOOST_DEVICE
-#endif  // defined (__CUDA__) || defined(__NVCC__)
+#endif  // defined (__CUDA__) || defined(__NVCC__) || defined(__HIPCC__)
 
-#if defined(__CUDA__) || defined(__CUDACC__)
+#if defined(__CUDA__) || defined(__CUDACC__) || defined(__HIPCC__)
 #define XGBOOST_HOST_DEV_INLINE XGBOOST_DEVICE __forceinline__
 #define XGBOOST_DEV_INLINE __device__ __forceinline__
 #else
 #define XGBOOST_HOST_DEV_INLINE
 #define XGBOOST_DEV_INLINE
-#endif  // defined(__CUDA__) || defined(__CUDACC__)
+#endif  // defined(__CUDA__) || defined(__CUDACC__) || defined(__HIPCC__)
 
 // These check are for Makefile.
 #if !defined(XGBOOST_MM_PREFETCH_PRESENT) && !defined(XGBOOST_BUILTIN_PREFETCH_PRESENT)

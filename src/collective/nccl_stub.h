@@ -2,9 +2,21 @@
  * Copyright 2023-2024, XGBoost Contributors
  */
 #pragma once
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
+
 #if defined(XGBOOST_USE_NCCL)
 #include <cuda_runtime_api.h>
 #include <nccl.h>
+#elif defined(XGBOOST_USE_RCCL)
+#include "../common/cuda_to_hip.h"
+
+#ifndef THRUST_DEVICE_SYSTEM
+#define THRUST_DEVICE_SYSTEM THRUST_DEVICE_SYSTEM_HIP
+#endif
+
+#include <hip/hip_runtime_api.h>
+#include <rccl/rccl.h>
+#endif
 
 #include <atomic>  // for atomic
 #include <memory>  // for shared_ptr
@@ -18,7 +30,7 @@ namespace xgboost::collective {
  * @brief A stub for NCCL to facilitate dynamic loading.
  */
 class NcclStub {
-#if defined(XGBOOST_USE_DLOPEN_NCCL)
+#if defined(XGBOOST_USE_DLOPEN_NCCL) || defined(XGBOOST_USE_DLOPEN_RCCL)
   void* handle_{nullptr};
 #endif  // defined(XGBOOST_USE_DLOPEN_NCCL)
   std::string path_;

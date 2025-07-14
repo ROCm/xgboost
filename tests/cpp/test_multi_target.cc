@@ -129,7 +129,7 @@ TEST_F(TestL1MultiTarget, Approx) {
   this->RunTest(&ctx, "approx");
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST_F(TestL1MultiTarget, GpuHist) {
   auto ctx = MakeCUDACtx(0);
   this->RunTest(&ctx, "hist");

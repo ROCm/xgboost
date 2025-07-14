@@ -3,8 +3,11 @@
  */
 #pragma once
 
-#ifdef XGBOOST_USE_NCCL
+#if defined(XGBOOST_USE_NCCL)
 #include "nccl.h"
+#elif defined(XGBOOST_USE_RCCL)
+#include "../common/cuda_to_hip.h"
+#include <rccl/rccl.h>
 #endif  // XGBOOST_USE_NCCL
 
 #include <utility>  // for move
@@ -25,7 +28,7 @@ inline Result GetCUDAResult(cudaError rc) {
   return Fail(msg);
 }
 
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 class NCCLComm : public Comm {
   ncclComm_t nccl_comm_{nullptr};
   std::shared_ptr<NcclStub> stub_;

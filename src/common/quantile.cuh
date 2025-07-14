@@ -216,6 +216,7 @@ class SketchContainer {
     auto d_scan_out = scan_out.DeviceSpan();
 
     d_column_scan = this->columns_ptr_.DeviceSpan();
+
     size_t n_uniques = dh::SegmentedUnique(
         ctx->CUDACtx()->CTP(), d_column_scan.data(), d_column_scan.data() + d_column_scan.size(),
         entries.data(), entries.data() + entries.size(), scan_out.DevicePointer(), entries.data(),

@@ -163,10 +163,10 @@ BatchSet<GHistIndexMatrix> SparsePageDMatrix::GetGradientIndex(Context const *ct
   return BatchSet{BatchIterator<GHistIndexMatrix>{this->ghist_index_source_}};
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 BatchSet<EllpackPage> SparsePageDMatrix::GetEllpackBatches(Context const *, const BatchParam &) {
   common::AssertGPUSupport();
   return BatchSet{BatchIterator<EllpackPage>{nullptr}};
 }
-#endif  // !defined(XGBOOST_USE_CUDA)
-}  // namespace xgboost::data
+#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
+}  // namespace data

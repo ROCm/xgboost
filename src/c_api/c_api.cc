@@ -63,14 +63,17 @@ XGB_DLL void XGBoostVersion(int* major, int* minor, int* patch) {
 static_assert(DMLC_CXX11_THREAD_LOCAL, "XGBoost depends on thread-local storage.");
 using GlobalConfigAPIThreadLocalStore = dmlc::ThreadLocalStore<XGBAPIThreadLocalEntry>;
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 namespace xgboost {
 void XGBBuildInfoDevice(Json *p_info) {
   auto &info = *p_info;
   info["USE_CUDA"] = Boolean{false};
   info["USE_NCCL"] = Boolean{false};
+  info["USE_HIP"] = Boolean{false};
+  info["USE_RCCL"] = Boolean{false};
   info["USE_RMM"] = Boolean{false};
   info["USE_DLOPEN_NCCL"] = Boolean{false};
+  info["USE_DLOPEN_RCCL"] = Boolean{false};
 }
 }  // namespace xgboost
 #endif
@@ -292,7 +295,7 @@ XGB_DLL int XGDMatrixCreateFromDataIter(
   API_END();
 }
 
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 XGB_DLL int XGDMatrixCreateFromCudaColumnar(char const *, char const *, DMatrixHandle *) {
   API_BEGIN();
   common::AssertGPUSupport();
@@ -1088,7 +1091,7 @@ namespace xgboost {
 // copy user-supplied CUDA gradient arrays
 void CopyGradientFromCUDAArrays(Context const *, ArrayInterface<2, false> const &,
                                 ArrayInterface<2, false> const &, linalg::Matrix<GradientPair> *)
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 {
   common::AssertGPUSupport();
 }
@@ -1348,7 +1351,7 @@ XGB_DLL int XGBoosterPredictFromCSR(BoosterHandle handle, char const *indptr, ch
   API_END();
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 XGB_DLL int XGBoosterPredictFromCUDAArray(BoosterHandle handle, char const *, char const *,
                                           DMatrixHandle, xgboost::bst_ulong const **,
                                           xgboost::bst_ulong *, const float **) {

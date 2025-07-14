@@ -9,6 +9,11 @@ if(USE_CUDA)
     ${PROJECT_SOURCE_DIR}/jvm-packages/xgboost4j/src/native/xgboost4j-gpu.cu)
 endif()
 
+if(USE_HIP)
+  list(APPEND JVM_SOURCES
+    ${PROJECT_SOURCE_DIR}/jvm-packages/xgboost4j-gpu/src/native/xgboost4j-gpu.hip)
+endif()
+
 add_library(xgboost4j SHARED ${JVM_SOURCES} ${XGBOOST_OBJ_SOURCES})
 
 if(ENABLE_ALL_WARNINGS)

@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2024, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 #include <chrono>       // for chrono, chrono_literals
 #include <cstddef>      // for size_t
 #include <cstdint>      // for int8_t, int64_t
@@ -20,8 +20,12 @@
 #include "allgather.h"                   // for AllgatherVOffset
 #include "coll.cuh"                      // for NCCLColl
 #include "comm.cuh"                      // for NCCLComm
+#if defined(XGBOOST_USE_NCCL)
 #include "nccl.h"                        // for ncclHalf, ncclFloat32, ...
 #include "nccl_stub.h"                   // for BusyWait
+#elif defined(XGBOOST_USE_RCCL)
+#include <rccl/rccl.h>
+#endif
 #include "xgboost/collective/result.h"   // for Result, Fail
 #include "xgboost/global_config.h"       // for InitNewThread
 #include "xgboost/span.h"                // for Span

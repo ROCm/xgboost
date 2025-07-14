@@ -19,7 +19,9 @@
 
 #if defined (__CUDACC__)
 #include "device_helpers.cuh"
-#endif  // defined (__CUDACC__)
+#elif defined(__HIPCC__)
+#include "device_helpers.hip.h"
+#endif  // defined (__CUDACC__) || defined(__HIPCC__)
 
 #if defined (SYCL_LANGUAGE_VERSION)
 #include "../plugin/sycl/common/transform.h"
@@ -32,7 +34,7 @@ constexpr size_t kBlockThreads = 256;
 
 namespace detail {
 
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIPCC__)
 template <typename Functor, typename... SpanType>
 __global__ void LaunchCUDAKernel(Functor _func, Range _range,
                                  SpanType... _spans) {
@@ -40,7 +42,7 @@ __global__ void LaunchCUDAKernel(Functor _func, Range _range,
     _func(i, _spans...);
   }
 }
-#endif  // defined(__CUDACC__)
+#endif  // defined(__CUDACC__) || defined(__HIPCC__)
 
 }  // namespace detail
 
@@ -131,7 +133,7 @@ class Transform {
       UnpackShard(device, _vectors...);
     }
 
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIPCC__)
     template <typename std::enable_if_t<CompiledWithCuda>* = nullptr,
               typename... HDV>
     void LaunchCUDA(Functor _func, HDV*... _vectors) const {
@@ -162,7 +164,7 @@ class Transform {
 
       LOG(FATAL) << "Not part of device code. WITH_CUDA: " << WITH_CUDA();
     }
-#endif  // defined(__CUDACC__)
+#endif  // defined(__CUDACC__) || defined(__HIPCC__)
 
 #if defined (SYCL_LANGUAGE_VERSION)
     template <typename... HDV>

@@ -74,12 +74,12 @@ GHistIndexMatrix::GHistIndexMatrix(bst_idx_t n_samples, bst_idx_t base_rowid,
       base_rowid{base_rowid},
       isDense_{is_dense} {}
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 GHistIndexMatrix::GHistIndexMatrix(Context const *, MetaInfo const &, EllpackPage const &,
                                    BatchParam const &) {
   common::AssertGPUSupport();
 }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 
 GHistIndexMatrix::~GHistIndexMatrix() = default;
 

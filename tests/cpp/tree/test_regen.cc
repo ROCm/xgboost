@@ -117,7 +117,7 @@ TEST_F(RegenTest, Mixed) {
   ASSERT_EQ(n, this->Iter() + 1);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST_F(RegenTest, GpuApprox) {
   auto ctx = MakeCUDACtx(0);
   auto n = this->TestTreeMethod<EllpackPage>(&ctx, "approx", "reg:squarederror", true);
@@ -155,5 +155,5 @@ TEST_F(RegenTest, GpuMixed) {
   n = this->TestTreeMethod<EllpackPage>(&ctx, "hist", "reg:squarederror", true);
   ASSERT_EQ(n, this->Iter() + 1);
 }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 }  // namespace xgboost

@@ -1,7 +1,6 @@
 // Copyright by Contributors
 #include <xgboost/data.h>
 #include "../../../src/data/simple_dmatrix.h"
-
 #include <thrust/sequence.h>
 #include "../../../src/data/device_adapter.cuh"
 #include "../helpers.h"
@@ -109,6 +108,7 @@ TEST(SimpleDMatrix, FromColumnarWithEmptyRows) {
     auto& data = columns_data[i];
     data.resize(kRows);
     thrust::sequence(data.begin(), data.end(), 0);
+
     dh::safe_cuda(cudaDeviceSynchronize());
     dh::safe_cuda(cudaGetLastError());
 

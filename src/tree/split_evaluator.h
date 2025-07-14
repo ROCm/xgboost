@@ -124,6 +124,8 @@ class TreeEvaluator {
     [[nodiscard]] XGBOOST_DEVICE float Divide(float a, float b) const {
 #ifdef __CUDA_ARCH__
       return __fdividef(a, b);
+#elif defined(__HIPCC__)
+      return a / b;
 #else
       return a / b;
 #endif

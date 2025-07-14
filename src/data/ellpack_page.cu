@@ -25,6 +25,10 @@
 #include "xgboost/context.h"                // for Context
 #include "xgboost/data.h"                   // for DMatrix
 
+#if defined(XGBOOST_USE_HIP)
+#include <rocprim/rocprim.hpp>
+#endif
+
 namespace xgboost {
 EllpackPage::EllpackPage() : impl_{new EllpackPageImpl{}} {}
 

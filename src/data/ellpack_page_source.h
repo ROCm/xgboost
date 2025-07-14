@@ -322,7 +322,7 @@ using ExtEllpackPageHostSource =
 using ExtEllpackPageSource =
     ExtEllpackPageSourceImpl<EllpackMmapStreamPolicy<EllpackPage, EllpackFormatPolicy>>;
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 template <typename F>
 inline void EllpackPageSourceImpl<F>::Fetch() {
   // silent the warning about unused variables.

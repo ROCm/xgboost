@@ -2,6 +2,7 @@
  * Copyright 2017-2024, XGBoost contributors
  */
 #pragma once
+#if defined(XGBOOST_USE_CUDA)
 #include <thrust/binary_search.h>                       // thrust::upper_bound
 #include <thrust/device_ptr.h>                          // for device_ptr
 #include <thrust/device_vector.h>                       // for device_vector
@@ -833,3 +834,7 @@ class LDGIterator {
   }
 };
 }  // namespace dh
+
+#elif defined(XGBOOST_USE_HIP)
+#include "device_helpers.hip.h"
+#endif

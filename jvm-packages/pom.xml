@@ -66,6 +66,7 @@
         <scalatest.version>3.2.19</scalatest.version>
         <scala-collection-compat.version>2.12.0</scala-collection-compat.version>
         <skip.native.build>false</skip.native.build>
+        <use.hip>OFF</use.hip>
 
         <!-- SPARK-36796 for JDK-17 test-->
         <extraJavaTestArgs>

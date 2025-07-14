@@ -46,7 +46,7 @@ void DMatrixProxy::SetCSRData(char const *c_indptr, char const *c_indices, char 
 namespace cuda_impl {
 std::shared_ptr<DMatrix> CreateDMatrixFromProxy(Context const *ctx,
                                                 std::shared_ptr<DMatrixProxy> proxy, float missing);
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 std::shared_ptr<DMatrix> CreateDMatrixFromProxy(Context const *, std::shared_ptr<DMatrixProxy>,
                                                 float) {
   return nullptr;

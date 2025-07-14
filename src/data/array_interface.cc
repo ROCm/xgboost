@@ -6,7 +6,7 @@
 #include "../common/common.h"  // for AssertGPUSupport
 
 namespace xgboost {
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 void ArrayInterfaceHandler::SyncCudaStream(int64_t) { common::AssertGPUSupport(); }
 bool ArrayInterfaceHandler::IsCudaPtr(void const *) { return false; }
 #endif  // !defined(XGBOOST_USE_CUDA)

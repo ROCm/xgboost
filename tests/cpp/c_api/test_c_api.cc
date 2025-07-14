@@ -347,8 +347,13 @@ TEST(CAPI, BuildInfo) {
   XGBuildInfo(&out);
   auto loaded = Json::Load(StringView{out});
   ASSERT_TRUE(get<Object const>(loaded).find("USE_OPENMP") != get<Object const>(loaded).cend());
+#if defined(XGBOOST_USE_CUDA)
   ASSERT_TRUE(get<Object const>(loaded).find("USE_CUDA") != get<Object const>(loaded).cend());
   ASSERT_TRUE(get<Object const>(loaded).find("USE_NCCL") != get<Object const>(loaded).cend());
+#elif defined(XGBOOST_USE_HIP)
+  ASSERT_TRUE(get<Object const>(loaded).find("USE_HIP") != get<Object const>(loaded).cend());
+  ASSERT_TRUE(get<Object const>(loaded).find("USE_RCCL") != get<Object const>(loaded).cend());
+#endif
 }
 
 TEST(CAPI, NullPtr) {
@@ -595,7 +600,7 @@ TEST(CAPI, XGDMatrixGetQuantileCut) {
   TestXGDMatrixGetQuantileCut(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST(CAPI, GPUXGDMatrixGetQuantileCut) {
   auto ctx = MakeCUDACtx(0);
   TestXGDMatrixGetQuantileCut(&ctx);

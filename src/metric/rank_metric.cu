@@ -24,6 +24,10 @@
 #include "xgboost/logging.h"             // for CHECK
 #include "xgboost/metric.h"
 
+#if defined(XGBOOST_USE_HIP)
+#include <hipcub/hipcub.hpp>
+#endif
+
 namespace xgboost::metric {
 // tag the this file, used by force static link later.
 DMLC_REGISTRY_FILE_TAG(rank_metric_gpu);

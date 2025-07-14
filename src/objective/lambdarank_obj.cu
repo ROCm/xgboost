@@ -34,6 +34,10 @@
 #include "xgboost/logging.h"
 #include "xgboost/span.h"  // for Span
 
+#if defined(XGBOOST_USE_HIP)
+#include <hipcub/hipcub.hpp>
+#endif
+
 namespace xgboost::obj {
 DMLC_REGISTRY_FILE_TAG(lambdarank_obj_cu);
 
@@ -525,15 +529,13 @@ void LambdaRankGetGradientPairwise(Context const* ctx, std::int32_t iter,
   }
 }
 
-namespace {
 struct ReduceOp {
-  template <typename Tup>
-  Tup XGBOOST_DEVICE operator()(Tup const& l, Tup const& r) {
+    template <typename Tup>
+    Tup XGBOOST_DEVICE operator()(Tup const& l, Tup const& r) const {
     return thrust::make_tuple(thrust::get<0>(l) + thrust::get<0>(r),
                               thrust::get<1>(l) + thrust::get<1>(r));
   }
 };
-}  // namespace
 
 void LambdaRankUpdatePositionBias(Context const* ctx, linalg::VectorView<double const> li_full,
                                   linalg::VectorView<double const> lj_full,

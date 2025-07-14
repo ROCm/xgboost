@@ -10,7 +10,7 @@ dependencies:
 - pandas
 - pytest
 - boto3
-- hypothesis
+- hypothesis<=6.112
 - jsonschema
 - cupy>=13.2
 - python-graphviz

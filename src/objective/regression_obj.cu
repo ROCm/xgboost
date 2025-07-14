@@ -37,11 +37,11 @@
 
 #include "regression_param.h"
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include "../common/cuda_context.cuh"  // for CUDAContext
 #include "../common/device_helpers.cuh"
 #include "../common/linalg_op.cuh"
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA), defined(XGBOOST_USE_HIP)
 
 #if defined(XGBOOST_USE_SYCL)
 #include "../../plugin/sycl/common/linalg_op.h"
@@ -55,9 +55,9 @@ void CheckRegInputs(MetaInfo const& info, HostDeviceVector<bst_float> const& pre
 }
 }  // anonymous namespace
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 DMLC_REGISTRY_FILE_TAG(regression_obj_gpu);
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 
 
@@ -75,7 +75,7 @@ class RegLossObj : public FitInterceptGlmLike {
                              [](float y) -> bool { return Loss::CheckLabel(y); });
         },
         [&] {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
           auto cuctx = ctx_->CUDACtx();
           auto it = dh::MakeTransformIterator<bool>(
               thrust::make_counting_iterator(0ul), [=] XGBOOST_DEVICE(std::size_t i) -> bool {

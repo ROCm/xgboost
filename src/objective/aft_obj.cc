@@ -16,6 +16,6 @@ DMLC_REGISTRY_FILE_TAG(aft_obj);
 }  // namespace obj
 }  // namespace xgboost
 
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "aft_obj.cu"
 #endif  // XGBOOST_USE_CUDA

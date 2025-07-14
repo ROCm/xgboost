@@ -3,8 +3,13 @@
  */
 #include <thrust/sort.h>
 
-#include <cstdint>      // std::int32_t
-#include <cub/cub.cuh>  // NOLINT
+#include <cstdint>                     // std::int32_t
+
+#if defined(XGBOOST_USE_CUDA)
+#include <cub/cub.cuh>                 // NOLINT
+#elif defined(XGBOOST_USE_HIP)
+#include <hipcub/hipcub.hpp>           // NOLINT
+#endif
 
 #include "../collective/aggregator.h"
 #include "../common/cuda_context.cuh"  // CUDAContext
@@ -23,6 +28,7 @@ void EncodeTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
   auto cuctx = ctx->CUDACtx();
   size_t n_samples = position.size();
   dh::device_vector<bst_node_t> sorted_position(position.size());
+
   dh::safe_cuda(cudaMemcpyAsync(sorted_position.data().get(), position.data(),
                                 position.size_bytes(), cudaMemcpyDeviceToDevice, cuctx->Stream()));
 
@@ -78,6 +84,7 @@ void EncodeTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
   // flag for whether there's ignored position
   bst_node_t* h_first_unique =
       reinterpret_cast<bst_node_t*>(pinned.subspan(sizeof(size_t), sizeof(bst_node_t)).data());
+
   dh::safe_cuda(cudaMemcpyAsync(h_num_runs, d_num_runs_out.data(), sizeof(size_t),
                                 cudaMemcpyDeviceToHost, copy_stream.View()));
   dh::safe_cuda(cudaMemcpyAsync(h_first_unique, d_unique_out.data(), sizeof(bst_node_t),

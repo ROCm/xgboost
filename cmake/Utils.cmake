@@ -1,6 +1,5 @@
 # Automatically set source group based on folder
 function(auto_source_group SOURCES)
-
   foreach(FILE ${SOURCES})
       get_filename_component(PARENT_DIR "${FILE}" PATH)
 
@@ -143,6 +142,23 @@ function(xgboost_set_cuda_flags target)
   endif()
 endfunction()
 
+# Set HIP related flags to target.
+function(xgboost_set_hip_flags target)
+  if (USE_DEVICE_DEBUG)
+    target_compile_options(${target} PRIVATE
+      $<$<AND:$<CONFIG:DEBUG>,$<COMPILE_LANGUAGE:HIP>>:-G>)
+  endif (USE_DEVICE_DEBUG)
+
+  target_compile_definitions(${target} PRIVATE -DXGBOOST_USE_HIP=1)
+  target_include_directories(${target} PRIVATE ${xgboost_SOURCE_DIR}/rocgputreeshap)
+  target_include_directories(${target} PRIVATE ${xgboost_SOURCE_DIR}/warp-primitives/include)
+
+  set_target_properties(${target} PROPERTIES
+    HIP_STANDARD 17
+    HIP_STANDARD_REQUIRED ON
+    HIP_SEPARABLE_COMPILATION OFF)
+endfunction(xgboost_set_hip_flags)
+
 function(xgboost_link_nccl target)
   set(xgboost_nccl_flags -DXGBOOST_USE_NCCL=1)
   if(USE_DLOPEN_NCCL)
@@ -159,6 +175,27 @@ function(xgboost_link_nccl target)
     target_compile_definitions(${target} PRIVATE ${xgboost_nccl_flags})
     if(NOT USE_DLOPEN_NCCL)
       target_link_libraries(${target} PRIVATE ${NCCL_LIBRARY})
+    endif()
+  endif()
+endfunction()
+
+function(xgboost_link_rccl target)
+  set(xgboost_rccl_flags -DXGBOOST_USE_RCCL=1)
+  if(USE_DLOPEN_RCCL)
+    list(APPEND xgboost_rccl_flags -DXGBOOST_USE_DLOPEN_RCCL=1)
+  endif()
+
+  if(BUILD_STATIC_LIB)
+    target_include_directories(${target} PUBLIC ${RCCL_INCLUDE_DIR}/rccl)
+    target_compile_definitions(${target} PUBLIC ${xgboost_rccl_flags})
+    target_link_directories(${target} PUBLIC ${HIP_LIB_INSTALL_DIR})
+    target_link_libraries(${target} PUBLIC ${RCCL_LIBRARY})
+  else()
+    target_include_directories(${target} PRIVATE ${RCCL_INCLUDE_DIR}/rccl)
+    target_compile_definitions(${target} PRIVATE ${xgboost_rccl_flags})
+    target_link_directories(${target} PUBLIC ${HIP_LIB_INSTALL_DIR})
+    if(NOT USE_DLOPEN_RCCL)
+      target_link_libraries(${target} PRIVATE ${RCCL_LIBRARY})
     endif()
   endif()
 endfunction()
@@ -258,12 +295,20 @@ macro(xgboost_target_link_libraries target)
     xgboost_set_cuda_flags(${target})
   endif()
 
+  if (USE_HIP)
+    xgboost_set_hip_flags(${target})
+  endif (USE_HIP)
+
   if(PLUGIN_RMM)
     target_link_libraries(${target} PRIVATE rmm::rmm)
   endif()
 
   if(USE_NCCL)
     xgboost_link_nccl(${target})
+  endif()
+
+  if(USE_RCCL)
+    xgboost_link_rccl(${target})
   endif()
 
   if(USE_NVTX)

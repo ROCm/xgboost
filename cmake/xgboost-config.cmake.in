@@ -3,6 +3,8 @@
 set(USE_OPENMP @USE_OPENMP@)
 set(USE_CUDA @USE_CUDA@)
 set(USE_NCCL @USE_NCCL@)
+set(USE_HIP @USE_HIP@)
+set(USE_RCCL @USE_RCCL@)
 set(XGBOOST_BUILD_STATIC_LIB @BUILD_STATIC_LIB@)
 
 include(CMakeFindDependencyMacro)
@@ -14,6 +16,9 @@ if (XGBOOST_BUILD_STATIC_LIB)
   endif()
   if(USE_CUDA)
     find_dependency(CUDA)
+  endif()
+  if(USE_HIP)
+      find_dependency(HIP)
   endif()
   # nccl should be linked statically if xgboost is built as static library.
 endif (XGBOOST_BUILD_STATIC_LIB)

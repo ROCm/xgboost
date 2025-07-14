@@ -49,9 +49,9 @@ def run_worker(
         "federated_rank": rank,
     }
     if with_ssl:
-        comm_env["federated_server_cert_path"] = SERVER_CERT
-        comm_env["federated_client_key_path"] = CLIENT_KEY
-        comm_env["federated_client_cert_path"] = CLIENT_CERT
+        communicator_env["federated_server_cert_path"] = SERVER_CERT
+        communicator_env["federated_client_key_path"] = CLIENT_KEY
+        communicator_env["federated_client_cert_path"] = CLIENT_CERT
 
     cpu_count = os.cpu_count()
     assert cpu_count is not None

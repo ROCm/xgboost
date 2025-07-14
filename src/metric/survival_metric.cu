@@ -19,7 +19,7 @@
 #include "xgboost/json.h"
 #include "xgboost/metric.h"
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include "../common/cuda_context.cuh"  // for CUDAContext
 #endif  // XGBOOST_USE_CUDA
 
@@ -75,7 +75,7 @@ class ElementWiseSurvivalMetricsReduction {
     return res;
   }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
   PackedReduceResult DeviceReduceMetrics(Context const* ctx,
                                          const HostDeviceVector<bst_float>& weights,
@@ -112,7 +112,7 @@ class ElementWiseSurvivalMetricsReduction {
     return result;
   }
 
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA || defined(XGBOOST_USE_HIP)
 
   PackedReduceResult Reduce(Context const* ctx, const HostDeviceVector<bst_float>& weights,
                             const HostDeviceVector<bst_float>& labels_lower_bound,
@@ -124,7 +124,7 @@ class ElementWiseSurvivalMetricsReduction {
       result =
           CpuReduceMetrics(weights, labels_lower_bound, labels_upper_bound, preds, ctx->Threads());
     }
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     else {  // NOLINT
       preds.SetDevice(ctx->Device());
       labels_lower_bound.SetDevice(ctx->Device());
@@ -134,7 +134,7 @@ class ElementWiseSurvivalMetricsReduction {
       dh::safe_cuda(cudaSetDevice(ctx->Ordinal()));
       result = DeviceReduceMetrics(ctx, weights, labels_lower_bound, labels_upper_bound, preds);
     }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     return result;
   }
 

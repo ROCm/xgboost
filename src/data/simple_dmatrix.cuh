@@ -16,14 +16,28 @@
 
 namespace xgboost::data {
 
+#if defined(XGBOOST_USE_CUDA)
 template <typename AdapterBatchT>
 struct COOToEntryOp {
   AdapterBatchT batch;
+
   __device__ Entry operator()(size_t idx) {
     const auto& e = batch.GetElement(idx);
     return Entry(e.column_idx, e.value);
   }
 };
+#elif defined(XGBOOST_USE_HIP)
+template <typename AdapterBatchT>
+struct COOToEntryOp : thrust::unary_function<size_t, Entry> {
+  AdapterBatchT batch;
+  COOToEntryOp(AdapterBatchT batch): batch(batch) {};
+
+  __device__ Entry operator()(size_t idx) {
+    const auto& e = batch.GetElement(idx);
+    return Entry(e.column_idx, e.value);
+  }
+};
+#endif
 
 // Here the data is already correctly ordered and simply needs to be compacted
 // to remove missing data

@@ -15,14 +15,14 @@
 #include "../common/threading_utils.h"
 #include "metric_common.h"  // MetricNoCache
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include <thrust/functional.h>        // thrust::plus<>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform_reduce.h>
 
 #include "../common/cuda_context.cuh"  // for CUDAContext
 #include "../common/device_helpers.cuh"
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA || XGBOOST_USE_HIP
 
 namespace xgboost::metric {
 // tag the this file, used by force static link later.
@@ -80,7 +80,7 @@ class MultiClassMetricsReduction {
     return res;
   }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
   PackedReduceResult DeviceReduceMetrics(Context const* ctx,
                                          const HostDeviceVector<bst_float>& weights,
@@ -117,12 +117,13 @@ class MultiClassMetricsReduction {
         },
         PackedReduceResult(),
         thrust::plus<PackedReduceResult>());
+
     CheckLabelError(s_label_error[0], n_class);
 
     return result;
   }
 
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA || defined(XGBOOST_USE_HIP)
 
   PackedReduceResult Reduce(Context const* ctx, size_t n_class,
                             const HostDeviceVector<bst_float>& weights,
@@ -133,7 +134,7 @@ class MultiClassMetricsReduction {
     if (ctx->IsCPU()) {
       result = CpuReduceMetrics(weights, labels, preds, n_class, ctx->Threads());
     }
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     else {  // NOLINT
       preds.SetDevice(ctx->Device());
       labels.SetDevice(ctx->Device());
@@ -142,12 +143,12 @@ class MultiClassMetricsReduction {
       dh::safe_cuda(cudaSetDevice(ctx->Ordinal()));
       result = DeviceReduceMetrics(ctx, weights, labels, preds, n_class);
     }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     return result;
   }
 
  private:
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
   dh::PinnedMemory label_error_;
 #endif  // defined(XGBOOST_USE_CUDA)
 };

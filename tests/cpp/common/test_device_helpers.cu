@@ -131,7 +131,13 @@ TEST(DeviceHelpers, Reduce) {
   size_t kSize = std::numeric_limits<uint32_t>::max();
   auto it = thrust::make_counting_iterator(0ul);
   dh::XGBCachingDeviceAllocator<char> alloc;
+
+#if defined(XGBOOST_USE_CUDA)
   auto batched = dh::Reduce(thrust::cuda::par(alloc), it, it + kSize, 0ul, thrust::maximum<size_t>{});
+#elif defined(XGBOOST_USE_HIP)
+  auto batched = dh::Reduce(thrust::hip::par(alloc), it, it + kSize, 0ul, thrust::maximum<size_t>{});
+#endif
+
   CHECK_EQ(batched, kSize - 1);
 }
 

@@ -283,7 +283,7 @@ void TestPredictionDeviceAccess() {
     ASSERT_FALSE(from_cpu.DeviceCanRead());
   }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
   HostDeviceVector<float> from_cuda;
   {
     Context cuda_ctx = MakeCUDACtx(0);

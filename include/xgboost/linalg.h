@@ -30,11 +30,11 @@
 
 // decouple it from xgboost.
 #ifndef LINALG_HD
-#if defined(__CUDA__) || defined(__NVCC__)
+#if defined(__CUDA__) || defined(__NVCC__) || defined(__HIPCC__)
 #define LINALG_HD __host__ __device__
 #else
 #define LINALG_HD
-#endif  // defined (__CUDA__) || defined(__NVCC__)
+#endif  // defined (__CUDA__) || defined(__NVCC__) || defined(__HIPCC__)
 #endif  // LINALG_HD
 
 namespace xgboost::linalg {
@@ -118,7 +118,7 @@ using IndexToTag = std::conditional_t<std::is_integral_v<RemoveCRType<S>>, IntTa
 
 template <int32_t n, typename Fn>
 LINALG_HD constexpr auto UnrollLoop(Fn fn) {
-#if defined __CUDA_ARCH__
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
 #pragma unroll n
 #endif  // defined __CUDA_ARCH__
   for (int32_t i = 0; i < n; ++i) {
@@ -136,7 +136,7 @@ int32_t NativePopc(T v) {
 inline LINALG_HD int Popc(uint32_t v) {
 #if defined(__CUDA_ARCH__)
   return __popc(v);
-#elif defined(__GNUC__) || defined(__clang__)
+#elif defined(__GNUC__) || defined(__clang__) || defined(__HIPCC__)
   return __builtin_popcount(v);
 #elif defined(_MSC_VER)
   return __popcnt(v);
@@ -148,7 +148,7 @@ inline LINALG_HD int Popc(uint32_t v) {
 inline LINALG_HD int Popc(uint64_t v) {
 #if defined(__CUDA_ARCH__)
   return __popcll(v);
-#elif defined(__GNUC__) || defined(__clang__)
+#elif defined(__GNUC__) || defined(__clang__) || defined(__HIPCC__)
   return __builtin_popcountll(v);
 #elif defined(_MSC_VER) && defined(_M_X64)
   return __popcnt64(v);

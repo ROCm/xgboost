@@ -32,7 +32,7 @@ DMLC_REGISTRY_LINK_TAG(updater_prune);
 DMLC_REGISTRY_LINK_TAG(updater_quantile_hist);
 DMLC_REGISTRY_LINK_TAG(updater_approx);
 DMLC_REGISTRY_LINK_TAG(updater_sync);
-#ifdef XGBOOST_USE_CUDA
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 DMLC_REGISTRY_LINK_TAG(updater_gpu_hist);
-#endif  // XGBOOST_USE_CUDA
-}  // namespace xgboost::tree
+#endif  // XGBOOST_USE_CUDA, XGBOOST_USE_HIP
+}  // namespace tree

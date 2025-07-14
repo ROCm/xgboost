@@ -63,7 +63,8 @@ std::size_t SegmentedTrapezoidThreads(Context const *ctx, Span<U> group_ptr,
                out_group_threads_ptr.size());
   std::size_t total = 0;
   dh::safe_cuda(cudaMemcpy(&total, out_group_threads_ptr.data() + out_group_threads_ptr.size() - 1,
-                           sizeof(total), cudaMemcpyDeviceToHost));
+      sizeof(total), cudaMemcpyDeviceToHost));
+
   return total;
 }
 

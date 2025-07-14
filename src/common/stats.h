@@ -118,7 +118,7 @@ void WeightedSampleMean(Context const* ctx, bool is_column_split,
                         linalg::MatrixView<float const> d_v, common::Span<float const> d_w,
                         linalg::VectorView<float> d_out);
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 inline void Median(Context const*, linalg::TensorView<float const, 2>, OptionalWeights,
                    linalg::Tensor<float, 1>*) {
   common::AssertGPUSupport();

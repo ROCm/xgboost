@@ -32,8 +32,10 @@ struct TestStatus {
 
   int Get() {
     int h_status;
+
     dh::safe_cuda(cudaMemcpy(&h_status, status_,
                              sizeof(int), cudaMemcpyDeviceToHost));
+
     return h_status;
   }
 

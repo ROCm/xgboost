@@ -1,7 +1,7 @@
 /**
  * Copyright 2019-2024, XGBoost contributors
  */
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 
 #include "ellpack_page.h"
 
@@ -54,5 +54,4 @@ bst_idx_t EllpackPage::Size() const {
   return 0;
 }
 }  // namespace xgboost
-
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA || XGBOOST_USE_HIP

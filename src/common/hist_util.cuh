@@ -350,6 +350,7 @@ void ProcessWeightedSlidingWindow(Context const* ctx, Batch batch, MetaInfo cons
                                  batch_iter + begin,
                                  d_temp_weights.data(),  // output
                                  is_valid);
+
     CHECK_EQ(retit - d_temp_weights.data(), d_temp_weights.size());
   } else {
     CHECK_EQ(batch.NumRows(), weights.size());
@@ -363,6 +364,7 @@ void ProcessWeightedSlidingWindow(Context const* ctx, Batch batch, MetaInfo cons
                                  batch_iter + begin,
                                  d_temp_weights.data(),  // output
                                  is_valid);
+
     CHECK_EQ(retit - d_temp_weights.data(), d_temp_weights.size());
   }
 

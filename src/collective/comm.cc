@@ -11,7 +11,7 @@
 #include <string>     // for string
 #include <thread>     // for thread
 #include <utility>    // for move, forward
-#if !defined(XGBOOST_USE_NCCL)
+#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
 #include "../common/common.h"           // for AssertNCCLSupport
 #endif                                  // !defined(XGBOOST_USE_NCCL)
 #include "allgather.h"                  // for RingAllgather
@@ -221,7 +221,7 @@ RabitComm::RabitComm(std::string const& tracker_host, std::int32_t tracker_port,
   }
 }
 
-#if !defined(XGBOOST_USE_NCCL)
+#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
 Comm* RabitComm::MakeCUDAVar(Context const*, std::shared_ptr<Coll>) const {
   common::AssertGPUSupport();
   common::AssertNCCLSupport();

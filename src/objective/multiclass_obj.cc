@@ -13,6 +13,6 @@ DMLC_REGISTRY_FILE_TAG(multiclass_obj);
 }  // namespace obj
 }  // namespace xgboost
 
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "multiclass_obj.cu"
 #endif  // XGBOOST_USE_CUDA

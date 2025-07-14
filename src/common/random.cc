@@ -19,7 +19,7 @@ std::shared_ptr<HostDeviceVector<bst_feature_t>> ColumnSampler::ColSample(
   auto p_new_features = std::make_shared<HostDeviceVector<bst_feature_t>>();
 
   if (ctx_->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     cuda_impl::SampleFeature(ctx_, n, p_features, p_new_features, this->feature_weights_,
                              &this->weight_buffer_, &this->idx_buffer_, &rng_);
     return p_new_features;

@@ -11,7 +11,7 @@
 
 #include "../../../src/common/algorithm.cuh"
 #include "../../../src/common/device_helpers.cuh"
-#include "../helpers.h"  // MakeCUDACtx
+#include "../helpers.h"  // CreateEmptyGenericParam
 
 namespace xgboost {
 namespace common {

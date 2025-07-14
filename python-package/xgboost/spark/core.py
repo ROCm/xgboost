@@ -616,6 +616,9 @@ FeatureProp = namedtuple(
 _MODEL_CHUNK_SIZE = 4096 * 1024
 
 
+_MODEL_CHUNK_SIZE = 4096 * 1024
+
+
 class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
     _input_kwargs: Dict[str, Any]
 

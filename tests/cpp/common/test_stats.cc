@@ -75,7 +75,7 @@ TEST(Stats, Median) {
     auto m = out(0);
     ASSERT_EQ(m, .5f);
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     ctx = ctx.MakeCUDA(0);
     ASSERT_FALSE(ctx.IsCPU());
     Median(&ctx, values, weights, &out);
@@ -94,7 +94,7 @@ TEST(Stats, Median) {
     ASSERT_EQ(out(0), .5f);
     ASSERT_EQ(out(1), .5f);
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     ctx = ctx.MakeCUDA(0);
     Median(&ctx, values, weights, &out);
     ASSERT_EQ(out(0), .5f);
@@ -126,7 +126,7 @@ TEST(Stats, Mean) {
   TestMean(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST(Stats, GpuMean) {
   auto ctx = MakeCUDACtx(0);
   TestMean(&ctx);
@@ -149,7 +149,7 @@ void TestSampleMean(Context const* ctx) {
   auto device = ctx->Device();
   std::int32_t n_workers =
       device.IsCPU() ? std::min(4u, std::thread::hardware_concurrency()) : curt::AllVisibleGPUs();
-#if !defined(XGBOOST_USE_NCCL)
+#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
   if (device.IsCUDA()) {
     return;
   }
@@ -204,7 +204,7 @@ void TestWeightedSampleMean(Context const* ctx) {
   auto device = ctx->Device();
   std::int32_t n_workers =
       device.IsCPU() ? std::min(4u, std::thread::hardware_concurrency()) : curt::AllVisibleGPUs();
-#if !defined(XGBOOST_USE_NCCL)
+#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
   if (device.IsCUDA()) {
     return;
   }
@@ -243,7 +243,7 @@ TEST(Stats, WeightedSampleMean) {
   TestWeightedSampleMean(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST(Stats, GpuSampleMean) {
   auto ctx = MakeCUDACtx(0);
   TestSampleMean(&ctx);

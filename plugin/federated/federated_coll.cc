@@ -54,7 +54,7 @@ namespace {
 }
 }  // namespace
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 Coll *FederatedColl::MakeCUDAVar() {
   common::AssertGPUSupport();
   return nullptr;

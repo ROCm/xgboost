@@ -28,11 +28,13 @@ void IterativeDMatrix::InitFromCUDA(Context const* ctx, BatchParam const& p,
 
   // Sketch for all batches.
 
-  std::int32_t current_device{dh::CurrentDevice()};
-  auto get_ctx = [&]() {
-    Context d_ctx = (ctx->IsCUDA()) ? *ctx : Context{}.MakeCUDA(current_device);
-    CHECK(!d_ctx.IsCPU());
-    return d_ctx;
+  int32_t current_device;
+
+  dh::safe_cuda(cudaGetDevice(&current_device));
+  auto get_device = [&]() {
+    auto d = (ctx->IsCPU()) ? DeviceOrd::CUDA(current_device) : ctx->Device();
+    CHECK(!d.IsCPU());
+    return d;
   };
 
   fmat_ctx_ = get_ctx();

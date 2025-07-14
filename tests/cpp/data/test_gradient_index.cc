@@ -156,7 +156,7 @@ TEST(GradientIndex, PushBatch) {
   test(0.9f);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 namespace {
 class GHistIndexMatrixTest : public testing::TestWithParam<std::tuple<float, float>> {

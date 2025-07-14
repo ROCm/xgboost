@@ -30,8 +30,8 @@ DMLC_REGISTER_PARAMETER(LinearTrainParam);
 // List of files that will be force linked in static links.
 DMLC_REGISTRY_LINK_TAG(updater_shotgun);
 DMLC_REGISTRY_LINK_TAG(updater_coordinate);
-#ifdef XGBOOST_USE_CUDA
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 DMLC_REGISTRY_LINK_TAG(updater_gpu_coordinate);
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA, XGBOOST_USE_HIP
 }  // namespace linear
 }  // namespace xgboost

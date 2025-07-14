@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2024, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 #include <algorithm>  // for sort
 #include <cstddef>    // for size_t
 #include <cstdint>    // for uint64_t, int8_t
@@ -40,12 +40,22 @@ Result GetUniqueId(Comm const& comm, std::shared_ptr<NcclStub> stub, std::shared
 }
 
 inline constexpr std::size_t kUuidLength =
-    sizeof(std::declval<cudaDeviceProp>().uuid) / sizeof(std::uint64_t);
+#if defined(XGBOOST_USE_CUDA)
+  sizeof(std::declval<cudaDeviceProp>().uuid) / sizeof(std::uint64_t);
+#elif defined(XGBOOST_USE_HIP)
+  sizeof(hipUUID) / sizeof(uint64_t);
+#endif
 
 void GetCudaUUID(xgboost::common::Span<std::uint64_t, kUuidLength> const& uuid, DeviceOrd device) {
+#if defined(XGBOOST_USE_CUDA)
   cudaDeviceProp prob{};
   dh::safe_cuda(cudaGetDeviceProperties(&prob, device.ordinal));
-  std::memcpy(uuid.data(), static_cast<void*>(&(prob.uuid)), sizeof(prob.uuid));
+  std::memcpy(uuid.data(), static_cast<void *>(&(prob.uuid)), sizeof(prob.uuid));
+#elif defined(XGBOOST_USE_HIP)
+  hipUUID id;
+  hipDeviceGetUuid(&id, device.ordinal);
+  std::memcpy(uuid.data(), static_cast<void *>(&id), sizeof(id));
+#endif
 }
 
 std::string PrintUUID(xgboost::common::Span<std::uint64_t, kUuidLength> const& uuid) {

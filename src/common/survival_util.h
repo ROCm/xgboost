@@ -25,12 +25,12 @@ DECLARE_FIELD_ENUM_CLASS(xgboost::common::ProbabilityDistributionType);
 namespace xgboost {
 namespace common {
 
-#ifndef __CUDACC__
+#if !defined(__CUDACC__) && !defined(__HIPCC__)
 
 using std::log;
 using std::fmax;
 
-#endif  // __CUDACC__
+#endif  // __CUDACC__ && __HIPCC__
 
 enum class CensoringType : uint8_t {
   kUncensored, kRightCensored, kLeftCensored, kIntervalCensored

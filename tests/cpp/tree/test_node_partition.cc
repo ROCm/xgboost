@@ -20,10 +20,10 @@ TEST(Updater, HasNodePosition) {
   up.reset(TreeUpdater::Create("grow_quantile_histmaker", &ctx, &task));
   ASSERT_TRUE(up->HasNodePosition());
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
   ctx = MakeCUDACtx(0);
   up.reset(TreeUpdater::Create("grow_gpu_hist", &ctx, &task));
   ASSERT_TRUE(up->HasNodePosition());
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 }
 }  // namespace xgboost

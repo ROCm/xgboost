@@ -19,6 +19,8 @@
 
 #if defined(XGBOOST_USE_CUDA)
 #include "cuda_fp16.h"  // for __half
+#elif defined(XGBOOST_USE_HIP)
+#include <hip/hip_fp16.h>  // for __half
 #endif
 
 namespace xgboost::collective {
@@ -26,6 +28,8 @@ template <typename T>
 bool constexpr IsFloatingPointV() {
 #if defined(XGBOOST_USE_CUDA)
   return std::is_floating_point_v<T> || std::is_same_v<T, __half>;
+#elif defined(XGBOOST_USE_HIP) /* hack for HIP/Clang */
+  return std::is_floating_point_v<T> || (sizeof(T) == sizeof(unsigned short));
 #else
   return std::is_floating_point_v<T>;
 #endif  // defined(XGBOOST_USE_CUDA)
@@ -136,7 +140,7 @@ bool constexpr IsFloatingPointV() {
   }
 }
 
-#if !defined(XGBOOST_USE_NCCL)
+#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
 Coll* Coll::MakeCUDAVar() {
   LOG(FATAL) << "NCCL is required for device communication.";
   return nullptr;

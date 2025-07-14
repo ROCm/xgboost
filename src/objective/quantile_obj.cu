@@ -20,7 +20,7 @@
 #include "xgboost/objective.h"              // ObjFunction
 #include "xgboost/parameter.h"              // XGBoostParameter
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 #include "../common/linalg_op.cuh"  // ElementWiseKernel
 #include "../common/stats.cuh"      // SegmentedQuantile
@@ -109,7 +109,7 @@ class QuantileRegression : public ObjFunction {
 
     double sw{0};
     if (ctx_->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
       alpha_.SetDevice(ctx_->Device());
       auto d_alpha = alpha_.ConstDeviceSpan();
       auto d_labels = info.labels.View(ctx_->Device());
@@ -224,7 +224,7 @@ XGBOOST_REGISTER_OBJECTIVE(QuantileRegression, QuantileRegression::Name())
     .describe("Regression with quantile loss.")
     .set_body([]() { return new QuantileRegression(); });
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 DMLC_REGISTRY_FILE_TAG(quantile_obj_gpu);
 #endif  // defined(XGBOOST_USE_CUDA)
 }  // namespace xgboost::obj

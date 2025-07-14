@@ -23,6 +23,10 @@
 #include "xgboost/logging.h"                    // for CHECK
 #include "xgboost/span.h"                       // for Span
 
+#if defined(XGBOOST_USE_HIP)
+#include <hipcub/hipcub.hpp>
+#endif
+
 namespace xgboost::ltr {
 namespace cuda_impl {
 void CalcQueriesDCG(Context const* ctx, linalg::VectorView<float const> d_labels,

@@ -194,7 +194,7 @@ BatchSet<ExtSparsePage> IterativeDMatrix::GetExtBatches(Context const* ctx,
   return BatchSet<ExtSparsePage>(begin_iter);
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 inline void IterativeDMatrix::InitFromCUDA(Context const*, BatchParam const&, std::int64_t,
                                            DataIterHandle, float, std::shared_ptr<DMatrix>) {
   // silent the warning about unused variables.

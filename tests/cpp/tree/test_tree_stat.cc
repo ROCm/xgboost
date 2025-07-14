@@ -52,7 +52,7 @@ class UpdaterTreeStatTest : public ::testing::Test {
   }
 };
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST_F(UpdaterTreeStatTest, GpuHist) {
   auto ctx = MakeCUDACtx(0);
   this->RunTest(&ctx, "grow_gpu_hist");
@@ -170,7 +170,7 @@ TEST_F(TestSplitWithEta, Exact) {
   this->Run(&ctx, n_targets, "grow_colmaker");
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST_F(TestSplitWithEta, GpuHist) {
   auto ctx = MakeCUDACtx(0);
   bst_target_t n_targets{1};
@@ -256,7 +256,7 @@ TEST_F(TestMinSplitLoss, Hist) {
   this->RunTest(&ctx, "grow_quantile_histmaker");
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST_F(TestMinSplitLoss, GpuHist) {
   auto ctx = MakeCUDACtx(0);
   this->RunTest(&ctx, "grow_gpu_hist");
@@ -266,5 +266,5 @@ TEST_F(TestMinSplitLoss, GpuApprox) {
   auto ctx = MakeCUDACtx(0);
   this->RunTest(&ctx, "grow_gpu_approx");
 }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 }  // namespace xgboost

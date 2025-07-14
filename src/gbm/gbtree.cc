@@ -104,7 +104,7 @@ void GBTree::Configure(Args const& cfg) {
     cpu_predictor_ = std::unique_ptr<Predictor>(Predictor::Create("cpu_predictor", this->ctx_));
   }
   cpu_predictor_->Configure(cfg);
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
   auto n_gpus = curt::AllVisibleGPUs();
   if (!gpu_predictor_) {
     gpu_predictor_ = std::unique_ptr<Predictor>(Predictor::Create("gpu_predictor", this->ctx_));
@@ -112,7 +112,7 @@ void GBTree::Configure(Args const& cfg) {
   if (n_gpus != 0) {
     gpu_predictor_->Configure(cfg);
   }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 #if defined(XGBOOST_USE_SYCL)
   if (!sycl_predictor_) {
@@ -151,7 +151,7 @@ void GBTree::Configure(Args const& cfg) {
 
 void GPUCopyGradient(Context const*, linalg::Matrix<GradientPair> const*, bst_group_t,
                      linalg::Matrix<GradientPair>*)
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     ;  // NOLINT
 #else
 {
@@ -636,7 +636,7 @@ void GBTree::InplacePredict(std::shared_ptr<DMatrix> p_m, float missing,
  */
 void GPUDartPredictInc(common::Span<float>, common::Span<float>, float, size_t, bst_group_t,
                        bst_group_t)
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     ;  // NOLINT
 #else
 {
@@ -648,7 +648,7 @@ void GPUDartInplacePredictInc(common::Span<float> /*out_predts*/, common::Span<f
                               float /*tree_w*/, size_t /*n_rows*/,
                               linalg::TensorView<float const, 1> /*base_score*/,
                               bst_group_t /*n_groups*/, bst_group_t /*group*/)
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     ;  // NOLINT
 #else
 {

@@ -36,7 +36,7 @@ namespace common {
 bool CheckNAN(double v) {
   return ISNAN(v);
 }
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 double LogGamma(double v) {
   return lgammafn(v);
 }

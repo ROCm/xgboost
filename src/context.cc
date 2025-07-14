@@ -33,7 +33,7 @@ Context::Context() : cfs_cpu_count_{common::GetCfsCPUCount()} {}
 namespace {
 inline constexpr char const* kDevice = "device";
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 DeviceOrd CUDAOrdinal(DeviceOrd device, bool) {
   device = DeviceOrd::CPU();
   return device;
@@ -281,10 +281,10 @@ std::int32_t Context::Threads() const {
   return n_threads;
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 CUDAContext const* Context::CUDACtx() const {
   common::AssertGPUSupport();
   return nullptr;
 }
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 }  // namespace xgboost

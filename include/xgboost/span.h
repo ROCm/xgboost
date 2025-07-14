@@ -41,7 +41,9 @@
 
 #if defined(__CUDACC__)
 #include <cuda_runtime.h>
-#endif  // defined(__CUDACC__)
+#elif defined(__HIPCC__)
+#include <hip/hip_runtime.h>
+#endif
 
 /*!
  * The version number 1910 is picked up from GSL.
@@ -103,7 +105,42 @@ namespace xgboost::common {
 
 #define SPAN_CHECK KERNEL_CHECK
 
-#else  // ------------------------------ not CUDA ----------------------------
+#elif defined(__HIPCC__)
+// Usual logging facility is not available inside device code.
+
+#if defined(_MSC_VER)
+
+// Windows HIP doesn't have __assert_fail.
+#define HIP_KERNEL_CHECK(cond)           \
+  do {                                    \
+    if (XGBOOST_EXPECT(!(cond), false)) { \
+      __builtin_trap();                           \
+    }                                     \
+  } while (0)
+
+#else  // defined(_MSC_VER)
+
+#define __ASSERT_STR_HELPER(x) #x
+
+#if 0
+#define HIP_KERNEL_CHECK(cond)  \
+  (XGBOOST_EXPECT((cond), true) \
+       ? static_cast<void>(0)   \
+       : __assert_fail(__ASSERT_STR_HELPER((cond)), __FILE__, __LINE__, __PRETTY_FUNCTION__))
+#else
+#define HIP_KERNEL_CHECK(cond)  \
+  (XGBOOST_EXPECT((cond), true) \
+       ? static_cast<void>(0)   \
+       : __builtin_trap())
+#endif
+
+#endif  // defined(_MSC_VER)
+
+#define KERNEL_CHECK HIP_KERNEL_CHECK
+
+#define SPAN_CHECK KERNEL_CHECK
+
+#else  // ------------------------------ not CUDA or HIP ----------------------------
 
 #if defined(XGBOOST_STRICT_R_MODE) && XGBOOST_STRICT_R_MODE == 1
 
@@ -128,7 +165,7 @@ namespace xgboost::common {
 
 #endif  // defined(XGBOOST_STRICT_R_MODE)
 
-#endif  // __CUDA_ARCH__
+#endif  // __CUDA_ARCH__ || __HIPCC__
 
 #define SPAN_LT(lhs, rhs) SPAN_CHECK((lhs) < (rhs))
 
@@ -324,7 +361,7 @@ struct IsSpanOracle<Span<T, Extent>> : std::true_type {};
 template <class T>
 struct IsSpan : public IsSpanOracle<typename std::remove_cv_t<T>> {};
 
-// Re-implement std algorithms here to adopt CUDA.
+// Re-implement std algorithms here to adopt CUDA/HIP
 template <typename T>
 struct Less {
   XGBOOST_DEVICE constexpr bool operator()(const T& _x, const T& _y) const {

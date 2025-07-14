@@ -13,6 +13,7 @@ namespace xgboost::common {
 namespace {
 void SetDeviceForTest(DeviceOrd device) {
   int n_devices;
+
   dh::safe_cuda(cudaGetDeviceCount(&n_devices));
   device.ordinal %= n_devices;
   dh::safe_cuda(cudaSetDevice(device.ordinal));

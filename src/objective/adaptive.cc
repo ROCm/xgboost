@@ -161,10 +161,10 @@ void UpdateTreeLeafHost(Context const* ctx, std::vector<bst_node_t> const& posit
   UpdateLeafValues(ctx, &quantiles, nidx, info, learning_rate, p_tree);
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 void UpdateTreeLeafDevice(Context const*, common::Span<bst_node_t const>, std::int32_t,
                           MetaInfo const&, float, HostDeviceVector<float> const&, float, RegTree*) {
   common::AssertGPUSupport();
 }
-#endif  // !defined(XGBOOST_USE_CUDA)
+#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 }  // namespace xgboost::obj::detail

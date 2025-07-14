@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2024, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 #include <gtest/gtest.h>
 #include <thrust/device_vector.h>  // for device_vector
 #include <thrust/equal.h>          // for equal

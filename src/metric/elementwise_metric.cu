@@ -21,7 +21,7 @@
 #include "xgboost/collective/result.h"  // for SafeColl
 #include "xgboost/metric.h"
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include <thrust/functional.h>        // thrust::plus<>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/transform_reduce.h>
@@ -50,7 +50,7 @@ PackedReduceResult Reduce(Context const* ctx, MetaInfo const& info, Fn&& loss,
   // For that reason we transfer data to host in case of sycl is used for propper execution.
   auto labels = info.labels.View(ctx->Device().IsSycl() ? DeviceOrd::CPU() : ctx->Device());
   if (ctx->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     thrust::counting_iterator<size_t> begin(0);
     thrust::counting_iterator<size_t> end = begin + labels.Size() * num_preds;
     result = thrust::transform_reduce(

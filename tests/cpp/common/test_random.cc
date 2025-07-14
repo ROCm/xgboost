@@ -58,7 +58,7 @@ TEST(ColumnSampler, Test) {
   TestBasic(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST(ColumnSampler, GPUTest) {
   auto ctx = MakeCUDACtx(0);
   TestBasic(&ctx);
@@ -156,7 +156,7 @@ TEST(ColumnSampler, WeightedSampling) {
   TestWeightedSampling(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST(ColumnSampler, GPUWeightedSampling) {
   auto ctx = MakeCUDACtx(0);
   TestWeightedSampling(&ctx);
@@ -186,7 +186,7 @@ TEST(ColumnSampler, WeightedMultiSampling) {
   TestWeightedMultiSampling(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 TEST(ColumnSampler, GPUWeightedMultiSampling) {
   auto ctx = MakeCUDACtx(0);
   TestWeightedMultiSampling(&ctx);

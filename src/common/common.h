@@ -24,6 +24,13 @@
 
 #define WITH_CUDA() true
 
+#elif defined(__HIPCC__)
+#include "cuda_to_hip.h"
+#include <thrust/system/hip/error.h>
+#include <thrust/system_error.h>
+
+#define WITH_CUDA() true
+
 #else
 
 #define WITH_CUDA() false
@@ -35,7 +42,7 @@
 #endif
 
 namespace dh {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(__HIPCC__)
 /*
  * Error handling functions
  */
@@ -164,13 +171,13 @@ class Range {
 };
 
 inline void AssertGPUSupport() {
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
     LOG(FATAL) << "XGBoost version not compiled with GPU support.";
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA && XGBOOST_USE_HIP
 }
 
 inline void AssertNCCLSupport() {
-#if !defined(XGBOOST_USE_NCCL)
+#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
     LOG(FATAL) << "XGBoost version not compiled with NCCL support.";
 #endif  // !defined(XGBOOST_USE_NCCL)
 }

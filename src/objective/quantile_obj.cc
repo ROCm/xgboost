@@ -13,6 +13,6 @@ DMLC_REGISTRY_FILE_TAG(quantile_obj);
 }  // namespace obj
 }  // namespace xgboost
 
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "quantile_obj.cu"
-#endif  // !defined(XBGOOST_USE_CUDA)
+#endif  // !defined(XBGOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)

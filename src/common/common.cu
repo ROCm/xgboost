@@ -5,6 +5,7 @@
 #include <thrust/system_error.h>
 
 #include "common.h"
+#include "cuda_to_hip.h"
 
 namespace dh {
 void ThrowOnCudaError(cudaError_t code, const char *file, int line) {

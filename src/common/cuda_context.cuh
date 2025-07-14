@@ -4,7 +4,6 @@
 #ifndef XGBOOST_COMMON_CUDA_CONTEXT_CUH_
 #define XGBOOST_COMMON_CUDA_CONTEXT_CUH_
 #include <thrust/execution_policy.h>
-
 #include "device_helpers.cuh"
 
 namespace xgboost {

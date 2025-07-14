@@ -22,6 +22,10 @@ class BuildConfiguration:  # pylint: disable=R0902
     plugin_federated: bool = False
     # Whether to enable rmm support
     plugin_rmm: bool = False
+    # Whether to enable HIP 
+    use_hip: bool = False
+    # Whether to enable RCCL
+    use_rccl: bool = False
     # Special option: See explanation below
     use_system_libxgboost: bool = False
 

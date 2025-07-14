@@ -60,12 +60,12 @@ namespace cuda_impl {
 void FitStump(Context const* ctx, MetaInfo const& info,
               linalg::TensorView<GradientPair const, 2> gpair, linalg::VectorView<float> out);
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 inline void FitStump(Context const*, MetaInfo const&, linalg::TensorView<GradientPair const, 2>,
                      linalg::VectorView<float>) {
   common::AssertGPUSupport();
 }
-#endif  // !defined(XGBOOST_USE_CUDA)
+#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 }  // namespace cuda_impl
 
 void FitStump(Context const* ctx, MetaInfo const& info, linalg::Matrix<GradientPair> const& gpair,

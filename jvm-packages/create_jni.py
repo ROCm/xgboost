@@ -18,6 +18,8 @@ CONFIG = {
     "USE_OPENMP": "ON",
     "USE_CUDA": "OFF",
     "USE_NCCL": "OFF",
+    "USE_HIP": "OFF",
+    "USE_RCCL": "OFF",
     "JVM_BINDINGS": "ON",
     "LOG_CAPI_INVOCATION": "OFF",
     "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -80,7 +82,7 @@ def native_build(cli_args: argparse.Namespace) -> None:
 
     print("building Java wrapper", flush=True)
     with cd(".."):
-        build_dir = "build-gpu" if cli_args.use_cuda == "ON" else "build"
+        build_dir = 'build-gpu' if cli_args.use_cuda == 'ON' or cli_args.use_hip == 'ON' else 'build'
         maybe_makedirs(build_dir)
 
         if sys.platform == "linux":
@@ -97,6 +99,10 @@ def native_build(cli_args: argparse.Namespace) -> None:
             CONFIG["USE_CUDA"] = "ON"
             CONFIG["USE_NCCL"] = "ON"
             CONFIG["USE_DLOPEN_NCCL"] = "OFF"
+        elif cli_args.use_hip== 'ON':
+            CONFIG['USE_HIP'] = 'ON'
+            CONFIG['USE_RCCL'] = 'ON'
+            CONFIG["USE_DLOPEN_RCCL"] = "OFF"
 
         args = ["-D{0}:BOOL={1}".format(k, v) for k, v in CONFIG.items()]
         if sys.platform != "win32":
@@ -190,6 +196,7 @@ if __name__ == "__main__":
         "--log-capi-invocation", type=str, choices=["ON", "OFF"], default="OFF"
     )
     parser.add_argument("--use-cuda", type=str, choices=["ON", "OFF"], default="OFF")
+    parser.add_argument("--use-hip", type=str, choices=["ON", "OFF"], default="OFF")
     parser.add_argument("--use-openmp", type=str, choices=["ON", "OFF"], default="ON")
     parser.add_argument("--use-debug", type=str, choices=["ON", "OFF"], default="OFF")
     parser.add_argument("--use-nvtx", type=str, choices=["ON", "OFF"], default="OFF")

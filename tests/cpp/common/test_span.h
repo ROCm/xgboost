@@ -99,7 +99,7 @@ struct TestRBeginREnd {
 
     Span<float> s (arr);
 
-#if defined(__CUDA_ARCH__)
+#if defined(__CUDA_ARCH__) || defined(__HIPCC__)
     auto rbeg = dh::trbegin(s);
     auto rend = dh::trend(s);
 #else

@@ -86,6 +86,7 @@ class GPUCoordinateUpdater : public LinearUpdater {  // NOLINT
     for (size_t fidx = 0; fidx < batch.Size(); fidx++) {
       auto col = page[fidx];
       auto seg = column_segments[fidx];
+
       dh::safe_cuda(cudaMemcpy(
           data_.data().get() + row_ptr_[fidx],
           col.data() + seg.first,

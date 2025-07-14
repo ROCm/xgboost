@@ -74,6 +74,7 @@ void TestSortPositionBatch(const std::vector<int>& ridx_in, const std::vector<Se
     h_batch_info[i] = {segments.at(i), 0};
     total_rows += segments.at(i).Size();
   }
+
   dh::safe_cuda(cudaMemcpyAsync(d_batch_info.data().get(), h_batch_info.data(),
                                 h_batch_info.size() * sizeof(PerNodeData<int>), cudaMemcpyDefault,
                                 nullptr));

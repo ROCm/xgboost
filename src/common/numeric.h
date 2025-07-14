@@ -100,12 +100,12 @@ void PartialSum(int32_t n_threads, InIt begin, InIt end, T init, OutIt out_it) {
 
 namespace cuda_impl {
 double Reduce(Context const* ctx, HostDeviceVector<float> const& values);
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 inline double Reduce(Context const*, HostDeviceVector<float> const&) {
   AssertGPUSupport();
   return 0;
 }
-#endif  // !defined(XGBOOST_USE_CUDA)
+#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 }  // namespace cuda_impl
 
 /**

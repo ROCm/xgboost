@@ -326,6 +326,7 @@ class RowPartitioner {
       h_batch_info[i] = {ridx_segments_.at(nidx.at(i)).segment, op_data.at(i)};
       total_rows += ridx_segments_.at(nidx.at(i)).segment.Size();
     }
+
     dh::safe_cuda(cudaMemcpyAsync(d_batch_info.data().get(), h_batch_info.data(),
                                   h_batch_info.size() * sizeof(PerNodeData<OpDataT>),
                                   cudaMemcpyDefault, ctx->CUDACtx()->Stream()));
@@ -373,6 +374,7 @@ class RowPartitioner {
   void FinalisePosition(Context const* ctx, common::Span<bst_node_t> d_out_position,
                         bst_idx_t base_ridx, FinalisePositionOpT op) const {
     dh::TemporaryArray<NodePositionInfo> d_node_info_storage(ridx_segments_.size());
+
     dh::safe_cuda(cudaMemcpyAsync(d_node_info_storage.data().get(), ridx_segments_.data(),
                                   sizeof(NodePositionInfo) * ridx_segments_.size(),
                                   cudaMemcpyDefault, ctx->CUDACtx()->Stream()));

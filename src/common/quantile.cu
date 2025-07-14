@@ -379,6 +379,7 @@ size_t SketchContainer::ScanInput(Context const *ctx, Span<SketchEntry> entries,
       });
   // Reverse scan to accumulate weights into first duplicated element on left.
   auto val_it = thrust::make_reverse_iterator(dh::tend(entries));
+
   thrust::inclusive_scan_by_key(
       ctx->CUDACtx()->CTP(), key_it, key_it + entries.size(),
       val_it, val_it,

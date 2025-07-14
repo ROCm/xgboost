@@ -183,7 +183,7 @@ class ColumnSampler {
     }
     feature_set_tree_->Resize(num_col);
     if (ctx->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
       cuda_impl::InitFeatureSet(ctx, feature_set_tree_);
 #else
       AssertGPUSupport();

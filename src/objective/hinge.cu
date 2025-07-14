@@ -9,7 +9,7 @@
 #include <cstdint>    // for int32_t
 
 #include "../common/common.h"  // for Range
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include "../common/linalg_op.cuh"
 #endif
 #if defined(XGBOOST_USE_SYCL)
@@ -26,9 +26,9 @@
 #include "xgboost/span.h"                // for Span
 
 namespace xgboost::obj {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 DMLC_REGISTRY_FILE_TAG(hinge_obj_gpu);
-#endif  // defined(XGBOOST_USE_CUDA)
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 class HingeObj : public FitIntercept {
  public:

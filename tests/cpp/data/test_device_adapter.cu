@@ -8,6 +8,7 @@
 #include <thrust/device_vector.h>
 #include "../../../src/data/device_adapter.cuh"
 #include "test_array_interface.h"
+
 using namespace xgboost;  // NOLINT
 
 void TestCudfAdapter()
@@ -44,6 +45,7 @@ void TestCudfAdapter()
         KERNEL_CHECK(element.value == element.row_idx * 2.0f);
       }
     });
+
     dh::safe_cuda(cudaDeviceSynchronize());
   });
 }
