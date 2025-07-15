@@ -12,6 +12,7 @@
 #include "xgboost/base.h"                // for bst_feature_t
 #include "xgboost/context.h"             // for Context
 #include "xgboost/host_device_vector.h"  // for HostDeviceVector
+#include "thrust/sequence.h"
 
 namespace xgboost::common::cuda_impl {
 // GPU implementation for sampling without replacement, see the CPU version for references.

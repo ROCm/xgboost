@@ -323,8 +323,13 @@ struct HistogramKernel {
 
     auto init = [&](auto& kernel) {
       if (this->shared) {
+#if defined(XGBOOST_USE_CUDA)
         dh::safe_cuda(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
                                            max_shared_memory));
+#elif defined(XGBOOST_USE_HIP)
+        dh::safe_cuda(cudaFuncSetAttribute((void *)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                           max_shared_memory));
+#endif
       }
 
       // determine the launch configuration

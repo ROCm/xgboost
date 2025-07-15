@@ -111,7 +111,14 @@ class MemoryLogger {
     if (!xgboost::ConsoleLogger::ShouldLog(xgboost::ConsoleLogger::LV::kDebug)) {
       return;
     }
+#if defined(XGBOOST_USE_CUDA)
     auto current_device = cub::CurrentDevice();
+#else
+    int current_device;
+
+    hipGetDevice(&current_device);
+#endif
+
     LOG(CONSOLE) << "======== Device " << current_device << " Memory Allocations: "
                  << " ========";
     LOG(CONSOLE) << "Peak memory usage: "
@@ -242,7 +249,11 @@ class GrowOnlyVirtualMemVec {
                 cu_.cuMemRelease(hdl->handle);
               }
             }});
+#if defined(XGBOOST_USE_CUDA)
     auto ptr = this->DevPtr() + alloc_size;
+#elif defined(XGBOOST_USE_HIP)
+    hipDeviceptr_t ptr = (char *) this->DevPtr() + alloc_size;
+#endif
     this->MapBlock(ptr, this->handles_.back());
   }
 

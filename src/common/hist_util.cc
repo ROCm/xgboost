@@ -329,7 +329,7 @@ void BuildHistDispatch(Span<GradientPair const> gpair, Span<bst_idx_t const> row
         return;
       }
       // contiguous memory access, built-in HW prefetching is enough
-      if (row_indices.Size() == 0) {
+      if (row_indices.size() == 0) {
         return;
       }
       RowsWiseBuildHistKernel<false, BuildingManager>(gpair, row_indices, gmat, hist);

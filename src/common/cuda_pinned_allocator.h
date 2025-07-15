@@ -6,7 +6,11 @@
 
 #pragma once
 
+#if defined(XGBOOST_USE_CUDA)
 #include <cuda_runtime.h>
+#elif defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime_api.h>
+#endif
 
 #include <cstddef>  // for size_t
 #include <limits>   // for numeric_limits

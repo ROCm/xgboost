@@ -39,14 +39,18 @@ void GrowOnlyVirtualMemVec::Reserve(std::size_t new_size) {
   auto const aligned_size = RoundUp(new_size, this->granularity_);
   auto const new_reserve_size = aligned_size - va_capacity;
   CUresult status = CUDA_SUCCESS;
+#if defined(XGBOOST_USE_CUDA)
   auto hint = this->DevPtr() + va_capacity;
+#elif defined(XGBOOST_USE_HIP)
+  auto hint = (char *)this->DevPtr() + va_capacity;
+#endif
 
   bool failed{false};
   auto range = std::make_unique<VaRange>(new_reserve_size, hint, &status, &failed);
   if (failed) {
     // Failed to reserve the requested address.
     // Slow path, try to reserve a new address with full size.
-    range = std::make_unique<VaRange>(aligned_size, 0ULL, &status, &failed);
+    range = std::make_unique<VaRange>(aligned_size, (CUdeviceptr)0ULL, &status, &failed);
     safe_cu(status);
     CHECK(!failed);
 
@@ -60,7 +64,11 @@ void GrowOnlyVirtualMemVec::Reserve(std::size_t new_size) {
       CUdeviceptr ptr = range->DevPtr();
       for (auto const &hdl : this->handles_) {
         this->MapBlock(ptr, hdl);
+#if defined(XGBOOST_USE_CUDA)
         ptr += hdl->size;
+#elif defined(XGBOOST_USE_HIP)
+        ptr = (char *) ptr + hdl->size;
+#endif
       }
 
       // Release the existing ptr.

@@ -412,26 +412,14 @@ void InclusiveScan(xgboost::Context const *ctx, InputIteratorT d_in, OutputItera
                    ScanOpT scan_op, OffsetT num_items) {
   auto cuctx = ctx->CUDACtx();
   std::size_t bytes = 0;
-#if THRUST_MAJOR_VERSION >= 2
-  dh::safe_cuda((
-      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
-          nullptr, bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr)));
-#else
-  safe_cuda((
-      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
-          nullptr, bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr, false)));
-#endif
+
+  dh::safe_cuda(rocprim::inclusive_scan(nullptr, bytes, d_in, d_out, (size_t) num_items, scan_op));
+
   dh::TemporaryArray<char> storage(bytes);
-#if THRUST_MAJOR_VERSION >= 2
-  dh::safe_cuda((
-      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
-          storage.data().get(), bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr)));
-#else
-  safe_cuda((
-      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
-          storage.data().get(), bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr,
-          false)));
-#endif
+  void *d_temp_storage = storage.data().get();
+
+  dh::safe_cuda(rocprim::inclusive_scan(d_temp_storage, bytes,
+              d_in, d_out, (size_t) num_items, scan_op));
 }
 
 template <typename InputIteratorT, typename OutputIteratorT, typename OffsetT>

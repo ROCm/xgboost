@@ -1,7 +1,11 @@
 /**
  * Copyright 2018-2024, XGBoost contributors
  */
+#if defined(XGBOOST_USE_CUDA)
 #include <thrust/system/cuda/error.h>
+#elif defined(XGBOOST_USE_HIP)
+#include <thrust/system/hip/error.h>
+#endif
 #include <thrust/system_error.h>
 
 #include "common.h"
