@@ -374,7 +374,7 @@ std::vector<T> Gather(const std::vector<T>& in, common::Span<bst_idx_t const> ri
 namespace cuda_impl {
 void SliceMetaInfo(Context const* ctx, MetaInfo const& info, common::Span<bst_idx_t const> ridx,
                    MetaInfo* p_out);
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 void SliceMetaInfo(Context const*, MetaInfo const&, common::Span<bst_idx_t const>, MetaInfo*) {
   common::AssertGPUSupport();
 }

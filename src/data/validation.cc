@@ -5,7 +5,7 @@
 
 #include "../common/error_msg.h"  // for InconsistentFeatureTypes
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 
 #include "../common/common.h"  // for AssertGPUSupport
 
@@ -24,7 +24,7 @@ void CheckFeatureTypes(HostDeviceVector<FeatureType> const& lhs,
   CHECK(ft_is_same) << error::InconsistentFeatureTypes();
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 namespace cuda_impl {
 void CheckFeatureTypes(HostDeviceVector<FeatureType> const&, HostDeviceVector<FeatureType> const&) {
   common::AssertGPUSupport();

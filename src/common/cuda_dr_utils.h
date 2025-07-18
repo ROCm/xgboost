@@ -12,7 +12,7 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 #elif defined(XGBOOST_USE_HIP)
-#include <hip/hip_runtime_api.h>
+#include "cuda_to_hip.h"
 #endif
 
 #include <cstdint>  // for int32_t

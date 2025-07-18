@@ -11,6 +11,10 @@
 #define hipEventWaitDefault                                 0
 #endif
 
+#ifndef CUDA_SUCCESS
+#define CUDA_SUCCESS                                        hipSuccess
+#endif
+
 #define cudaSuccess                                         hipSuccess
 #define cudaError                                           hipError_t
 #define cudaError_t                                         hipError_t
@@ -42,8 +46,10 @@
 #define cudaGetDeviceCount                                  hipGetDeviceCount
 #define cudaDeviceSynchronize                               hipDeviceSynchronize
 
+#define cudaDeviceProp                                      hipDeviceProp_t 
 #define cudaGetDeviceProperties                             hipGetDeviceProperties
 #define cudaDeviceGetAttribute                              hipDeviceGetAttribute
+#define cudaDevAttrPageableMemoryAccess                     hipDeviceAttributePageableMemoryAccess
 
 #define cudaMallocHost                                      hipMallocHost
 #define cudaFreeHost                                        hipFreeHost
@@ -60,7 +66,6 @@
 #define cudaMemcpyDeviceToDevice                            hipMemcpyDeviceToDevice
 #define cudaMemsetAsync                                     hipMemsetAsync
 #define cudaMemset                                          hipMemset
-#define CUmemAllocationGranularity_flags                    hipMemAllocationGranularity_flags
 #define cudaMemPrefetchAsync                                hipMemPrefetchAsync
 #define cudaHostRegister                                    hipHostRegister
 #define cudaHostUnregister                                  hipHostUnregister
@@ -81,29 +86,38 @@
 
 #define cudaMemGetInfo                                      hipMemGetInfo
 #define CUmemLocation                                       hipMemLocation
-#define CUmemLocationType                                   hipMemLocationType
 #define CUmemGenericAllocationHandle                        hipMemGenericAllocationHandle_t
 #define CUmemAllocationProp                                 hipMemAllocationProp
 #define CUmemAccessDesc                                     hipMemAccessDesc
+#define CUmemAllocationGranularity_flags                    hipMemAllocationGranularity_flags
+#define CUmemLocationType                                   hipMemLocationType
+
 #define CU_MEM_ALLOC_GRANULARITY_RECOMMENDED                hipMemAllocationGranularityRecommended
 #define CU_MEM_ACCESS_FLAGS_PROT_READWRITE                  hipMemAccessFlagsProtReadWrite
 #define CU_MEM_LOCATION_TYPE_DEVICE                         hipMemLocationTypeDevice
 #define CU_MEM_LOCATION_TYPE_HOST_NUMA                      hipMemLocationTypeNuma
-
-/* hack */
-#ifndef hipMemLocationTypeNuma
-#define hipMemLocationTypeNuma                              hipMemLocationTypeDevice
-#endif
+#define CU_MEM_ALLOCATION_TYPE_PINNED                       hipMemAllocationTypePinned
 
 #define cudaFuncSetAttribute                                hipFuncSetAttribute
 #define cudaFuncAttributeMaxDynamicSharedMemorySize         hipFuncAttributeMaxDynamicSharedMemorySize
 
 #define cudaDevAttrMultiProcessorCount                      hipDeviceAttributeMultiprocessorCount
+#define cudaDevAttrPageableMemoryAccessUsesHostPageTables   hipDeviceAttributePageableMemoryAccessUsesHostPageTables
+
 #define cudaOccupancyMaxActiveBlocksPerMultiprocessor       hipOccupancyMaxActiveBlocksPerMultiprocessor
 
 #define CUdevice                                            hipDevice_t
 #define CUdeviceptr                                         hipDeviceptr_t
 #define CUdevice_attribute                                  hipDeviceAttribute_t
+
+/* not defined yet */
+#define CU_DEVICE_ATTRIBUTE_HOST_NUMA_ID                    hipDeviceAttributeHostNumaId
+
+#define cudaRuntimeGetVersion                               hipRuntimeGetVersion
+#define cudaDriverGetVersion                                hipDriverGetVersion
+#define cudaGetDriverEntryPoint                             hipGetProcAddress
+#define cudaDriverEntryPointSuccess                         HIP_GET_PROC_ADDRESS_SUCCESS
+#define cudaDriverEntryPointQueryResult                     hipDriverProcAddressQueryResult
 
 namespace thrust {
     namespace hip {

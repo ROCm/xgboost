@@ -1,7 +1,7 @@
 /**
  * Copyright 2024, XGBoost contributors
  */
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include "cuda_dr_utils.h"
 
 #include <algorithm>  // for max
@@ -21,8 +21,12 @@ CuDriverApi::CuDriverApi() {
   // similar to dlopen, but without the need to release a handle.
   auto safe_load = [](xgboost::StringView name, auto **fnptr) {
     cudaDriverEntryPointQueryResult status;
+#if defined(XGBOOST_USE_CUDA)
     dh::safe_cuda(cudaGetDriverEntryPoint(name.c_str(), reinterpret_cast<void **>(fnptr),
                                           cudaEnablePerThreadDefaultStream, &status));
+#else
+#warning("hack, please fix this when ROCm supports cudaEnablePerThreadDefaultStream \n")
+#endif
     CHECK(status == cudaDriverEntryPointSuccess) << name;
     CHECK(*fnptr);
   };
@@ -89,8 +93,13 @@ void MakeCuMemLocation(CUmemLocationType type, CUmemLocation *loc) {
     std::int32_t numa_id = -1;
     CUdevice device;
     safe_cu(GetGlobalCuDriverApi().cuDeviceGet(&device, ordinal));
+#if defined(XGBOOST_USE_CUDA)
     safe_cu(GetGlobalCuDriverApi().cuDeviceGetAttribute(&numa_id, CU_DEVICE_ATTRIBUTE_HOST_NUMA_ID,
                                                         device));
+#else
+#warning("hack, please fix this when ROCm supports CU_DEVICE_ATTRIBUTE_HOST_NUMA_ID\n")
+    numa_id = 0;
+#endif
     numa_id = std::max(numa_id, 0);
 
     loc->id = numa_id;

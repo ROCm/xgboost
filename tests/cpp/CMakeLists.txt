@@ -17,14 +17,14 @@ if(USE_CUDA)
   list(APPEND TEST_SOURCES ${CUDA_TEST_SOURCES})
 endif()
 
-# We will add them back later to separate the definition.
-file(GLOB_RECURSE FEDERATED_TEST_SOURCES "plugin/federated/*.*")
-list(REMOVE_ITEM TEST_SOURCES ${FEDERATED_TEST_SOURCES})
-
 if (USE_HIP)
   file(GLOB_RECURSE HIP_TEST_SOURCES "*.hip")
   list(APPEND TEST_SOURCES ${HIP_TEST_SOURCES})
 endif (USE_HIP)
+
+# We will add them back later to separate the definition.
+file(GLOB_RECURSE FEDERATED_TEST_SOURCES "plugin/federated/*.*")
+list(REMOVE_ITEM TEST_SOURCES ${FEDERATED_TEST_SOURCES})
 
 file(GLOB_RECURSE SYCL_TEST_SOURCES "plugin/test_sycl_*.cc")
 list(REMOVE_ITEM TEST_SOURCES ${SYCL_TEST_SOURCES})

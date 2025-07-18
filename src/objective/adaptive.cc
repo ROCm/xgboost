@@ -23,7 +23,7 @@
 #include "xgboost/span.h"                  // Span
 #include "xgboost/tree_model.h"            // RegTree
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "../common/common.h"  // AssertGPUSupport
 #endif                         // !defined(XGBOOST_USE_CUDA)
 

@@ -82,13 +82,19 @@ void GrowOnlyVirtualMemVec::Reserve(std::size_t new_size) {
 GrowOnlyVirtualMemVec::GrowOnlyVirtualMemVec(CUmemLocationType type)
     : prop_{xgboost::cudr::MakeAllocProp(type)},
       granularity_{xgboost::cudr::GetAllocGranularity(&this->prop_)} {
+#if defined(XGBOOST_USE_CUDA)
   CHECK(type == CU_MEM_LOCATION_TYPE_DEVICE || type == CU_MEM_LOCATION_TYPE_HOST_NUMA);
+#elif defined(XGBOOST_USE_HIP)
+#warning("hack, please fix ROCm CU_MEM_LOCATION_TYPE_HOST_NUMA\n");
+  CHECK(type == CU_MEM_LOCATION_TYPE_DEVICE);
+#endif
   // Assign the access descriptor
   CUmemAccessDesc dacc;
   dacc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   xgboost::cudr::MakeCuMemLocation(CU_MEM_LOCATION_TYPE_DEVICE, &dacc.location);
   this->access_desc_.push_back(dacc);
 
+#if defined(XGBOOST_USE_CUDA)
   if (type == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
     CUmemAccessDesc hacc;
     hacc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
@@ -96,6 +102,18 @@ GrowOnlyVirtualMemVec::GrowOnlyVirtualMemVec(CUmemLocationType type)
     xgboost::cudr::MakeCuMemLocation(type, &hacc.location);
     this->access_desc_.push_back(hacc);
   }
+#elif defined(XGBOOST_USE_HIP)
+#warning("hack, please fix ROCm CU_MEM_LOCATION_TYPE_HOST_NUMA\n");
+#if 0
+  if (type == CU_MEM_LOCATION_TYPE_HOST_NUMA) {
+    CUmemAccessDesc hacc;
+    hacc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+
+    xgboost::cudr::MakeCuMemLocation(type, &hacc.location);
+    this->access_desc_.push_back(hacc);
+  }
+#endif
+#endif
 }
 
 [[nodiscard]] std::size_t GrowOnlyVirtualMemVec::Capacity() const {

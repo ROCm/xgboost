@@ -14,7 +14,7 @@
 #include "simple_batch_iterator.h"  // for SimpleBatchIteratorImpl
 #include "sparse_page_source.h"     // for MakeCachePrefix
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "../common/common.h"  // for AssertGPUSupport
 #endif
 
@@ -137,7 +137,7 @@ BatchSet<GHistIndexMatrix> ExtMemQuantileDMatrix::GetGradientIndex(Context const
   return this->GetGradientIndexImpl();
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 void ExtMemQuantileDMatrix::InitFromCUDA(
     Context const *, std::shared_ptr<DataIterProxy<DataIterResetCallback, XGDMatrixCallbackNext>>,
     DMatrixHandle, BatchParam const &, std::shared_ptr<DMatrix>, std::int64_t,

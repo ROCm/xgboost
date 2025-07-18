@@ -11,7 +11,7 @@
 #include "xgboost/logging.h"
 #include "xgboost/string_view.h"  // for StringView
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "../common/common.h"  // for AssertGPUSupport
 #endif
 

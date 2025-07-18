@@ -113,7 +113,7 @@ class MemoryLogger {
     }
 #if defined(XGBOOST_USE_CUDA)
     auto current_device = cub::CurrentDevice();
-#else
+#elif defined(XGBOOST_USE_HIP)
     int current_device;
 
     hipGetDevice(&current_device);

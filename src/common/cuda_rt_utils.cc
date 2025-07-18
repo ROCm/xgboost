@@ -5,6 +5,8 @@
 
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda_runtime_api.h>
+#elif defined(__HIP_PLATFORM_AMD__)
+#include "cuda_to_hip.h"
 #endif  // defined(XGBOOST_USE_CUDA)
 
 #include <cstddef>  // for size_t
@@ -14,7 +16,7 @@
 #include "common.h"  // for safe_cuda
 
 namespace xgboost::curt {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 std::int32_t AllVisibleGPUs() {
   int n_visgpus = 0;
   try {

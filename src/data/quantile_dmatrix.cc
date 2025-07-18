@@ -56,7 +56,7 @@ void GetCutsFromRef(Context const* ctx, std::shared_ptr<DMatrix> ref, bst_featur
       << "Invalid ref DMatrix, different number of features.";
 }
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 void GetCutsFromEllpack(EllpackPage const&, common::HistogramCuts*) {
   common::AssertGPUSupport();
 }

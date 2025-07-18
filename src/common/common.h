@@ -24,12 +24,15 @@
 
 #define WITH_CUDA() true
 
-#elif defined(__HIPCC__)
+#elif defined(__HIPCC__)  /* ROCM GPU code */
 #include "cuda_to_hip.h"
-#include <thrust/system/hip/error.h>
-#include <thrust/system_error.h>
 
 #define WITH_CUDA() true
+
+#elif defined(__HIP_PLATFORM_AMD__) /* ROCm host code */
+#include "cuda_to_hip.h"
+
+#define WITH_CUDA() false
 
 #else
 
@@ -42,7 +45,7 @@
 #endif
 
 namespace dh {
-#if defined(XGBOOST_USE_CUDA) || defined(__HIPCC__)
+#if defined(XGBOOST_USE_CUDA) || defined(__HIPCC__) || defined(__HIP_PLATFORM_AMD__)
 /*
  * Error handling functions
  */

@@ -328,8 +328,4 @@ void FeatureInteractionConstraintDevice::Split(
   // clear the buffer after use
   thrust::fill_n(dh::CachingThrustPolicy(), feature_buffer_.Data(), feature_buffer_.NumValues(), 0);
 }
-
-  // clear the buffer after use
-  thrust::fill_n(thrust::device, feature_buffer_.Data(), feature_buffer_.NumValues(), 0);
-}
 }  // namespace xgboost

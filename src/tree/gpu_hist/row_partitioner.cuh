@@ -152,6 +152,7 @@ void SortPositionBatch(Context const* ctx, common::Span<const PerNodeData<OpData
       });
   // Avoid using int as the offset type
   std::size_t n_bytes = 0;
+#if 0
   if (tmp->empty()) {
     auto ret =
         cub::DispatchScan<decltype(input_iterator), decltype(discard_write_iterator), IndexFlagOp,
@@ -172,6 +173,7 @@ void SortPositionBatch(Context const* ctx, common::Span<const PerNodeData<OpData
                                                                total_rows,
                                                                ctx->CUDACtx()->Stream());
   dh::safe_cuda(ret);
+#endif
 
   constexpr int kBlockSize = 256;
 

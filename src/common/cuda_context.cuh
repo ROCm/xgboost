@@ -13,6 +13,7 @@ struct CUDAContext {
   dh::XGBDeviceAllocator<char> alloc_;
 
  public:
+#if defined(XGBOOST_USE_CUDA)
   /**
    * \brief Caching thrust policy.
    */
@@ -33,6 +34,28 @@ struct CUDAContext {
     return thrust::cuda::par(alloc_).on(dh::DefaultStream());
 #endif  // THRUST_MAJOR_VERSION >= 2
   }
+#elif defined(XGBOOST_USE_HIP)
+  /**
+   * \brief Caching thrust policy.
+   */
+  auto CTP() const {
+#if THRUST_MAJOR_VERSION >= 2 || defined(XGBOOST_USE_RMM)
+    return thrust::hip::par_nosync(caching_alloc_).on(dh::DefaultStream());
+#else
+    return thrust::hip::par(caching_alloc_).on(dh::DefaultStream());
+#endif  // THRUST_MAJOR_VERSION >= 2
+  }
+  /**
+   * \brief Thrust policy without caching allocator.
+   */
+  auto TP() const {
+#if THRUST_MAJOR_VERSION >= 2
+    return thrust::hip::par_nosync(alloc_).on(dh::DefaultStream());
+#else
+    return thrust::hip::par(alloc_).on(dh::DefaultStream());
+#endif  // THRUST_MAJOR_VERSION >= 2
+  }
+#endif
   auto Stream() const { return dh::DefaultStream(); }
 };
 }  // namespace xgboost

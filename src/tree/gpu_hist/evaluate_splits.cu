@@ -138,7 +138,7 @@ class EvaluateSplitAgent {
                                                      evaluator, missing_left, rounding)
                                  : kNullGain;
       // Find thread with best gain
-      auto best = MaxReduceT(temp_storage->max_reduce).Reduce({(int)threadIdx.x, gain}, cub::ArgMax());
+      auto best = MaxReduceT(temp_storage->max_reduce).Reduce({static_cast<unsigned int>(threadIdx.x), gain}, cub::ArgMax());
 
       // This reduce result is only valid in thread 0
       // broadcast to the rest of the warp
@@ -176,7 +176,7 @@ class EvaluateSplitAgent {
                                  : kNullGain;
 
       // Find thread with best gain
-      auto best = MaxReduceT(temp_storage->max_reduce).Reduce({(int)threadIdx.x, gain}, cub::ArgMax());
+      auto best = MaxReduceT(temp_storage->max_reduce).Reduce({static_cast<unsigned int>(threadIdx.x), gain}, cub::ArgMax());
       // This reduce result is only valid in thread 0
       // broadcast to the rest of the warp
 #if defined(XGBOOST_USE_CUDA)
@@ -210,7 +210,7 @@ class EvaluateSplitAgent {
                     : kNullGain;
 
     // Find thread with best gain
-    auto best = MaxReduceT(temp_storage->max_reduce).Reduce({(int)threadIdx.x, gain}, cub::ArgMax());
+    auto best = MaxReduceT(temp_storage->max_reduce).Reduce({static_cast<unsigned int>(threadIdx.x), gain}, cub::ArgMax());
     // This reduce result is only valid in thread 0
     // broadcast to the rest of the warp
 #if defined(XGBOOST_USE_CUDA)

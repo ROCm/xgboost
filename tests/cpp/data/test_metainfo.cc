@@ -417,7 +417,7 @@ TEST_P(TestMetaInfo, Slice) {
 INSTANTIATE_TEST_SUITE_P(Cpu, TestMetaInfo,
                          ::testing::Values(std::tuple{1u, false}, std::tuple{3u, false}));
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 INSTANTIATE_TEST_SUITE_P(Gpu, TestMetaInfo,
                          ::testing::Values(std::tuple{1u, true}, std::tuple{3u, true}));
 #endif  // defined(XGBOOST_USE_CUDA)

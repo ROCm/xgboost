@@ -15,7 +15,7 @@
 #include "xgboost/linalg.h"             // TensorView, Tensor, Constant
 #include "xgboost/logging.h"            // CHECK_EQ
 
-#if !defined(XGBOOST_USE_CUDA)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 #include "../common/common.h"  // AssertGPUSupport
 #endif
 
