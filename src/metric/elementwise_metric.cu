@@ -52,7 +52,7 @@ PackedReduceResult Reduce(Context const* ctx, MetaInfo const& info, Fn&& loss) {
     thrust::counting_iterator<size_t> begin(0);
     thrust::counting_iterator<size_t> end = begin + labels.Size();
     result = thrust::transform_reduce(
-        thrust::cuda::par(alloc), begin, end,
+        thrust::system::hip::par(alloc), begin, end,
         [=] XGBOOST_DEVICE(size_t i) {
           auto idx = linalg::UnravelIndex(i, labels.Shape());
           auto sample_id = std::get<0>(idx);
