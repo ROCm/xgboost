@@ -18,9 +18,9 @@ struct CUDAContext {
    */
   auto CTP() const {
 #if THRUST_MAJOR_VERSION >= 2
-    return thrust::cuda::par_nosync(caching_alloc_).on(dh::DefaultStream());
+    return thrust::system::hip::par_nosync(caching_alloc_).on(dh::DefaultStream());
 #else
-    return thrust::cuda::par(caching_alloc_).on(dh::DefaultStream());
+    return thrust::system::hip::par(caching_alloc_).on(dh::DefaultStream());
 #endif  // THRUST_MAJOR_VERSION >= 2
   }
   /**
@@ -28,9 +28,9 @@ struct CUDAContext {
    */
   auto TP() const {
 #if THRUST_MAJOR_VERSION >= 2
-    return thrust::cuda::par_nosync(alloc_).on(dh::DefaultStream());
+    return thrust::system::hip::par_nosync(alloc_).on(dh::DefaultStream());
 #else
-    return thrust::cuda::par(alloc_).on(dh::DefaultStream());
+    return thrust::system::hip::par(alloc_).on(dh::DefaultStream());
 #endif  // THRUST_MAJOR_VERSION >= 2
   }
   auto Stream() const { return dh::DefaultStream(); }

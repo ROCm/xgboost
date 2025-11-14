@@ -888,7 +888,7 @@ template <typename... Inputs,
               * = nullptr>
 size_t SegmentedUnique(Inputs &&...inputs) {
   dh::XGBCachingDeviceAllocator<char> alloc;
-  return SegmentedUnique(thrust::hip::par(alloc),
+  return SegmentedUnique(thrust::system::hip::par(alloc),
                          std::forward<Inputs &&>(inputs)...,
                          thrust::equal_to<size_t>{});
 }
@@ -988,7 +988,7 @@ void CopyIf(InIt in_first, InIt in_second, OutIt out_first, Predicate pred) {
   for (size_t offset = 0; offset < length; offset += kMaxCopySize) {
     auto begin_input = in_first + offset;
     auto end_input = in_first + std::min(offset + kMaxCopySize, length);
-    out_first = thrust::copy_if(thrust::hip::par(alloc), begin_input,
+    out_first = thrust::copy_if(thrust::system::hip::par(alloc), begin_input,
                                 end_input, out_first, pred);
   }
 }
