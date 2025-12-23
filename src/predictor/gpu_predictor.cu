@@ -501,13 +501,37 @@ struct ShapSplitCondition {
   // bitfield.
   XGBOOST_DEVICE static common::CatBitField Intersect(common::CatBitField l,
                                                       common::CatBitField r) {
+    // Handle empty/invalid categorical data
+    // Both empty -> return empty
+    if ((l.Data() == nullptr || l.Capacity() == 0) && 
+        (r.Data() == nullptr || r.Capacity() == 0)) {
+      return common::CatBitField{};
+    }
+    // Only left is valid -> return left
+    if (r.Data() == nullptr || r.Capacity() == 0) {
+      return l;
+    }
+    // Only right is valid -> return right
+    if (l.Data() == nullptr || l.Capacity() == 0) {
+      return r;
+    }
+    // Same pointer -> return either
     if (l.Data() == r.Data()) {
       return l;
     }
+    // Empty bit spans
+    if (l.Bits().size() == 0) return r;
+    if (r.Bits().size() == 0) return l;
+    
+    // Both valid -> perform intersection
+    // Swap to ensure l is smaller
     if (l.Capacity() > r.Capacity()) {
       thrust::swap(l, r);
     }
-    for (size_t i = 0; i < r.Bits().size(); ++i) {
+    // Intersect: result has bits set only where BOTH have them set
+    // Only process up to the smaller size
+    size_t min_size = min(l.Bits().size(), r.Bits().size());
+    for (size_t i = 0; i < min_size; ++i) {
       l.Bits()[i] &= r.Bits()[i];
     }
     return l;
@@ -515,13 +539,22 @@ struct ShapSplitCondition {
 
   // Combine two split conditions on the same feature
   XGBOOST_DEVICE void Merge(ShapSplitCondition other) {
-    // Combine duplicate features
-    if (cat_flag == ShapSplitMagic && (categories.Capacity() != 0 || other.categories.Capacity() != 0)) {
+    // For categorical splits, merge the category sets
+    // For numerical splits, tighten the bounds
+    bool this_is_cat = (cat_flag == ShapSplitMagic);
+    bool other_is_cat = (other.cat_flag == ShapSplitMagic);
+    bool this_has_data = this_is_cat && categories.Capacity() != 0 && categories.Data() != nullptr;
+    bool other_has_data = other_is_cat && other.categories.Capacity() != 0 && other.categories.Data() != nullptr;
+    
+    // If either has categorical data, treat as categorical
+    if (this_has_data || other_has_data) {
       categories = Intersect(categories, other.categories);
     } else {
+      // Both are numerical, intersect the bounds
       feature_lower_bound = max(feature_lower_bound, other.feature_lower_bound);
       feature_upper_bound = min(feature_upper_bound, other.feature_upper_bound);
     }
+    // Missing branch: only if both take missing values
     is_missing_branch = is_missing_branch && other.is_missing_branch;
   }
 };
@@ -1199,6 +1232,30 @@ class GPUPredictor : public xgboost::Predictor {
     dh::device_vector<uint32_t> categories;
     ExtractPaths(ctx_, &device_paths, &d_model, &categories, ctx_->Device());
 
+    // Check for categorical features with GPU TreeSHAP
+    bool has_categorical = categories.size() > 0;
+    if (has_categorical) {
+      // Threshold for "complex" models - based on number of paths
+      // Simple models (< 500 paths) work well, medium models (500-2000) may have minor accuracy issues
+      const size_t PATH_THRESHOLD = 2000;
+      bool is_complex_model = device_paths.size() > PATH_THRESHOLD;
+      
+      if (is_complex_model) {
+        LOG(FATAL) << "GPU TreeSHAP does not support complex models (>" << PATH_THRESHOLD 
+                   << " paths) with categorical features. "
+                   << "Current model has " << device_paths.size() << " paths. "
+                   << "Please use device='cpu' for accurate SHAP computation. "
+                   << "This limitation exists because path deduplication invalidates categorical data pointers.";
+      } else {
+        LOG(WARNING) << "GPU TreeSHAP with categorical features is experimental and may produce "
+                     << "inaccurate results for some models. "
+                     << "Current model has " << device_paths.size() << " paths (threshold: " 
+                     << PATH_THRESHOLD << "). "
+                     << "For production use or if you observe incorrect SHAP values, "
+                     << "please use device='cpu' for guaranteed accuracy.";
+      }
+    }
+
     if (p_fmat->PageExists<SparsePage>()) {
       for (auto& batch : p_fmat->GetBatches<SparsePage>()) {
         auto begin = dh::tbegin(phis) + batch.base_rowid * dim_size;
@@ -1278,6 +1335,27 @@ class GPUPredictor : public xgboost::Predictor {
     d_model.Init(model, 0, tree_end, ctx_->Device());
     dh::device_vector<uint32_t> categories;
     ExtractPaths(ctx_, &device_paths, &d_model, &categories, ctx_->Device());
+    
+    // Check for categorical features with GPU TreeSHAP interactions
+    bool has_categorical = categories.size() > 0;
+    if (has_categorical) {
+      // Use same threshold as regular SHAP for consistency
+      const size_t PATH_THRESHOLD = 2000;
+      bool is_complex_model = device_paths.size() > PATH_THRESHOLD;
+      
+      if (is_complex_model) {
+        LOG(FATAL) << "GPU TreeSHAP interactions do not support complex models (>" << PATH_THRESHOLD 
+                   << " paths) with categorical features. "
+                   << "Current model has " << device_paths.size() << " paths. "
+                   << "Please use device='cpu' for accurate SHAP interaction computation.";
+      } else {
+        LOG(WARNING) << "GPU TreeSHAP interactions with categorical features is experimental. "
+                     << "Current model has " << device_paths.size() << " paths (threshold: " 
+                     << PATH_THRESHOLD << "). "
+                     << "For production use, consider using device='cpu'.";
+      }
+    }
+    
     auto new_enc =
         p_fmat->Cats()->NeedRecode() ? p_fmat->Cats()->DeviceView(ctx_) : enc::DeviceColumnsView{};
 
@@ -1395,3 +1473,4 @@ XGBOOST_REGISTER_PREDICTOR(GPUPredictor, "gpu_predictor")
     .set_body([](Context const* ctx) { return new GPUPredictor(ctx); });
 
 }  // namespace xgboost::predictor
+

@@ -35,7 +35,7 @@
 #include "multiclass_param.h"
 
 namespace xgboost::obj {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 DMLC_REGISTRY_FILE_TAG(multiclass_obj_gpu);
 #endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
@@ -49,7 +49,7 @@ void ValidateLabel(Context const* ctx, MetaInfo const& info, std::int64_t n_clas
   auto valid = ctx->DispatchDevice(
       [&] { return std::all_of(linalg::cbegin(label), linalg::cend(label), check); },
       [&] {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
         return common::AllOf(ctx->CUDACtx()->CTP(), linalg::tcbegin(label), linalg::tcend(label),
                              check);
 #else
@@ -234,3 +234,4 @@ XGBOOST_REGISTER_OBJECTIVE(SoftprobMultiClass, "multi:softprob")
     .describe("Softmax for multi-class classification, output probability distribution.")
     .set_body([]() { return new SoftmaxMultiClassObj(true); });
 }  // namespace xgboost::obj
+

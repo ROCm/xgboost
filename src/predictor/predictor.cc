@@ -86,7 +86,7 @@ void Predictor::InitOutPredictions(const MetaInfo& info, HostDeviceVector<float>
   CHECK_EQ(predt.Size(), out_preds->Size());
 
   if (this->ctx_->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     cuda_impl::InitOutPredictions(this->ctx_, base_score, predt);
 #else
     common::AssertGPUSupport();

@@ -49,7 +49,7 @@ SparsePageDMatrix::SparsePageDMatrix(DataIterHandle iter_handle, DMatrixHandle p
     if (proxy->Ctx()->IsCPU()) {
       return std::make_shared<CatContainer>(cpu_impl::BatchCats(proxy), BatchCatsIsRef(proxy));
     } else {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
       return std::make_shared<CatContainer>(proxy->Ctx(), cuda_impl::BatchCats(proxy),
                                             BatchCatsIsRef(proxy));
 #else

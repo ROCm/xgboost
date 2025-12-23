@@ -46,7 +46,7 @@ class UpdaterTreeStatTest : public ::testing::Test {
     tree.WalkTree([&tree](bst_node_t nidx) {
       if (tree[nidx].IsLeaf()) {
         // 1.0 is the default `min_child_weight`.
-        CHECK_GE(tree.Stat(nidx).sum_hess, 1.0);
+        EXPECT_GE(tree.Stat(nidx).sum_hess, 1.0);
       }
       return true;
     });
@@ -114,7 +114,7 @@ class TestSplitWithEta : public ::testing::Test {
     auto p_tree0 = gen_tree(0.1f);
     auto p_tree1 = gen_tree(0.1f * eta_ratio);
     // Just to make sure we are not testing a stump.
-    CHECK_GE(p_tree0->NumExtraNodes(), 32);
+    ASSERT_GE(p_tree0->NumExtraNodes(), 32);
 
     bst_node_t n_nodes{0};
     p_tree0->WalkTree([&](bst_node_t nidx) {

@@ -1,0 +1,32 @@
+# Variables of the form ${<variable>} are substituted, currently the following
+# list is supported:
+#   - ${branch} (or {branch}) the name of the current branch
+#   - ${url} (or {url}) github url of the current project
+#   - ${project:<project_name>} base url of the documentation of <project_name>
+#     based on intersphinx_mapping.
+# These comments will also be removed.
+defaults:
+  numbered: False
+  maxdepth: 6
+root: index
+subtrees:
+  - caption: Install
+    entries:
+      - file: install/install.rst
+        title: Install with pip
+      - file: install/build-from-source.rst
+        title: Build from source
+  - caption: Reference
+    entries:
+      - url: https://xgboost.readthedocs.io/en/release_3.1.0/get_started.html
+        title: Get started with XGBoost (upstream)
+      - url: https://xgboost.readthedocs.io/en/release_3.1.0/python/python_api.html
+        title: Python API (upstream)
+  - caption: Tutorial
+    entries:
+      - url: https://github.com/AMD-AIOSS/rocm-finance/tree/main/examples/xgboost
+        title: Examples
+  - caption: About
+    entries:
+      - file: about/license.rst
+        title: License

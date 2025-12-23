@@ -1,7 +1,7 @@
 /**
  * Copyright 2024-2025, XGBoost contributors
  */
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include "cuda_dr_utils.h"
 
 #include <algorithm>  // for max
@@ -20,6 +20,7 @@
 
 namespace xgboost::cudr {
 CuDriverApi::CuDriverApi(std::int32_t cu_major, std::int32_t cu_minor, std::int32_t kdm_major) {
+#if defined(XGBOOST_USE_CUDA)
   // similar to dlopen, but without the need to release a handle.
   auto safe_load = [](xgboost::StringView name, auto **fnptr) {
     cudaDriverEntryPointQueryResult status;
@@ -60,6 +61,27 @@ CuDriverApi::CuDriverApi(std::int32_t cu_major, std::int32_t cu_minor, std::int3
   (void)kdm_major;
 #endif  // defined(CUDA_HW_DECOM_AVAILABLE)
   CHECK(this->cuMemGetAllocationGranularity);
+#elif defined(XGBOOST_USE_HIP)
+  // HIP uses direct linking instead of runtime function loading
+  // These function pointers are assigned directly to HIP driver API functions
+  this->cuMemGetAllocationGranularity = reinterpret_cast<decltype(this->cuMemGetAllocationGranularity)>(hipMemGetAllocationGranularity);
+  this->cuMemCreate = reinterpret_cast<decltype(this->cuMemCreate)>(hipMemCreate);
+  this->cuMemMap = reinterpret_cast<decltype(this->cuMemMap)>(hipMemMap);
+  this->cuMemAddressReserve = reinterpret_cast<decltype(this->cuMemAddressReserve)>(hipMemAddressReserve);
+  this->cuMemSetAccess = reinterpret_cast<decltype(this->cuMemSetAccess)>(hipMemSetAccess);
+  this->cuMemUnmap = reinterpret_cast<decltype(this->cuMemUnmap)>(hipMemUnmap);
+  this->cuMemRelease = reinterpret_cast<decltype(this->cuMemRelease)>(hipMemRelease);
+  this->cuMemAddressFree = reinterpret_cast<decltype(this->cuMemAddressFree)>(hipMemAddressFree);
+  this->cuGetErrorString = reinterpret_cast<decltype(this->cuGetErrorString)>(hipGetErrorString);
+  this->cuGetErrorName = reinterpret_cast<decltype(this->cuGetErrorName)>(hipGetErrorName);
+  this->cuDeviceGetAttribute = reinterpret_cast<decltype(this->cuDeviceGetAttribute)>(hipDeviceGetAttribute);
+  this->cuDeviceGet = reinterpret_cast<decltype(this->cuDeviceGet)>(hipDeviceGet);
+  //this->cuMemBatchDecompressAsync = nullptr;  // Not available in HIP
+  (void)cu_major;
+  (void)cu_minor;
+  (void)kdm_major;
+#endif  // XGBOOST_USE_CUDA
+
 }
 
 void CuDriverApi::ThrowIfError(CUresult status, StringView fn, std::int32_t line,
@@ -67,8 +89,11 @@ void CuDriverApi::ThrowIfError(CUresult status, StringView fn, std::int32_t line
   if (status == CUDA_SUCCESS) {
     return;
   }
+#if defined(XGBOOST_USE_CUDA)
   std::string cuerr{"CUDA driver error:"};
-
+#elif defined(XGBOOST_USE_HIP)
+  std::string cuerr{"HIP driver error:"};
+#endif
   char const *name{nullptr};
   auto err0 = this->cuGetErrorName(status, &name);
   if (err0 != CUDA_SUCCESS) {
@@ -113,6 +138,7 @@ void MakeCuMemLocation(CUmemLocationType type, CUmemLocation *loc) {
   if (type == CU_MEM_LOCATION_TYPE_DEVICE) {
     loc->id = ordinal;
   } else {
+#if defined(XGBOOST_USE_CUDA)
     std::int32_t numa_id = -1;
     CUdevice device;
     safe_cu(GetGlobalCuDriverApi().cuDeviceGet(&device, ordinal));
@@ -121,6 +147,9 @@ void MakeCuMemLocation(CUmemLocationType type, CUmemLocation *loc) {
     numa_id = std::max(numa_id, 0);
 
     loc->id = numa_id;
+#elif defined(XGBOOST_USE_HIP)
+	loc->id = 0;
+#endif
   }
 }
 
@@ -135,6 +164,12 @@ void MakeCuMemLocation(CUmemLocationType type, CUmemLocation *loc) {
 [[nodiscard]] bool GetVersionFromSmi(std::int32_t *p_major, std::int32_t *p_minor) {
   using ::xgboost::common::Split;
   using ::xgboost::common::TrimFirst;
+  auto Invalid = [=] {
+    *p_major = *p_minor = -1;
+    return false;
+  };
+
+#if defined(XGBOOST_USE_CUDA)
   // `nvidia-smi --version` is not available for older versions, as a result, we can't query the
   // cuda driver version unless we want to parse the table output.
 
@@ -149,11 +184,7 @@ void MakeCuMemLocation(CUmemLocationType type, CUmemLocation *loc) {
   auto cmd = "nvidia-smi --query-gpu=driver_version --format=csv";
   auto smi_out_str = common::CmdOutput(StringView{cmd});
 
-  auto Invalid = [=] {
-    *p_major = *p_minor = -1;
-    return false;
-  };
-  if (smi_out_str.empty()) {
+    if (smi_out_str.empty()) {
     return Invalid();
   }
 
@@ -178,6 +209,62 @@ void MakeCuMemLocation(CUmemLocationType type, CUmemLocation *loc) {
   }
   LOG(INFO) << "Driver version: `" << *p_major << "." << *p_minor << "`";
   return true;
+#elif defined(XGBOOST_USE_HIP)
+  // For ROCm, use rocm-smi to get driver version
+  // Example output:
+  //
+  // $ rocm-smi --showdriverversion
+  //
+  // ============================ ROCm System Management Interface ============================
+  // WARNING: AMD GPU device(s) is/are in a low-power state. Check power control/runtime_status
+  //
+  // ============================== Version of System Component ===============================
+  // Driver version: 6.12.12
+  // ==========================================================================================
+  // ================================== End of ROCm SMI Log ===================================
+  //
+  auto cmd = "rocm-smi --showdriverversion";
+  auto smi_out_str = common::CmdOutput(StringView{cmd});
+  if (smi_out_str.empty()) {
+    return Invalid();
+  }
+
+  auto smi_split = Split(smi_out_str, '\n');
+  if (smi_split.empty()) {
+    return Invalid();
+  }
+
+  // Look for line that contains "Driver version:"
+  std::string version_str;
+  for (const auto& line : smi_split) {
+    if (line.find("Driver version:") != std::string::npos) {
+      // Extract version after "Driver version: "
+      auto colon_pos = line.find(':');
+      if (colon_pos != std::string::npos && colon_pos + 1 < line.size()) {
+        version_str = TrimFirst(line.substr(colon_pos + 1));
+        break;
+      }
+    }
+  }
+  
+  if (version_str.empty()) {
+    return Invalid();
+  }
+  // Split version string by '.' (e.g., "6.12.12" -> ["6", "12", "12"])
+  auto smi_ver = Split(version_str, '.');
+  if (smi_ver.size() < 2) {
+    return Invalid();
+  }
+  
+  auto [smajor, sminor] = std::tie(smi_ver[0], smi_ver[1]);
+  auto ret0 = std::from_chars(smajor.data(), smajor.data() + smajor.size(), *p_major);
+  auto ret1 = std::from_chars(sminor.data(), sminor.data() + sminor.size(), *p_minor);
+  if (ret0.ec != std::errc{} || ret1.ec != std::errc{}) {
+    return Invalid();
+  }
+  LOG(INFO) << "Driver version: `" << *p_major << "." << *p_minor << "`";
+  return true;
+#endif
 }
 
 [[nodiscard]] bool GetVersionFromSmiGlobal(std::int32_t *p_major, std::int32_t *p_minor) {
@@ -205,16 +292,22 @@ namespace detail {
 }  // namespace detail
 
 [[nodiscard]] std::int32_t GetC2cLinkCountFromSmi() {
+
+#if defined(XGBOOST_USE_HIP)
+  return -1;
+#elif defined(XGBOOST_USE_CUDA)
   auto n_devices = curt::AllVisibleGPUs();
   if (n_devices < 1) {
     return -1;
   }
+
 
   // See test for example output from smi.
   auto cmd = "nvidia-smi c2c -s -i 0";  // Select the first GPU to query.
   auto out = common::CmdOutput(StringView{cmd});
   auto cnt = detail::GetC2cLinkCountFromSmiImpl(out);
   return cnt;
+#endif
 }
 
 [[nodiscard]] std::int32_t GetC2cLinkCountFromSmiGlobal() {

@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2025, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 #include <chrono>       // for chrono, chrono_literals
 #include <cstddef>      // for size_t
 #include <cstdint>      // for int8_t, int64_t
@@ -13,6 +13,12 @@
 #include <type_traits>  // for invoke_result_t, is_same_v, enable_if_t
 #include <utility>      // for move
 
+#if defined(XGBOOST_USE_NCCL)
+#include "nccl.h"                        // for ncclHalf, ncclFloat32, ...
+#elif defined(XGBOOST_USE_RCCL)
+#include <rccl/rccl.h>                   // for ncclHalf, ncclFloat32, ...#endif
+#endif
+
 #include "../common/device_helpers.cuh"  // for CUDAStreamView, CUDAEvent, device_vector
 #include "../common/threadpool.h"        // for ThreadPool
 #include "../common/utils.h"             // for MakeCleanup
@@ -20,7 +26,6 @@
 #include "allgather.h"                   // for AllgatherVOffset
 #include "coll.cuh"                      // for NCCLColl
 #include "comm.cuh"                      // for NCCLComm
-#include "nccl.h"                        // for ncclHalf, ncclFloat32, ...
 #include "nccl_stub.h"                   // for BusyWait
 #include "xgboost/collective/result.h"   // for Result, Fail
 #include "xgboost/global_config.h"       // for InitNewThread

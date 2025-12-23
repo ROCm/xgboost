@@ -11,7 +11,7 @@
 #include "common.h"  // for AssertGPUSupport
 
 namespace xgboost::common {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 namespace cuda_impl {
 double SumOptionalWeights(Context const* ctx, OptionalWeights const& weights);
 }
@@ -29,7 +29,7 @@ double SumOptionalWeights(Context const* ctx, OptionalWeights const& weights);
     return n_samples * weights.dft;
   }
   if (ctx->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     return cuda_impl::SumOptionalWeights(ctx, weights);
 #else
     common::AssertGPUSupport();

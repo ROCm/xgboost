@@ -24,7 +24,11 @@ inline Result GetCUDAResult(cudaError rc) {
   if (rc == cudaSuccess) {
     return Success();
   }
+#if defined(XGBOOST_USE_NCCL)
   std::string msg = thrust::system_error(rc, thrust::cuda_category()).what();
+#elif defined(XGBOOST_USE_RCCL)
+  std::string msg = thrust::system_error(rc, thrust::hip_category()).what();
+#endif
   return Fail(msg);
 }
 

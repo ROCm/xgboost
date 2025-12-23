@@ -12,7 +12,7 @@
 #include "./helpers.h"  // for RandomDataGenerator
 
 namespace xgboost {
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIPCC__)
 namespace detail {
 class HistogramCutsWrapper : public common::HistogramCuts {
  public:

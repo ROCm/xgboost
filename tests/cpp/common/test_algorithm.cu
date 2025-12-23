@@ -77,6 +77,7 @@ TEST(Algorithm, GpuArgSort) {
       thrust::is_sorted(sorted_idx.begin() + 10, sorted_idx.end(), thrust::greater<size_t>{}));
 }
 
+
 TEST(Algorithm, SegmentedSequence) {
   dh::device_vector<std::size_t> idx(16);
   dh::device_vector<std::size_t> ptr(3);
@@ -90,7 +91,6 @@ TEST(Algorithm, SegmentedSequence) {
   ASSERT_EQ(idx[3], 3);
   ASSERT_EQ(idx[15], 11);
 }
-
 namespace {
 void TestAllOf(std::size_t n) {
   auto ctx = MakeCUDACtx(0);

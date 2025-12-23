@@ -95,6 +95,9 @@ class MGPUAllgatherTest : public SocketTest {};
 
 TEST_F(MGPUAllgatherTest, MGPUTestVRing) {
   auto n_workers = curt::AllVisibleGPUs();
+ if (n_workers < 2) {
+    GTEST_SKIP() << "MGPU test requires at least 2 GPUs, but only " << n_workers << " visible.";
+  }
   TestDistributed(n_workers, [=](std::string host, std::int32_t port, std::chrono::seconds timeout,
                                  std::int32_t r) {
     Worker w{host, port, timeout, n_workers, r};
@@ -106,6 +109,9 @@ TEST_F(MGPUAllgatherTest, MGPUTestVRing) {
 
 TEST_F(MGPUAllgatherTest, MGPUTestVBcast) {
   auto n_workers = curt::AllVisibleGPUs();
+ if (n_workers < 2) {
+    GTEST_SKIP() << "MGPU test requires at least 2 GPUs, but only " << n_workers << " visible.";
+  }
   TestDistributed(n_workers, [=](std::string host, std::int32_t port, std::chrono::seconds timeout,
                                  std::int32_t r) {
     Worker w{host, port, timeout, n_workers, r};

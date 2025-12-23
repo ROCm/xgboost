@@ -13,6 +13,8 @@
 #define cudaPeekAtLastError                                 hipPeekAtLastError
 #define cudaGetErrorString                                  hipGetErrorString
 #define cudaErrorInvalidValue                               hipErrorInvalidValue
+#define cudaRuntimeGetVersion                               hipRuntimeGetVersion  
+#define cudaDriverGetVersion                                hipDriverGetVersion
 
 // Stream management
 #define cudaStream_t                                        hipStream_t
@@ -49,6 +51,9 @@
 #define cudaDevAttrMaxSharedMemoryPerBlock                  hipDeviceAttributeMaxSharedMemoryPerBlock
 #define cudaDevAttrMaxSharedMemoryPerBlockOptin             hipDeviceAttributeMaxSharedMemoryPerMultiprocessor
 #define cudaOccupancyMaxActiveBlocksPerMultiprocessor       hipOccupancyMaxActiveBlocksPerMultiprocessor
+#define cudaDevAttrPageableMemoryAccess                     hipDeviceAttributePageableMemoryAccess 
+#define cudaDevAttrPageableMemoryAccessUsesHostPageTables   hipDeviceAttributePageableMemoryAccessUsesHostPageTables
+#define cudaDevAttrHostNumaId								hipDeviceAttributeHostNumaId
 
 // Memory allocation
 #define cudaMalloc                                          hipMalloc
@@ -137,7 +142,16 @@ struct cudaMemLocation {
 #define CU_MEM_ACCESS_FLAGS_PROT_READWRITE	 				hipMemAccessFlagsProtReadWrite 
 #define CU_MEM_LOCATION_TYPE_HOST_NUMA						hipMemLocationTypeDevice
 #define CU_MEM_LOCATION_TYPE_DEVICE							hipMemLocationTypeDevice 
+#define CU_MEM_LOCATION_TYPE_HOST_NUMA						hipMemLocationTypeDevice
+#define CU_MEM_LOCATION_TYPE_DEVICE							hipMemLocationTypeDevice 
 
+// Driver API result codes
+#define CUDA_SUCCESS                                            hipSuccess
+
+// Memory allocation types
+#define CU_MEM_ALLOCATION_TYPE_PINNED                          hipMemAllocationTypePinned
+
+// Namespace aliases
 // Namespace aliases
 namespace hipcub {
 }

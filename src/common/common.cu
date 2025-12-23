@@ -25,7 +25,7 @@ void ThrowOnCudaError(cudaError_t code, const char *file, int line) {
 #if defined(XGBOOST_USE_CUDA)
     LOG(FATAL) << thrust::system_error(code, thrust::cuda_category(),f + ": " + std::to_string(line)).what();
 #elif defined(XGBOOST_USE_HIP)
-    LOG(FATAL) << thrust::system_error(code, thrust::system_category(),f + ": " + std::to_string(line)).what();
+    LOG(FATAL) << thrust::system_error(code, thrust::hip_category(),f + ": " + std::to_string(line)).what();
 #endif
   }
 }

@@ -49,7 +49,11 @@ namespace xgboost::collective {
   if (code == ncclUnhandledCudaError) {
     // nccl usually preserves the last error so we can get more details.
     auto err = cudaPeekAtLastError();
+#if defined(XGBOOST_USE_NCCL)
     ss << "  CUDA error: " << thrust::system_error(err, thrust::cuda_category()).what() << "\n";
+#elif defined(XGBOOST_USE_RCCL)
+    ss << "  HIP error: " << thrust::system_error(err, thrust::hip_category()).what() << "\n";
+#endif
   } else if (code == ncclSystemError) {
     ss << "  This might be caused by a network configuration issue. Please consider specifying "
           "the network interface for NCCL via environment variables listed in its reference: "

@@ -315,21 +315,30 @@ void ArgSort(Context const *ctx, Span<U> keys, Span<IdxT> sorted_idx) {
     using KeyT = typename std::remove_const_t<U>;
     using ValueT = std::remove_const_t<IdxT>;
     auto cuctx = ctx->CUDACtx();
-    auto stream = cuctx->Stream(); 
+    auto stream = cuctx->Stream();
     size_t size = keys.size();
 
-    // 1. Initialize the indices (ValueT)
+    // Initialize indices
     dh::Iota(sorted_idx, stream);
+    
+    // Prepare separate buffers for both keys and indices.
+    // IMPORTANT: Don't pass keys.data() directly to rocprim::double_buffer,
+    // as rocprim uses both buffers as scratch space and will overwrite the input.
+    dh::TemporaryArray<KeyT> keys_buf1(size);
+    dh::TemporaryArray<KeyT> keys_buf2(size);
+    dh::TemporaryArray<ValueT> idx_buf1(size);
+    dh::TemporaryArray<ValueT> idx_buf2(size);
+    
+    // Copy input data to temporary buffers
+    dh::safe_cuda(hipMemcpy(keys_buf1.data().get(), keys.data(), size * sizeof(KeyT),
+                            hipMemcpyDeviceToDevice));
+    dh::safe_cuda(hipMemcpy(idx_buf1.data().get(), sorted_idx.data(), size * sizeof(ValueT),
+                            hipMemcpyDeviceToDevice));
 
-    // 2. Prepare Double Buffers
-    // Temporary storage for keys and indices to facilitate ping-ponging
-    dh::TemporaryArray<KeyT> keys_alt(size);
-    dh::TemporaryArray<ValueT> idx_alt(size);
+    rocprim::double_buffer<KeyT> d_keys(keys_buf1.data().get(), keys_buf2.data().get());
+    rocprim::double_buffer<ValueT> d_values(idx_buf1.data().get(), idx_buf2.data().get());
 
-    rocprim::double_buffer<KeyT> d_keys(const_cast<KeyT*>(keys.data()), keys_alt.data().get());
-    rocprim::double_buffer<ValueT> d_values(sorted_idx.data(), idx_alt.data().get());
-
-    // 3. Determine Temporary Storage Size
+    // Query temporary storage size
     size_t temp_storage_bytes = 0;
     if constexpr (ascending) {
         rocprim::radix_sort_pairs(
@@ -347,7 +356,7 @@ void ArgSort(Context const *ctx, Span<U> keys, Span<IdxT> sorted_idx) {
         );
     }
 
-    // 4. Allocate Temporary Storage and Execute Sort
+    // Allocate temporary storage and execute sort
     dh::TemporaryArray<char> temp_storage(temp_storage_bytes);
     
     if constexpr (ascending) {
@@ -366,17 +375,9 @@ void ArgSort(Context const *ctx, Span<U> keys, Span<IdxT> sorted_idx) {
         );
     }
 
-    // 5. Post-Sorting Nuance: Ensure results are in the user-provided 'sorted_idx'
-    // If the final 'current' buffer is the alternate buffer, we must copy it back.
-    if (d_values.current() != sorted_idx.data()) {
-        dh::safe_cuda(hipMemcpyAsync(
-            sorted_idx.data(), 
-            d_values.current(), 
-            sizeof(ValueT) * size, 
-            hipMemcpyDeviceToDevice, 
-            stream
-        ));
-    }
+    // Copy result from the active buffer back to sorted_idx
+    dh::safe_cuda(hipMemcpyAsync(sorted_idx.data(), d_values.current(),
+                                 sizeof(ValueT) * size, hipMemcpyDeviceToDevice, stream));
 }
 
 #endif // XGBOOST_USE_HIP
@@ -496,3 +497,4 @@ AllOf(Policy policy, InputIt first, InputIt second, Chk &&check) {
 }
 }  // namespace xgboost::common
 #endif  // XGBOOST_COMMON_ALGORITHM_CUH_
+

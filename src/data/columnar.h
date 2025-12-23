@@ -24,6 +24,8 @@
 
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda_runtime_api.h>  // for cudaMemcpy
+#elif defined(XGBOOST_USE_HIP)
+#include "../common/cuda_to_hip.h"
 #endif
 
 namespace xgboost::data {
@@ -47,7 +49,7 @@ auto GetArrowNames(Object::Map const& jnames, std::vector<CategoricalIndex>* p_c
   auto offset_last_idx = offset.n - 1;
   if (ArrayInterfaceHandler::IsCudaPtr(offset.data)) {
     CHECK_EQ(strbuf.n, 0);  // Unknown
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     DispatchDType(offset.type, [&](auto t) {
       using T = decltype(t);
       if (!std::is_same_v<T, std::int32_t>) {
@@ -57,7 +59,8 @@ auto GetArrowNames(Object::Map const& jnames, std::vector<CategoricalIndex>* p_c
 #pragma nv_diagnostic push
 #pragma nv_diag_suppress 20208  // long double is treated as double in device code
 #endif  // defined(__CUDACC__)
-      T back{0};
+      //T back{0};
+      T back{};
       dh::safe_cuda(cudaMemcpy(&back, static_cast<T const*>(offset.data) + offset_last_idx,
                                sizeof(T), cudaMemcpyDeviceToHost));
       strbuf.n = back;

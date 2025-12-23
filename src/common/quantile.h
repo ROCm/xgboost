@@ -768,10 +768,12 @@ std::vector<bst_feature_t> LoadBalance(Batch const &batch, size_t nnz, bst_featu
     cols_ptr.at(current_thread)++;  // add one column to thread
     count += col;
     CHECK_LE(count, total_entries);
-    if (count > entries_per_thread) {
-      current_thread++;
+    if (count > entries_per_thread){
+			if (current_thread < cols_ptr.size() - 1) {
+    	  current_thread++;
+      	cols_ptr.at(current_thread) = cols_ptr[current_thread - 1];
+			}
       count = 0;
-      cols_ptr.at(current_thread) = cols_ptr[current_thread - 1];
     }
   }
   // Idle threads.

@@ -34,7 +34,13 @@ inline std::int32_t BootstrapPrev(std::int32_t r, std::int32_t world) {
   return nrank;
 }
 
-inline StringView DefaultNcclName() { return "libnccl.so.2"; }
+inline StringView DefaultNcclName() {
+#if defined(XGBOOST_USE_RCCL)
+  return "librccl.so";
+#else
+  return "libnccl.so.2";
+#endif
+}
 
 class Channel;
 class Coll;

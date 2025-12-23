@@ -99,6 +99,7 @@ cmake_dependent_option(USE_CUDA_LTO
   OFF)
 ## HIP
 option(USE_HIP  "Build with GPU acceleration" OFF)
+option(ENABLE_LLVM_CODE_COVERAGE  "Enable LLVM basd code coverage" OFF)
 option(USE_RCCL "Build with RCCL to enable distributed GPU support." OFF)
 # This is specifically designed for PyPI binary release and should be disabled for most of the cases.
 option(USE_DLOPEN_RCCL "Whether to load nccl dynamically." OFF)
@@ -328,6 +329,10 @@ endif()
 
 if(USE_NCCL)
   find_package(Nccl REQUIRED)
+endif()
+
+if(USE_RCCL)
+  find_package(Rccl REQUIRED)
 endif()
 
 if(MSVC)
@@ -592,6 +597,30 @@ if(GOOGLE_TEST)
       PASS_REGULAR_EXPRESSION ".*test-rmse:0.087.*")
   endif()
 endif()
+
+if(USE_HIP AND ENABLE_LLVM_CODE_COVERAGE)
+    message(STATUS "Applying LLVM coverage flags to objxgboost and testxgboost")
+    add_compile_options(--coverage -fprofile-arcs -ftest-coverage)
+	add_link_options(--coverage)
+    # The logic files are in objxgboost. Use PUBLIC so testxgboost inherits them.
+    if(TARGET objxgboost)
+        target_compile_options(objxgboost PUBLIC 
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping> 
+		)
+    endif()
+
+    # The test runner also needs instrumentation and the profile runtime linked
+    if(TARGET testxgboost)
+        target_compile_options(testxgboost PUBLIC 
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping>	
+		)
+        target_link_options(testxgboost PUBLIC 
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate>
+		)
+    endif()
+endif()
+
+
 
 # Add xgboost.pc
 if(ADD_PKGCONFIG)

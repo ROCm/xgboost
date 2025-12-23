@@ -793,3 +793,28 @@ def column_split_feature_names(
 def is_windows() -> bool:
     """Check if the current platform is Windows."""
     return platform.system() == "Windows"
+
+def is_rocm_64() -> PytestSkip:
+    """Check if running on ROCm 6.4 system."""
+    try:
+        from xgboost import build_info
+        
+        info = build_info()
+        # Check if using HIP (ROCm)
+        if not info.get("USE_HIP", False):
+            return {"condition": False, "reason": ""}
+        
+        # Check CUDA_VERSION which contains ROCm version when USE_HIP is True
+        cuda_ver = info.get("CUDA_VERSION", [])
+        if len(cuda_ver) >= 2:
+            major, minor = cuda_ver[0], cuda_ver[1]
+            # Check if ROCm 6.4
+            if major == 6:
+                return {
+                    "condition": True,
+                    "reason": "Test skipped on ROCm 6.4 due to known issues with categorical features."
+                }
+        
+        return {"condition": False, "reason": ""}
+    except Exception:
+        return {"condition": False, "reason": ""}

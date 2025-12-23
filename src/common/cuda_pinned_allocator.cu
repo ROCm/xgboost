@@ -19,6 +19,7 @@
 
 namespace xgboost::common::cuda_impl {
 [[nodiscard]] MemPoolHdl CreateHostMemPool() {
+#if defined(XGBOOST_USE_CUDA)
   auto mem_pool = std::unique_ptr<cudaMemPool_t, void (*)(cudaMemPool_t*)>{
       [] {
         cudaMemPoolProps h_props;
@@ -67,5 +68,13 @@ namespace xgboost::common::cuda_impl {
         }
       }};
   return mem_pool;
+#elif defined(XGBOOST_USE_HIP)
+  // HIP: Host NUMA memory pools not supported, return nullptr
+  // HostPinnedMemPool will fall back to regular pinned allocation
+  return std::unique_ptr<cudaMemPool_t, void (*)(cudaMemPool_t*)>{
+      nullptr,
+      [](cudaMemPool_t*) {}
+	};
+#endif
 }
 }  // namespace xgboost::common::cuda_impl

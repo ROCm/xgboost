@@ -555,7 +555,56 @@ def cudf_cat_inf(  # pylint: disable=too-many-locals
         return cats_ainf, codes_ainf, (cats, codes)
 
     # pylint: disable=protected-access
-    arrow_col = cats._column.to_pylibcudf(mode="read")
+    # cuDF 2.0+ removed __arrow_c_device_array__(), use direct column access instead
+    col = cats._column
+    
+    # Try new cuDF 2.0+ API first (direct access to children and base_data)
+    if hasattr(col, 'children') and len(col.children) > 0:
+        # cuDF 2.0+: StringColumn.children[0] is offsets, .base_data is string data
+        offsets_col = col.children[0]
+        
+        # Get offsets via __cuda_array_interface__
+        if not hasattr(offsets_col, '__cuda_array_interface__'):
+            raise TypeError("cuDF string column offsets do not expose __cuda_array_interface__")
+        
+        offsets_cai = offsets_col.__cuda_array_interface__
+        joffset: CudaArrayInf = {
+            "version": offsets_cai.get("version", 0),
+            "data": offsets_cai["data"],
+            "shape": offsets_cai["shape"],
+            "typestr": offsets_cai["typestr"],
+            "stream": STREAM_PER_THREAD,
+        }
+        if "strides" in offsets_cai and offsets_cai["strides"] is not None:
+            joffset["strides"] = offsets_cai["strides"]
+        
+        # Get string data via __cuda_array_interface__
+        if not hasattr(col, 'base_data'):
+            raise TypeError("cuDF string column does not expose base_data")
+        
+        data_cai = col.base_data.__cuda_array_interface__
+        jdata: CudaArrayInf = {
+            "version": data_cai.get("version", 0),
+            "data": data_cai["data"],
+            # C++ code expects shape=(0,) for GPU string data (size unknown, will be inferred from offsets)
+            "shape": (0,),
+            # C++ expects "|i1" (signed int8) for string data, cuDF gives "|u1" (unsigned int8)
+            "typestr": "|i1",
+            "stream": STREAM_PER_THREAD,
+        }
+        if "strides" in data_cai and data_cai["strides"] is not None:
+            jdata["strides"] = data_cai["strides"]
+        
+        jnames: CudaStringArray = {
+            "offsets": joffset,
+            "values": jdata,
+        }
+        
+        jcodes = cuda_array_interface_dict(codes)
+        return jnames, jcodes, (col,)
+    
+    # Fallback to old cuDF < 2.0 API (pylibcudf + Arrow C Device interface)
+    arrow_col = col.to_pylibcudf(mode="read")
     # Tuple[types.CapsuleType, types.CapsuleType]
     schema, array = arrow_col.__arrow_c_device_array__()
 
@@ -749,3 +798,5 @@ class TransformedDf(ABC):
     @abstractmethod
     def shape(self) -> Tuple[int, int]:
         """Return the shape of the dataframe."""
+
+
