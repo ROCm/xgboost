@@ -7,6 +7,7 @@
 #include <thrust/sequence.h>                    // for sequence
 
 #include "../../../src/common/cuda_context.cuh"
+#include "../../../src/common/device_vector.cuh"
 #include "../../../src/common/linalg_op.cuh"
 #include "../../../src/common/optional_weight.h"  // for MakeOptionalWeights
 #include "../helpers.h"

@@ -790,13 +790,16 @@ xgboost::common::Span<const T> ToSpan(
 }
 
 template <typename T>
-xgboost::common::Span<T> ToSpan(thrust::device_vector<T>& vec,
-                                size_t offset, size_t size) {
-  return ToSpan(vec, offset, size);
+xgboost::common::Span<T> ToSpan(thrust::device_vector<T>& vec, size_t offset, size_t size) 
+{
+  size = size == std::numeric_limits<size_t>::max() ? vec.size() : size;
+  CHECK_LE(offset + size, vec.size());
+  return {thrust::raw_pointer_cast(vec.data()) + offset, size};
 }
+
 template <typename T>
 xgboost::common::Span<T> ToSpan(device_vector<T> &vec) {
-  return ToSpan(vec);
+  return {thrust::raw_pointer_cast(vec.data()), vec.size()};  
 }
 
 
