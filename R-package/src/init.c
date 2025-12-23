@@ -20,6 +20,7 @@ extern SEXP XGDuplicate_R(SEXP);
 extern SEXP XGPointerEqComparison_R(SEXP, SEXP);
 extern SEXP XGBoosterTrainOneIter_R(SEXP, SEXP, SEXP, SEXP, SEXP);
 extern SEXP XGBoosterCreate_R(SEXP);
+extern SEXP XGBoosterReset_R(SEXP);
 extern SEXP XGBoosterCopyInfoFromDMatrix_R(SEXP, SEXP);
 extern SEXP XGBoosterSetStrFeatureInfo_R(SEXP, SEXP, SEXP);
 extern SEXP XGBoosterGetStrFeatureInfo_R(SEXP, SEXP);
@@ -45,8 +46,8 @@ extern SEXP XGBoosterSetAttr_R(SEXP, SEXP, SEXP);
 extern SEXP XGBoosterSetParam_R(SEXP, SEXP, SEXP);
 extern SEXP XGBoosterUpdateOneIter_R(SEXP, SEXP, SEXP);
 extern SEXP XGCheckNullPtr_R(SEXP);
-extern SEXP XGSetArrayDimInplace_R(SEXP, SEXP);
 extern SEXP XGSetArrayDimNamesInplace_R(SEXP, SEXP);
+extern SEXP XGSetVectorNamesInplace_R(SEXP, SEXP);
 extern SEXP XGDMatrixCreateFromCSC_R(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
 extern SEXP XGDMatrixCreateFromCSR_R(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
 extern SEXP XGDMatrixCreateFromURI_R(SEXP, SEXP, SEXP);
@@ -83,6 +84,7 @@ static const R_CallMethodDef CallEntries[] = {
   {"XGPointerEqComparison_R",     (DL_FUNC) &XGPointerEqComparison_R,     2},
   {"XGBoosterTrainOneIter_R",     (DL_FUNC) &XGBoosterTrainOneIter_R,     5},
   {"XGBoosterCreate_R",           (DL_FUNC) &XGBoosterCreate_R,           1},
+  {"XGBoosterReset_R",            (DL_FUNC) &XGBoosterReset_R,            1},
   {"XGBoosterCopyInfoFromDMatrix_R", (DL_FUNC) &XGBoosterCopyInfoFromDMatrix_R, 2},
   {"XGBoosterSetStrFeatureInfo_R",(DL_FUNC) &XGBoosterSetStrFeatureInfo_R,3},  // NOLINT
   {"XGBoosterGetStrFeatureInfo_R",(DL_FUNC) &XGBoosterGetStrFeatureInfo_R,2},  // NOLINT
@@ -108,8 +110,8 @@ static const R_CallMethodDef CallEntries[] = {
   {"XGBoosterSetParam_R",         (DL_FUNC) &XGBoosterSetParam_R,         3},
   {"XGBoosterUpdateOneIter_R",    (DL_FUNC) &XGBoosterUpdateOneIter_R,    3},
   {"XGCheckNullPtr_R",            (DL_FUNC) &XGCheckNullPtr_R,            1},
-  {"XGSetArrayDimInplace_R",      (DL_FUNC) &XGSetArrayDimInplace_R,      2},
   {"XGSetArrayDimNamesInplace_R", (DL_FUNC) &XGSetArrayDimNamesInplace_R, 2},
+  {"XGSetVectorNamesInplace_R",   (DL_FUNC) &XGSetVectorNamesInplace_R,   2},
   {"XGDMatrixCreateFromCSC_R",    (DL_FUNC) &XGDMatrixCreateFromCSC_R,    6},
   {"XGDMatrixCreateFromCSR_R",    (DL_FUNC) &XGDMatrixCreateFromCSR_R,    6},
   {"XGDMatrixCreateFromURI_R",    (DL_FUNC) &XGDMatrixCreateFromURI_R,    3},

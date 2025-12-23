@@ -1,31 +1,22 @@
 /**
- * Copyright 2021-2023, XGBoost contributors
+ * Copyright 2021-2025, XGBoost contributors
  */
 #include "../common/device_helpers.cuh"  // for CurrentDevice
-#include "proxy_dmatrix.cuh"             // for Dispatch, DMatrixProxy
+#include "proxy_dmatrix.cuh"             // for DispatchAny, DMatrixProxy
 #include "simple_dmatrix.cuh"            // for CopyToSparsePage
 #include "sparse_page_source.h"
 #include "xgboost/data.h"  // for SparsePage
 
 namespace xgboost::data {
-namespace detail {
-std::size_t NSamplesDevice(DMatrixProxy *proxy) {
-  return cuda_impl::Dispatch(proxy, [](auto const &value) { return value.NumRows(); });
-}
-
-std::size_t NFeaturesDevice(DMatrixProxy *proxy) {
-  return cuda_impl::Dispatch(proxy, [](auto const &value) { return value.NumCols(); });
-}
-}  // namespace detail
-
 void DevicePush(DMatrixProxy *proxy, float missing, SparsePage *page) {
   auto device = proxy->Device();
-  if (device.IsCPU()) {
+  if (!device.IsCUDA()) {
     device = DeviceOrd::CUDA(dh::CurrentDevice());
   }
   CHECK(device.IsCUDA());
+  auto ctx = Context{}.MakeCUDA(device.ordinal);
 
-  cuda_impl::Dispatch(proxy,
-                      [&](auto const &value) { CopyToSparsePage(value, device, missing, page); });
+  cuda_impl::DispatchAny(
+      proxy, [&](auto const &value) { CopyToSparsePage(&ctx, value, device, missing, page); });
 }
 }  // namespace xgboost::data

@@ -67,8 +67,8 @@ Represents previously calculated feature importance as a bar graph.
 }
 }
 \details{
-The graph represents each feature as a horizontal bar of length proportional to the importance of a feature.
-Features are sorted by decreasing importance.
+The graph represents each feature as a horizontal bar of length proportional to the
+importance of a feature. Features are sorted by decreasing importance.
 It works for both "gblinear" and "gbtree" models.
 
 When \code{rel_to_first = FALSE}, the values would be plotted as in \code{importance_matrix}.
@@ -88,17 +88,14 @@ data(agaricus.train)
 nthread <- 2
 data.table::setDTthreads(nthread)
 
-bst <- xgboost(
-  data = agaricus.train$data,
-  label = agaricus.train$label,
-  max_depth = 3,
-  eta = 1,
-  nthread = nthread,
+model <- xgboost(
+  agaricus.train$data, factor(agaricus.train$label),
   nrounds = 2,
-  objective = "binary:logistic"
+  max_depth = 3,
+  nthreads = nthread
 )
 
-importance_matrix <- xgb.importance(colnames(agaricus.train$data), model = bst)
+importance_matrix <- xgb.importance(model)
 xgb.plot.importance(
   importance_matrix, rel_to_first = TRUE, xlab = "Relative importance"
 )

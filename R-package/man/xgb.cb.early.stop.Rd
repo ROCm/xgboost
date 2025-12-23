@@ -9,7 +9,7 @@ xgb.cb.early.stop(
   maximize = FALSE,
   metric_name = NULL,
   verbose = TRUE,
-  keep_all_iter = TRUE
+  save_best = FALSE
 )
 }
 \arguments{
@@ -23,17 +23,18 @@ stopping. If not set, the last column would be used.
 Let's say the test data in \code{evals} was labelled as \code{dtest},
 and one wants to use the AUC in test data for early stopping regardless of where
 it is in the \code{evals}, then one of the following would need to be set:
-\code{metric_name='dtest-auc'} or \code{metric_name='dtest_auc'}.
+\code{metric_name = 'dtest-auc'} or \code{metric_name = 'dtest_auc'}.
 All dash '-' characters in metric names are considered equivalent to '_'.}
 
 \item{verbose}{Whether to print the early stopping information.}
 
-\item{keep_all_iter}{Whether to keep all of the boosting rounds that were produced
-in the resulting object. If passing \code{FALSE}, will only keep the boosting rounds
-up to the detected best iteration, discarding the ones that come after.}
+\item{save_best}{Whether training should return the best model or the last model. If
+set to \code{TRUE}, it will only keep the boosting rounds up to the detected best
+iteration, discarding the ones that come after. This parameter is not supported by
+the \code{xgb.cv} function and the \code{gblinear} booster yet.}
 }
 \value{
-An \code{xgb.Callback} object, which can be passed to \link{xgb.train} or \link{xgb.cv}.
+An \code{xgb.Callback} object, which can be passed to \code{\link[=xgb.train]{xgb.train()}} or \code{\link[=xgb.cv]{xgb.cv()}}.
 }
 \description{
 This callback function determines the condition for early stopping.
@@ -49,7 +50,7 @@ The same values are also stored as R attributes as a result of the callback, plu
 attribute \code{stopped_by_max_rounds} which indicates whether an early stopping by the \code{stopping_rounds}
 condition occurred. Note that the \code{best_iteration} that is stored under R attributes will follow
 base-1 indexing, so it will be larger by '1' than the C-level 'best_iteration' that is accessed
-through \link{xgb.attr} or \link{xgb.attributes}.
+through \code{\link[=xgb.attr]{xgb.attr()}} or  \code{\link[=xgb.attributes]{xgb.attributes()}}.
 
 At least one dataset is required in \code{evals} for early stopping to work.
 }

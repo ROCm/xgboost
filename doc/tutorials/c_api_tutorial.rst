@@ -26,14 +26,12 @@ Run the following commands on your terminal. The below commands will install the
     # clone the XGBoost repository & its submodules
     git clone --recursive https://github.com/dmlc/xgboost
     cd xgboost
-    mkdir build
-    cd build
     # Activate the Conda environment, into which we'll install XGBoost
     conda activate [env_name]
     # Build the compiled version of XGBoost inside the build folder
-    cmake .. -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX
+    cmake -B build -S . -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX
     # install XGBoost in your conda environment (usually under [your home directory]/miniconda3)
-    make install
+    cmake --build build --target install
 
 *********************************************************************
 Configure CMakeList.txt file of your application to link with XGBoost
@@ -55,14 +53,12 @@ To ensure that CMake can locate the XGBoost library, supply ``-DCMAKE_PREFIX_PAT
 
 .. code-block:: bash
 
-  # Navigate to the build directory for your application
-  cd build
   # Activate the Conda environment where we previously installed XGBoost
   conda activate [env_name]
   # Invoke CMake with CMAKE_PREFIX_PATH
-  cmake .. -DCMAKE_PREFIX_PATH=$CONDA_PREFIX
+  cmake -B build -S . -DCMAKE_PREFIX_PATH=$CONDA_PREFIX
   # Build your application
-  make
+  cmake --build build
 
 ************************
 Useful Tips To Remember
@@ -180,7 +176,7 @@ Sample examples along with Code snippet to use C API functions
   const int data1[] = { 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 };
 
   // 2D matrix
-  const int ROWS = 5, COLS = 3;
+  const int ROWS = 6, COLS = 3;
   const int data2[ROWS][COLS] = { {1, 2, 3}, {2, 4, 6}, {3, -1, 9}, {4, 8, -1}, {2, 5, 1}, {0, 1, 5} };
   DMatrixHandle dmatrix1, dmatrix2;
   // Pass the matrix, no of rows & columns contained in the matrix variable

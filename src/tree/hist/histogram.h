@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2024, XGBoost Contributors
+ * Copyright 2021-2025, XGBoost Contributors
  */
 #ifndef XGBOOST_TREE_HIST_HISTOGRAM_H_
 #define XGBOOST_TREE_HIST_HISTOGRAM_H_
@@ -17,7 +17,7 @@
 #include "../../data/gradient_index.h"     // for GHistIndexMatrix
 #include "expand_entry.h"                  // for MultiExpandEntry, CPUExpandEntry
 #include "hist_cache.h"                    // for BoundedHistCollection
-#include "param.h"                         // for HistMakerTrainParam
+#include "hist_param.h"                    // for HistMakerTrainParam
 #include "xgboost/base.h"                  // for bst_node_t, bst_target_t, bst_bin_t
 #include "xgboost/context.h"               // for Context
 #include "xgboost/data.h"                  // for BatchIterator, BatchSet
@@ -41,10 +41,11 @@ void AssignNodes(RegTree const *p_tree, std::vector<CPUExpandEntry> const &candi
 
 class HistogramBuilder {
   /*! \brief culmulative histogram of gradients. */
+  common::Monitor monitor_;
   BoundedHistCollection hist_;
   common::ParallelGHistBuilder buffer_;
   BatchParam param_;
-  int32_t n_threads_{-1};
+  std::int32_t n_threads_{-1};
   // Whether XGBoost is running in distributed environment.
   bool is_distributed_{false};
   bool is_col_split_{false};
@@ -61,7 +62,7 @@ class HistogramBuilder {
              bool is_col_split, HistMakerTrainParam const *param) {
     n_threads_ = ctx->Threads();
     param_ = p;
-    hist_.Reset(total_bins, param->max_cached_hist_node);
+    hist_.Reset(total_bins, param->MaxCachedHistNodes(ctx->Device()));
     buffer_.Init(total_bins);
     is_distributed_ = is_distributed;
     is_col_split_ = is_col_split;
@@ -76,13 +77,13 @@ class HistogramBuilder {
     common::ParallelFor2d(space, this->n_threads_, [&](size_t nid_in_set, common::Range1d r) {
       const auto tid = static_cast<unsigned>(omp_get_thread_num());
       bst_node_t const nidx = nodes_to_build[nid_in_set];
-      auto elem = row_set_collection[nidx];
+      auto const& elem = row_set_collection[nidx];
       auto start_of_row_set = std::min(r.begin(), elem.Size());
       auto end_of_row_set = std::min(r.end(), elem.Size());
-      auto rid_set = common::RowSetCollection::Elem(elem.begin + start_of_row_set,
-                                                    elem.begin + end_of_row_set, nidx);
+      auto rid_set = common::Span<bst_idx_t const>{elem.begin() + start_of_row_set,
+                                                   elem.begin() + end_of_row_set};
       auto hist = buffer_.GetInitializedHist(tid, nid_in_set);
-      if (rid_set.Size() != 0) {
+      if (rid_set.size() != 0) {
         common::BuildHist<any_missing>(gpair_h, rid_set, gidx, hist, force_read_by_column);
       }
     });
@@ -147,6 +148,7 @@ class HistogramBuilder {
                  GHistIndexMatrix const &gidx, common::RowSetCollection const &row_set_collection,
                  std::vector<bst_node_t> const &nodes_to_build,
                  linalg::VectorView<GradientPair const> gpair, bool force_read_by_column = false) {
+    monitor_.Start(__func__);
     CHECK(gpair.Contiguous());
 
     if (page_idx == 0) {
@@ -167,6 +169,7 @@ class HistogramBuilder {
       this->BuildLocalHistograms<true>(space, gidx, nodes_to_build, row_set_collection,
                                        gpair.Values(), force_read_by_column);
     }
+    monitor_.Stop(__func__);
   }
 
   void SyncHistogram(Context const *ctx, RegTree const *p_tree,

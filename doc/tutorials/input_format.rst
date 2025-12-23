@@ -6,6 +6,11 @@ Text Input Format of DMatrix
 
 Here we will briefly describe the text input formats for XGBoost. However, for users with access to a supported language environment like Python or R, it's recommended to use data parsers from that ecosystem instead. For instance, :py:func:`sklearn.datasets.load_svmlight_file`.
 
+.. warning::
+
+   As stated above, users are encouraged to use third-party data parsers. The text parsers
+   in XGBoost have been deprecated.
+
 ******************
 Basic Input Format
 ******************
@@ -32,7 +37,7 @@ Auxiliary Files for Additional Information
 
 Group Input Format
 ==================
-For `ranking task <https://github.com/dmlc/xgboost/tree/master/demo/rank>`_, XGBoost supports the group input format. In ranking task, instances are categorized into *query groups* in real world scenarios. For example, in the learning to rank web pages scenario, the web page instances are grouped by their queries. XGBoost requires an file that indicates the group information. For example, if the instance file is the ``train.txt`` shown above,  the group file should be named ``train.txt.group`` and be of the following format:
+For ranking task, XGBoost supports the group input format. In ranking task, instances are categorized into *query groups* in real world scenarios. For example, in the learning to rank web pages scenario, the web page instances are grouped by their queries. XGBoost requires an file that indicates the group information. For example, if the instance file is the ``train.txt`` shown above,  the group file should be named ``train.txt.group`` and be of the following format:
 
 .. code-block:: none
   :caption: ``train.txt.group``

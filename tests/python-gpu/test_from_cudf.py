@@ -5,9 +5,16 @@ import pytest
 
 import xgboost as xgb
 from xgboost import testing as tm
+from xgboost.compat import is_dataframe
 from xgboost.testing.data import run_base_margin_info
 
 cudf = pytest.importorskip("cudf")
+
+
+def test_type_check() -> None:
+    df = cudf.DataFrame([[1, 2.0], [2, 3.0]], columns=["a", "b"])
+    assert is_dataframe(df)
+    assert is_dataframe(df.a)
 
 
 def dmatrix_from_cudf(input_type, DMatrixT, missing=np.nan):
@@ -195,7 +202,7 @@ class TestFromColumnar:
     @pytest.mark.skipif(**tm.no_cudf())
     def test_cudf_categorical(self) -> None:
         n_features = 30
-        _X, _y = tm.make_categorical(100, n_features, 17, False)
+        _X, _y = tm.make_categorical(100, n_features, 17, onehot=False)
         X = cudf.from_pandas(_X)
         y = cudf.from_pandas(_y)
 
@@ -210,28 +217,25 @@ class TestFromColumnar:
         assert all(t == "c" for t in Xy.feature_types)
 
         # mixed dtypes
-        X["1"] = X["1"].astype(np.int64)
-        X["3"] = X["3"].astype(np.int64)
-        df, cat_codes, _, _ = xgb.data._transform_cudf_df(
-            X, None, None, enable_categorical=True
-        )
+        X["0"] = X["0"].astype(np.int64)
+        X["2"] = X["2"].astype(np.int64)
+        df, _, _ = xgb.data._transform_cudf_df(X, None, None, enable_categorical=True)
         assert X.shape[1] == n_features
-        assert len(cat_codes) == X.shape[1]
-        assert not cat_codes[0]
-        assert not cat_codes[2]
+        assert isinstance(df.aitfs[0], dict)
+        assert isinstance(df.aitfs[1], tuple)
+        assert isinstance(df.aitfs[2], dict)
 
-        interfaces_str = xgb.data._cudf_array_interfaces(df, cat_codes)
+        interfaces_str = df.array_interface()
         interfaces = json.loads(interfaces_str)
         assert len(interfaces) == X.shape[1]
 
         # test missing value
         X = cudf.DataFrame({"f0": ["a", "b", np.nan]})
         X["f0"] = X["f0"].astype("category")
-        df, cat_codes, _, _ = xgb.data._transform_cudf_df(
-            X, None, None, enable_categorical=True
-        )
-        for col in cat_codes:
-            assert col.has_nulls
+        df, _, _ = xgb.data._transform_cudf_df(X, None, None, enable_categorical=True)
+        for col in df.aitfs:
+            assert isinstance(col, tuple)
+            assert "mask" in col[1]
 
         y = [0, 1, 2]
         with pytest.raises(ValueError):
@@ -312,7 +316,7 @@ class IterForDMatrixTest(xgb.core.DataIter):
             self._data = []
             self._labels = []
             for i in range(self.BATCHES):
-                X, y = tm.make_categorical(self.ROWS_PER_BATCH, 4, 13, False)
+                X, y = tm.make_categorical(self.ROWS_PER_BATCH, 4, 13, onehot=False)
                 self._data.append(cudf.from_pandas(X))
                 self._labels.append(y)
         else:
@@ -382,3 +386,20 @@ def test_from_cudf_iter(enable_categorical):
     predict = reg.predict(m)
     predict_with_it = reg_with_it.predict(m_it)
     np.testing.assert_allclose(predict_with_it, predict)
+
+
+def test_invalid_meta() -> None:
+    df = cudf.DataFrame({"f0": [0, 1, 2], "f1": [2, 3, 4], "y": [None, 1, 2]})
+    y = df["y"]
+    X = df.drop(["y"], axis=1)
+    with pytest.raises(ValueError, match="Missing value"):
+        xgb.DMatrix(X, y)
+    with pytest.raises(ValueError, match="Missing value"):
+        xgb.QuantileDMatrix(X, y)
+    y = X.copy()
+    y.iloc[0, 0] = None
+    # check by the cuDF->cupy converter.
+    with pytest.raises(ValueError, match="no nulls"):
+        xgb.DMatrix(X, y)
+    with pytest.raises(ValueError, match="no nulls"):
+        xgb.QuantileDMatrix(X, y)

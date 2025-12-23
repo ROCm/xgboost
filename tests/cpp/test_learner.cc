@@ -1,5 +1,5 @@
 /**
- * Copyright 2017-2024, XGBoost contributors
+ * Copyright 2017-2025, XGBoost contributors
  */
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,7 +27,6 @@
 #include "../../src/common/linalg_op.h"             // for ElementWiseTransformHost, begin, end
 #include "../../src/common/random.h"                // for GlobalRandom
 #include "./collective/test_worker.h"               // for TestDistributedGlobal
-#include "dmlc/io.h"                                // for Stream
 #include "dmlc/omp.h"                               // for omp_get_max_threads
 #include "filesystem.h"                             // for TemporaryDirectory
 #include "helpers.h"                                // for GetBaseScore, RandomDataGenerator
@@ -117,24 +116,15 @@ TEST(Learner, CheckGroup) {
   EXPECT_ANY_THROW(learner->UpdateOneIter(0, p_mat));
 }
 
-TEST(Learner, SLOW_CheckMultiBatch) {  // NOLINT
-  // Create sufficiently large data to make two row pages
-  dmlc::TemporaryDirectory tempdir;
-  const std::string tmp_file = tempdir.path + "/big.libsvm";
-  CreateBigTestData(tmp_file, 50000);
-  std::shared_ptr<DMatrix> dmat(
-      xgboost::DMatrix::Load(tmp_file + "?format=libsvm" + "#" + tmp_file + ".cache"));
-  EXPECT_FALSE(dmat->SingleColBlock());
-  size_t num_row = dmat->Info().num_row_;
-  std::vector<bst_float> labels(num_row);
-  for (size_t i = 0; i < num_row; ++i) {
-    labels[i] = i % 2;
-  }
-  dmat->SetInfo("label", Make1dInterfaceTest(labels.data(), num_row));
-  std::vector<std::shared_ptr<DMatrix>> mat{dmat};
+TEST(Learner, CheckMultiBatch) {
+  auto p_fmat =
+      RandomDataGenerator{512, 128, 0.8}.Batches(4).GenerateSparsePageDMatrix("temp", true);
+  ASSERT_FALSE(p_fmat->SingleColBlock());
+
+  std::vector<std::shared_ptr<DMatrix>> mat{p_fmat};
   auto learner = std::unique_ptr<Learner>(Learner::Create(mat));
   learner->SetParams(Args{{"objective", "binary:logistic"}});
-  learner->UpdateOneIter(0, dmat);
+  learner->UpdateOneIter(0, p_fmat);
 }
 
 TEST(Learner, Configuration) {
@@ -176,13 +166,13 @@ TEST(Learner, JsonModelIO) {
     Json out { Object() };
     learner->SaveModel(&out);
 
-    dmlc::TemporaryDirectory tmpdir;
+    common::TemporaryDirectory tmpdir;
 
-    std::ofstream fout (tmpdir.path + "/model.json");
+    std::ofstream fout (tmpdir.Path() / "model.json");
     fout << out;
     fout.close();
 
-    auto loaded_str = common::LoadSequentialFile(tmpdir.path + "/model.json");
+    auto loaded_str = common::LoadSequentialFile(tmpdir.Str() + "/model.json");
     Json loaded = Json::Load(StringView{loaded_str.data(), loaded_str.size()});
 
     learner->LoadModel(loaded);
@@ -218,7 +208,7 @@ TEST(Learner, ConfigIO) {
   bst_idx_t n_samples = 128;
   bst_feature_t n_features = 12;
   std::shared_ptr<DMatrix> p_fmat{
-      RandomDataGenerator{n_samples, n_features, 0}.GenerateDMatrix(true, false, 2)};
+      RandomDataGenerator{n_samples, n_features, 0}.Classes(2).GenerateDMatrix(true)};
 
   auto serialised_model_tmp = std::string{};
   std::string eval_res_0;
@@ -292,39 +282,7 @@ TEST(Learner, MultiThreadedPredict) {
   }
 }
 
-TEST(Learner, BinaryModelIO) {
-  size_t constexpr kRows = 8;
-  int32_t constexpr kIters = 4;
-  auto p_dmat = RandomDataGenerator{kRows, 10, 0}.GenerateDMatrix();
-  p_dmat->Info().labels.Reshape(kRows);
-
-  std::unique_ptr<Learner> learner{Learner::Create({p_dmat})};
-  learner->SetParam("eval_metric", "rmsle");
-  learner->Configure();
-  for (int32_t iter = 0; iter < kIters; ++iter) {
-    learner->UpdateOneIter(iter, p_dmat);
-  }
-  dmlc::TemporaryDirectory tempdir;
-  std::string const fname = tempdir.path + "binary_model_io.bin";
-  {
-    // Make sure the write is complete before loading.
-    std::unique_ptr<dmlc::Stream> fo(dmlc::Stream::Create(fname.c_str(), "w"));
-    learner->SaveModel(fo.get());
-  }
-
-  learner.reset(Learner::Create({p_dmat}));
-  std::unique_ptr<dmlc::Stream> fi(dmlc::Stream::Create(fname.c_str(), "r"));
-  learner->LoadModel(fi.get());
-  learner->Configure();
-  Json config { Object() };
-  learner->SaveConfig(&config);
-  std::string config_str;
-  Json::Dump(config, &config_str);
-  ASSERT_NE(config_str.find("rmsle"), std::string::npos);
-  ASSERT_EQ(config_str.find("WARNING"), std::string::npos);
-}
-
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 // Tests for automatic GPU configuration.
 TEST(Learner, GPUConfiguration) {
   using Arg = std::pair<std::string, std::string>;
@@ -338,15 +296,15 @@ TEST(Learner, GPUConfiguration) {
   p_dmat->Info().labels.Data()->HostVector() = labels;
   p_dmat->Info().labels.Reshape(kRows);
   {
-    std::unique_ptr<Learner> learner {Learner::Create(mat)};
-    learner->SetParams({Arg{"booster", "gblinear"},
-                        Arg{"updater", "gpu_coord_descent"}});
+    std::unique_ptr<Learner> learner{Learner::Create(mat)};
+    learner->SetParams(
+        {Arg{"booster", "gblinear"}, Arg{"updater", "coord_descent"}, Arg{"device", "cuda"}});
     learner->UpdateOneIter(0, p_dmat);
     ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CUDA(0));
   }
   {
     std::unique_ptr<Learner> learner{Learner::Create(mat)};
-    learner->SetParams({Arg{"tree_method", "gpu_hist"}});
+    learner->SetParams({Arg{"tree_method", "hist"}, {"device", "cuda"}});
     learner->Configure();
     ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CUDA(0));
     learner->UpdateOneIter(0, p_dmat);
@@ -354,8 +312,7 @@ TEST(Learner, GPUConfiguration) {
   }
   {
     std::unique_ptr<Learner> learner {Learner::Create(mat)};
-    learner->SetParams({Arg{"tree_method", "gpu_hist"},
-                        Arg{"gpu_id", "-1"}});
+    learner->SetParams({Arg{"tree_method", "hist"}, Arg{"device", "cuda"}});
     learner->UpdateOneIter(0, p_dmat);
     ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CUDA(0));
   }
@@ -365,13 +322,6 @@ TEST(Learner, GPUConfiguration) {
     learner->SetParams({Arg{"tree_method", "hist"}});
     learner->UpdateOneIter(0, p_dmat);
     ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CPU());
-  }
-  {
-    // with CPU algorithm, but `gpu_id` takes priority
-    std::unique_ptr<Learner> learner {Learner::Create(mat)};
-    learner->SetParams({Arg{"tree_method", "hist"}, Arg{"gpu_id", "0"}});
-    learner->UpdateOneIter(0, p_dmat);
-    ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CUDA(0));
   }
 }
 #endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
@@ -519,7 +469,8 @@ class InitBaseScore : public ::testing::Test {
     Json config{Object{}};
     learner->SaveConfig(&config);
     auto base_score = GetBaseScore(config);
-    ASSERT_NE(base_score, ObjFunction::DefaultBaseScore());
+    ASSERT_EQ(base_score.size(), 1);
+    ASSERT_NE(base_score[0], ObjFunction::DefaultBaseScore());
 
     // already initialized
     auto Xy1 = RandomDataGenerator{100, Cols(), 0}.Seed(321).GenerateDMatrix(true);
@@ -548,8 +499,9 @@ class InitBaseScore : public ::testing::Test {
     learner->SaveConfig(&config);
 
     auto base_score = GetBaseScore(config);
+    ASSERT_EQ(base_score.size(), 1);
     // no change
-    ASSERT_FLOAT_EQ(base_score, 1.3);
+    ASSERT_FLOAT_EQ(base_score[0], 1.3);
 
     HostDeviceVector<float> predt;
     learner->Predict(Xy_, false, &predt, 0, 0);
@@ -560,8 +512,9 @@ class InitBaseScore : public ::testing::Test {
     learner->UpdateOneIter(0, Xy_);
     learner->SaveConfig(&config);
     base_score = GetBaseScore(config);
+    ASSERT_EQ(base_score.size(), 1);
     // no change
-    ASSERT_FLOAT_EQ(base_score, 1.3);
+    ASSERT_FLOAT_EQ(base_score[0], 1.3);
 
     auto from_avg = std::stoi(
         get<String const>(config["learner"]["learner_model_param"]["boost_from_average"]));
@@ -584,7 +537,9 @@ class InitBaseScore : public ::testing::Test {
     Json model{Object{}};
     learner->SaveModel(&model);
     auto base_score = GetBaseScore(model);
-    ASSERT_EQ(base_score, ObjFunction::DefaultBaseScore());
+    ASSERT_EQ(base_score.size(), 1);
+    ASSERT_FALSE(std::isnan(base_score[0]));
+    ASSERT_EQ(base_score[0], ObjFunction::DefaultBaseScore());
 
     learner.reset(Learner::Create({Xy_}));
     learner->LoadModel(model);
@@ -592,12 +547,14 @@ class InitBaseScore : public ::testing::Test {
     learner->Configure();
     learner->SaveConfig(&config);
     base_score = GetBaseScore(config);
-    ASSERT_EQ(base_score, ObjFunction::DefaultBaseScore());
+    ASSERT_EQ(base_score[0], ObjFunction::DefaultBaseScore());
 
     learner->UpdateOneIter(0, Xy_);
     learner->SaveConfig(&config);
     base_score = GetBaseScore(config);
-    ASSERT_NE(base_score, ObjFunction::DefaultBaseScore());
+    ASSERT_EQ(base_score.size(), 1);
+    ASSERT_FALSE(std::isnan(base_score[0]));
+    ASSERT_NE(base_score[0], ObjFunction::DefaultBaseScore());
   }
 
   void TestInitWithPredt() {
@@ -614,13 +571,16 @@ class InitBaseScore : public ::testing::Test {
     Json config(Object{});
     learner->SaveConfig(&config);
     auto base_score = GetBaseScore(config);
-    ASSERT_EQ(base_score, ObjFunction::DefaultBaseScore());
+    ASSERT_EQ(base_score.size(), 1);
+    ASSERT_EQ(base_score[0], ObjFunction::DefaultBaseScore());
 
     // since prediction is not used for trianing, the train procedure still runs estimation
     learner->UpdateOneIter(0, Xy_);
     learner->SaveConfig(&config);
     base_score = GetBaseScore(config);
-    ASSERT_NE(base_score, ObjFunction::DefaultBaseScore());
+    ASSERT_EQ(base_score.size(), 1);
+    ASSERT_FALSE(std::isnan(base_score[0]));
+    ASSERT_NE(base_score[0], ObjFunction::DefaultBaseScore());
   }
 
   void TestUpdateProcess() {
@@ -634,6 +594,8 @@ class InitBaseScore : public ::testing::Test {
     Json model{Object{}};
     learner->SaveModel(&model);
     auto base_score = GetBaseScore(model);
+    ASSERT_EQ(base_score.size(), 1);
+    ASSERT_FALSE(std::isnan(base_score[0]));
 
     auto Xy1 = RandomDataGenerator{100, Cols(), 0}.Seed(321).GenerateDMatrix(true);
     learner.reset(Learner::Create({Xy1}));
@@ -645,6 +607,8 @@ class InitBaseScore : public ::testing::Test {
     Json config(Object{});
     learner->SaveConfig(&config);
     auto base_score1 = GetBaseScore(config);
+    ASSERT_EQ(base_score1.size(), 1);
+    ASSERT_FALSE(std::isnan(base_score1[0]));
     ASSERT_EQ(base_score, base_score1);
   }
 };
@@ -660,15 +624,18 @@ TEST_F(InitBaseScore, InitWithPredict) { this->TestInitWithPredt(); }
 TEST_F(InitBaseScore, UpdateProcess) { this->TestUpdateProcess(); }
 
 class TestColumnSplit : public ::testing::TestWithParam<std::string> {
-  void TestBaseScore(std::string objective, float expected_base_score, Json expected_model) {
+  void TestBaseScore(std::string objective, std::vector<float> const& expected_base_score,
+                     Json expected_model) {
     auto const world_size = collective::GetWorldSize();
+    auto n_threads = collective::GetWorkerLocalThreads(world_size);
     auto const rank = collective::GetRank();
 
-    auto p_fmat = MakeFmatForObjTest(objective, 10, 10);
+    std::shared_ptr<DMatrix> p_fmat = MakeFmatForObjTest(objective, 10, 10, 3);
     std::shared_ptr<DMatrix> sliced{p_fmat->SliceCol(world_size, rank)};
     std::unique_ptr<Learner> learner{Learner::Create({sliced})};
-    learner->SetParam("tree_method", "approx");
-    learner->SetParam("objective", objective);
+    learner->SetParams(Args{{"nthread", std::to_string(n_threads)},
+                            {"tree_method", "approx"},
+                            {"objective", objective}});
     if (objective.find("quantile") != std::string::npos) {
       learner->SetParam("quantile_alpha", "0.5");
     }
@@ -688,7 +655,7 @@ class TestColumnSplit : public ::testing::TestWithParam<std::string> {
 
  public:
   void Run(std::string objective) {
-    auto p_fmat = MakeFmatForObjTest(objective, 10, 10);
+    std::shared_ptr<DMatrix> p_fmat = MakeFmatForObjTest(objective, 10, 10, 3);
     std::unique_ptr<Learner> learner{Learner::Create({p_fmat})};
     learner->SetParam("tree_method", "approx");
     learner->SetParam("objective", objective);
@@ -707,11 +674,11 @@ class TestColumnSplit : public ::testing::TestWithParam<std::string> {
     learner->SaveModel(&model);
 
     auto constexpr kWorldSize{3};
-    auto call = [this, &objective](auto&... args) { TestBaseScore(objective, args...); };
+    auto call = [this, &objective](auto&... args) {
+      this->TestBaseScore(objective, args...);
+    };
     auto score = GetBaseScore(config);
-    collective::TestDistributedGlobal(kWorldSize, [&] {
-      call(score, model);
-    });
+    collective::TestDistributedGlobal(kWorldSize, [&] { call(score, model); });
   }
 };
 
@@ -730,8 +697,10 @@ namespace {
 Json GetModelWithArgs(std::shared_ptr<DMatrix> dmat, std::string const& tree_method,
                       std::string const& device, Args const& args) {
   std::unique_ptr<Learner> learner{Learner::Create({dmat})};
+  auto n_threads = collective::GetWorkerLocalThreads(collective::GetWorldSize());
   learner->SetParam("tree_method", tree_method);
   learner->SetParam("device", device);
+  learner->SetParam("nthread", std::to_string(n_threads));
   learner->SetParam("objective", "reg:logistic");
   learner->SetParams(args);
   learner->UpdateOneIter(0, dmat);
@@ -744,12 +713,11 @@ void VerifyColumnSplitWithArgs(std::string const& tree_method, bool use_gpu, Arg
                                Json const& expected_model) {
   auto const world_size = collective::GetWorldSize();
   auto const rank = collective::GetRank();
-  auto p_fmat = MakeFmatForObjTest("", 10, 10);
+  auto p_fmat = MakeFmatForObjTest("", 10, 10, 0);
   std::shared_ptr<DMatrix> sliced{p_fmat->SliceCol(world_size, rank)};
   std::string device = "cpu";
   if (use_gpu) {
-    auto gpu_id = common::AllVisibleGPUs() == 1 ? 0 : rank;
-    device = "cuda:" + std::to_string(gpu_id);
+    device = MakeCUDACtx(DistGpuIdx()).DeviceName();
   }
   auto model = GetModelWithArgs(sliced, tree_method, device, args);
   ASSERT_EQ(model, expected_model);
@@ -757,13 +725,13 @@ void VerifyColumnSplitWithArgs(std::string const& tree_method, bool use_gpu, Arg
 
 void TestColumnSplitWithArgs(std::string const& tree_method, bool use_gpu, Args const& args,
                              bool federated) {
-  auto p_fmat = MakeFmatForObjTest("", 10, 10);
+  auto p_fmat = MakeFmatForObjTest("", 10, 10, 0);
   std::string device = use_gpu ? "cuda:0" : "cpu";
   auto model = GetModelWithArgs(p_fmat, tree_method, device, args);
 
   auto world_size{3};
   if (use_gpu) {
-    world_size = common::AllVisibleGPUs();
+    world_size = curt::AllVisibleGPUs();
     // Simulate MPU on a single GPU. Federated doesn't use nccl, can run multiple
     // instances on the same GPU.
     if (world_size == 1 && federated) {
@@ -810,44 +778,32 @@ class ColumnSplitTrainingTest
   }
 };
 
-auto MakeParamsForTest() {
-  std::vector<std::tuple<std::string, bool, bool>> configs;
-  for (auto tm : {"hist", "approx"}) {
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-    std::array<bool, 2> use_gpu{true, false};
-#else
-    std::array<bool, 1> use_gpu{false};
-#endif
-    for (auto i : use_gpu) {
+auto WithFed() {
 #if defined(XGBOOST_USE_FEDERATED)
-      std::array<bool, 2> fed{true, false};
+  return ::testing::Bool();
 #else
-      std::array<bool, 1> fed{false};
+  return ::testing::Values(false);
 #endif
-      for (auto j : fed) {
-        configs.emplace_back(tm, i, j);
-      }
-    }
-  }
-  return configs;
 }
 }  // anonymous namespace
 
 TEST_P(ColumnSplitTrainingTest, ColumnSampler) {
-  auto param = GetParam();
-  std::apply(TestColumnSplitColumnSampler, param);
+  std::apply(TestColumnSplitColumnSampler, GetParam());
 }
 
 TEST_P(ColumnSplitTrainingTest, InteractionConstraints) {
-  auto param = GetParam();
-  std::apply(TestColumnSplitInteractionConstraints, param);
+  std::apply(TestColumnSplitInteractionConstraints, GetParam());
 }
 
 TEST_P(ColumnSplitTrainingTest, MonotoneConstraints) {
-  auto param = GetParam();
-  std::apply(TestColumnSplitMonotoneConstraints, param);
+  std::apply(TestColumnSplitMonotoneConstraints, GetParam());
 }
 
-INSTANTIATE_TEST_SUITE_P(ColumnSplit, ColumnSplitTrainingTest,
-                         ::testing::ValuesIn(MakeParamsForTest()));
+INSTANTIATE_TEST_SUITE_P(Cpu, ColumnSplitTrainingTest,
+                         ::testing::Combine(::testing::Values("hist", "approx"),
+                                            ::testing::Values(false), WithFed()));
+
+INSTANTIATE_TEST_SUITE_P(MGPU, ColumnSplitTrainingTest,
+                         ::testing::Combine(::testing::Values("hist", "approx"),
+                                            ::testing::Values(true), WithFed()));
 }  // namespace xgboost

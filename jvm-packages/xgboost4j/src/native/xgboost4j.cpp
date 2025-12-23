@@ -20,6 +20,7 @@
 #include <xgboost/c_api.h>
 #include <xgboost/json.h>
 #include <xgboost/logging.h>
+#include <xgboost/string_view.h>  // for StringView
 
 #include <algorithm>  // for copy_n
 #include <cstddef>
@@ -30,24 +31,18 @@
 #include <type_traits>
 #include <vector>
 
-#include "../../../src/c_api/c_api_error.h"
-#include "../../../src/c_api/c_api_utils.h"
-
-#define JVM_CHECK_CALL(__expr)                                                 \
-  {                                                                            \
-    int __errcode = (__expr);                                                  \
-    if (__errcode != 0) {                                                      \
-      return __errcode;                                                        \
-    }                                                                          \
-  }
+#include "jvm_utils.h"  // for JVM_CHECK_CALL
+#include "../../../../src/c_api/c_api_error.h"
+#include "../../../../src/c_api/c_api_utils.h"
+#include "../../../../src/data/array_interface.h"  // for ArrayInterface
 
 // helper functions
 // set handle
-void setHandle(JNIEnv *jenv, jlongArray jhandle, void* handle) {
+void setHandle(JNIEnv *jenv, jlongArray jhandle, void *handle) {
 #ifdef __APPLE__
-  jlong out = (long) handle;
+  jlong out = (long)handle;
 #else
-  int64_t out = (int64_t) handle;
+  int64_t out = (int64_t)handle;
 #endif
   jenv->SetLongArrayRegion(jhandle, 0, 1, &out);
 }
@@ -214,7 +209,7 @@ JNIEXPORT jstring JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGBGetLastError
  * Signature: (Ljava/util/Iterator;Ljava/lang/String;[J)I
  */
 JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixCreateFromDataIter
-  (JNIEnv *jenv, jclass jcls, jobject jiter, jstring jcache_info, jlongArray jout) {
+  (JNIEnv *jenv, jclass jcls, jobject jiter, jstring jcache_info, jfloat jmissing, jlongArray jout) {
   DMatrixHandle result;
   std::unique_ptr<char const, Deleter<char const>> cache_info;
   if (jcache_info != nullptr) {
@@ -222,8 +217,10 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixCreateFro
                     jenv->ReleaseStringUTFChars(jcache_info, ptr);
                   }};
   }
+  auto missing = static_cast<float>(jmissing);
   int ret =
-      XGDMatrixCreateFromDataIter(jiter, XGBoost4jCallbackDataIterNext, cache_info.get(), &result);
+      XGDMatrixCreateFromDataIter(jiter, XGBoost4jCallbackDataIterNext, cache_info.get(),
+                                  missing,&result);
   JVM_CHECK_CALL(ret);
   setHandle(jenv, jout, result);
   return ret;
@@ -379,13 +376,13 @@ namespace {
 // Workaround int is not the same as jint. For some reason, if constexpr couldn't dispatch
 // the following.
 template <typename T>
-auto SliaceDMatrixWinWar(DMatrixHandle handle, T *ptr, std::size_t len, DMatrixHandle *result) {
+auto SliceDMatrixWinWar(DMatrixHandle handle, T *ptr, std::size_t len, DMatrixHandle *result) {
   // default to not allowing slicing with group ID specified -- feel free to add if necessary
   return XGDMatrixSliceDMatrixEx(handle, ptr, len, result, 0);
 }
 
 template <>
-auto SliaceDMatrixWinWar<long>(DMatrixHandle handle, long *ptr, std::size_t len, DMatrixHandle *result) {
+auto SliceDMatrixWinWar<long>(DMatrixHandle handle, long *ptr, std::size_t len, DMatrixHandle *result) {
   std::vector<std::int32_t> copy(len);
   std::copy_n(ptr, len, copy.begin());
   // default to not allowing slicing with group ID specified -- feel free to add if necessary
@@ -408,7 +405,7 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixSliceDMat
                                                   jenv->ReleaseIntArrayElements(jindexset, ptr, 0);
                                                 }};
   auto len = static_cast<bst_ulong>(jenv->GetArrayLength(jindexset));
-  auto ret = SliaceDMatrixWinWar(handle, indexset.get(), len, &result);
+  auto ret = SliceDMatrixWinWar(handle, indexset.get(), len, &result);
   JVM_CHECK_CALL(ret);
   setHandle(jenv, jout, result);
   return ret;
@@ -1209,10 +1206,6 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_TrackerWaitFor(JNI
 JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_TrackerWorkerArgs(
     JNIEnv *jenv, jclass, jlong jhandle, jlong timeout, jobjectArray jout) {
   using namespace xgboost;  // NOLINT
-
-  Json config{Object{}};
-  config["timeout"] = Integer{static_cast<Integer::Int>(timeout)};
-  std::string sconfig = Json::Dump(config);
   auto handle = reinterpret_cast<TrackerHandle>(jhandle);
   char const *args;
   JVM_CHECK_CALL(XGTrackerWorkerArgs(handle, &args));
@@ -1300,45 +1293,40 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_CommunicatorAllred
   return 0;
 }
 
-namespace xgboost {
-namespace jni {
-  XGB_DLL int XGDeviceQuantileDMatrixCreateFromCallbackImpl(JNIEnv *jenv, jclass jcls,
-                                                            jobject jiter,
-                                                            jfloat jmissing,
-                                                            jint jmax_bin, jint jnthread,
-                                                            jlongArray jout);
-  XGB_DLL int XGQuantileDMatrixCreateFromCallbackImpl(JNIEnv *jenv, jclass jcls,
-                                                      jobject jdata_iter, jobject jref_iter,
-                                                      char const *config, jlongArray jout);
-} // namespace jni
-} // namespace xgboost
-
-/*
- * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
- * Method:    XGDeviceQuantileDMatrixCreateFromCallback
- * Signature: (Ljava/util/Iterator;FII[J)I
- */
-JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDeviceQuantileDMatrixCreateFromCallback
-    (JNIEnv *jenv, jclass jcls, jobject jiter, jfloat jmissing, jint jmax_bin,
-     jint jnthread, jlongArray jout) {
-  return xgboost::jni::XGDeviceQuantileDMatrixCreateFromCallbackImpl(
-      jenv, jcls, jiter, jmissing, jmax_bin, jnthread, jout);
-}
+namespace xgboost::jni {
+int QdmFromCallback(JNIEnv *jenv, jobject jdata_iter, jlongArray jref, char const *config,
+                    bool is_extmem, jlongArray jout);
+}  // namespace xgboost::jni
 
 /*
  * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
  * Method:    XGQuantileDMatrixCreateFromCallback
- * Signature: (Ljava/util/Iterator;Ljava/util/Iterator;Ljava/lang/String;[J)I
+ * Signature: (Ljava/util/Iterator;[JLjava/lang/String;[J)I
  */
 JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGQuantileDMatrixCreateFromCallback(
-    JNIEnv *jenv, jclass jcls, jobject jdata_iter, jobject jref_iter, jstring jconf,
+    JNIEnv *jenv, jclass, jobject jdata_iter, jlongArray jref, jstring jconf,
     jlongArray jout) {
   std::unique_ptr<char const, Deleter<char const>> conf{jenv->GetStringUTFChars(jconf, nullptr),
                                                         [&](char const *ptr) {
                                                           jenv->ReleaseStringUTFChars(jconf, ptr);
                                                         }};
-  return xgboost::jni::XGQuantileDMatrixCreateFromCallbackImpl(jenv, jcls, jdata_iter, jref_iter,
-                                                               conf.get(), jout);
+  return xgboost::jni::QdmFromCallback(jenv, jdata_iter, jref, conf.get(), false, jout);
+}
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGExtMemQuantileDMatrixCreateFromCallback
+ * Signature: (Ljava/util/Iterator;[JLjava/lang/String;[J)I
+ */
+JNIEXPORT jint JNICALL
+Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGExtMemQuantileDMatrixCreateFromCallback(
+    JNIEnv *jenv, jclass jcls, jobject jdata_iter, jlongArray jref, jstring jconf,
+    jlongArray jout) {
+  std::unique_ptr<char const, Deleter<char const>> conf{jenv->GetStringUTFChars(jconf, nullptr),
+                                                        [&](char const *ptr) {
+                                                          jenv->ReleaseStringUTFChars(jconf, ptr);
+                                                        }};
+  return xgboost::jni::QdmFromCallback(jenv, jdata_iter, jref, conf.get(), true, jout);
 }
 
 /*
@@ -1514,4 +1502,79 @@ Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGBoosterGetStrFeatureInfo(
   }
 
   return ret;
+}
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGDMatrixGetQuantileCut
+ * Signature: (J[[J[[F)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixGetQuantileCut(
+    JNIEnv *jenv, jclass, jlong jhandle, jobjectArray j_indptr, jobjectArray j_values) {
+  using namespace xgboost;  // NOLINT
+  auto handle = reinterpret_cast<DMatrixHandle>(jhandle);
+
+  char const *str_indptr;
+  char const *str_data;
+  Json config{Object{}};
+  auto str_config = Json::Dump(config);
+
+  auto ret = XGDMatrixGetQuantileCut(handle, str_config.c_str(), &str_indptr, &str_data);
+
+  ArrayInterface<1> indptr{StringView{str_indptr}};
+  ArrayInterface<1> data{StringView{str_data}};
+  CHECK_GE(indptr.Shape<0>(), 2);
+
+  // Cut ptr
+  auto j_indptr_array = jenv->NewLongArray(indptr.Shape<0>());
+  CHECK_EQ(indptr.type, ArrayInterfaceHandler::Type::kU8);
+  CHECK_LT(indptr(indptr.Shape<0>() - 1),
+           static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()));
+  static_assert(sizeof(jlong) == sizeof(std::uint64_t));
+  jenv->SetLongArrayRegion(j_indptr_array, 0, indptr.Shape<0>(),
+                           static_cast<jlong const *>(indptr.data));
+  jenv->SetObjectArrayElement(j_indptr, 0, j_indptr_array);
+
+  // Cut values
+  auto n_cuts = indptr(indptr.Shape<0>() - 1);
+  jfloatArray jcuts_array = jenv->NewFloatArray(n_cuts);
+  CHECK_EQ(data.type, ArrayInterfaceHandler::Type::kF4);
+  jenv->SetFloatArrayRegion(jcuts_array, 0, n_cuts, static_cast<float const *>(data.data));
+  jenv->SetObjectArrayElement(j_values, 0, jcuts_array);
+
+  return ret;
+}
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGBSetGlobalConfig
+ * Signature: (Ljava/lang/String;)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGBSetGlobalConfig(JNIEnv *jenv,
+                                                                                 jclass,
+                                                                                 jstring config) {
+  std::unique_ptr<char const, Deleter<char const>> args{
+      jenv->GetStringUTFChars(config, nullptr), [&](char const *ptr) {
+        if (ptr) {
+          jenv->ReleaseStringUTFChars(config, ptr);
+        }
+      }};
+  auto ret = XGBSetGlobalConfig(args.get());
+  JVM_CHECK_CALL(ret);
+  return ret;
+}
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGBGetGlobalConfig
+ * Signature: ([Ljava/lang/String;)I
+ */
+JNIEXPORT jint JNICALL
+Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGBGetGlobalConfig(JNIEnv *jenv, jclass, jobjectArray jout) {
+  char const *args;
+  auto ret = XGBGetGlobalConfig(&args);
+  JVM_CHECK_CALL(ret);
+  jstring jret = jenv->NewStringUTF(args);
+  jenv->SetObjectArrayElement(jout, 0, jret);
+  return 0;
 }

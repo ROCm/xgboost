@@ -1,11 +1,10 @@
 /**
- * Copyright 2019-2023, XGBoost Contributors
+ * Copyright 2019-2025, XGBoost Contributors
  */
 #include <thrust/transform.h>  // for transform
 
 #include "../common/api_entry.h"       // for XGBAPIThreadLocalEntry
 #include "../common/cuda_context.cuh"  // for CUDAContext
-#include "../common/threading_utils.h"
 #include "../data/array_interface.h"  // for DispatchDType, ArrayInterface
 #include "../data/device_adapter.cuh"
 #include "../data/proxy_dmatrix.h"
@@ -20,6 +19,9 @@
 #elif defined(XGBOOST_USE_RCCL)
 #include <rccl/rccl.h>
 #endif
+#if defined(XGBOOST_USE_NVCOMP)
+#include <nvcomp/version.h>
+#endif  // defined(XGBOOST_USE_NVCOMP)
 
 namespace xgboost {
 void XGBBuildInfoDevice(Json *p_info) {
@@ -76,6 +78,15 @@ void XGBBuildInfoDevice(Json *p_info) {
 #else
   info["USE_RMM"] = Boolean{false};
 #endif
+
+#if defined(XGBOOST_USE_NVCOMP)
+  info["USE_NVCOMP"] = Boolean{true};
+  v = {Json{Integer{NVCOMP_VER_MAJOR}}, Json{Integer{NVCOMP_VER_MINOR}},
+       Json{Integer{NVCOMP_VER_PATCH}}};
+  info["NVCOMP_VERSION"] = v;
+#else
+  info["USE_NVCOMP"] = Boolean{false};
+#endif
 }
 
 void XGBoostAPIGuard::SetGPUAttribute() {
@@ -98,7 +109,7 @@ void CopyGradientFromCUDAArrays(Context const *ctx, ArrayInterface<2, false> con
   CHECK_EQ(grad_dev, hess_dev) << "gradient and hessian should be on the same device.";
   auto &gpair = *out_gpair;
   gpair.SetDevice(DeviceOrd::CUDA(grad_dev));
-  gpair.Reshape(grad.Shape(0), grad.Shape(1));
+  gpair.Reshape(grad.Shape<0>(), grad.Shape<1>());
   auto d_gpair = gpair.View(DeviceOrd::CUDA(grad_dev));
   auto cuctx = ctx->CUDACtx();
 
@@ -147,10 +158,10 @@ XGB_DLL int XGDMatrixCreateFromCudaArrayInterface(char const *data,
   API_END();
 }
 
-int InplacePreidctCUDA(BoosterHandle handle, char const *c_array_interface,
-                       char const *c_json_config, std::shared_ptr<DMatrix> p_m,
-                       xgboost::bst_ulong const **out_shape, xgboost::bst_ulong *out_dim,
-                       const float **out_result) {
+template <bool is_columnar>
+int InplacePreidctCUDA(BoosterHandle handle, char const *data, char const *c_json_config,
+                       std::shared_ptr<DMatrix> p_m, xgboost::bst_ulong const **out_shape,
+                       xgboost::bst_ulong *out_dim, const float **out_result) {
   API_BEGIN();
   CHECK_HANDLE();
   if (!p_m) {
@@ -158,8 +169,13 @@ int InplacePreidctCUDA(BoosterHandle handle, char const *c_array_interface,
   }
   auto proxy = dynamic_cast<data::DMatrixProxy *>(p_m.get());
   CHECK(proxy) << "Invalid input type for inplace predict.";
+  xgboost_CHECK_C_ARG_PTR(data);
 
-  proxy->SetCUDAArray(c_array_interface);
+  if constexpr (is_columnar) {
+    proxy->SetCudaColumnar(data);
+  } else {
+    proxy->SetCudaArray(data);
+  }
 
   auto config = Json::Load(StringView{c_json_config});
   auto *learner = static_cast<Learner *>(handle);
@@ -193,7 +209,7 @@ int InplacePreidctCUDA(BoosterHandle handle, char const *c_array_interface,
   API_END();
 }
 
-XGB_DLL int XGBoosterPredictFromCudaColumnar(BoosterHandle handle, char const *c_json_strs,
+XGB_DLL int XGBoosterPredictFromCudaColumnar(BoosterHandle handle, char const *data,
                                              char const *c_json_config, DMatrixHandle m,
                                              xgboost::bst_ulong const **out_shape,
                                              xgboost::bst_ulong *out_dim,
@@ -203,11 +219,10 @@ XGB_DLL int XGBoosterPredictFromCudaColumnar(BoosterHandle handle, char const *c
   if (m) {
     p_m = *static_cast<std::shared_ptr<DMatrix> *>(m);
   }
-  return InplacePreidctCUDA(handle, c_json_strs, c_json_config, p_m, out_shape, out_dim,
-                            out_result);
+  return InplacePreidctCUDA<true>(handle, data, c_json_config, p_m, out_shape, out_dim, out_result);
 }
 
-XGB_DLL int XGBoosterPredictFromCudaArray(BoosterHandle handle, char const *c_json_strs,
+XGB_DLL int XGBoosterPredictFromCudaArray(BoosterHandle handle, char const *data,
                                           char const *c_json_config, DMatrixHandle m,
                                           xgboost::bst_ulong const **out_shape,
                                           xgboost::bst_ulong *out_dim, const float **out_result) {
@@ -216,6 +231,6 @@ XGB_DLL int XGBoosterPredictFromCudaArray(BoosterHandle handle, char const *c_js
     p_m = *static_cast<std::shared_ptr<DMatrix> *>(m);
   }
   xgboost_CHECK_C_ARG_PTR(out_result);
-  return InplacePreidctCUDA(handle, c_json_strs, c_json_config, p_m, out_shape, out_dim,
-                            out_result);
+  return InplacePreidctCUDA<false>(handle, data, c_json_config, p_m, out_shape, out_dim,
+                                   out_result);
 }

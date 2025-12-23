@@ -1,5 +1,5 @@
 /**
- * Copyright 2021-2023 by XGBoost Contributors
+ * Copyright 2021-2025, XGBoost Contributors
  */
 #include <gtest/gtest.h>
 #include <xgboost/context.h>
@@ -8,7 +8,7 @@
 
 #include <cstddef>  // size_t
 #include <numeric>  // iota
-#include <vector>
+#include <vector>   // for vector
 
 #include "../../../src/common/linalg_op.h"
 
@@ -117,9 +117,8 @@ TEST(Linalg, TensorView) {
   {
     // Don't assign the initial dimension, tensor should be able to deduce the correct dim
     // for Slice.
-    auto t = MakeTensorView(&ctx, data, 2, 3, 4);
-    auto s = t.Slice(1, 2, All());
-    static_assert(decltype(s)::kDimension == 1);
+    static_assert(decltype(MakeTensorView(&ctx, data, 2, 3, 4).Slice(1, 2, All()))::kDimension ==
+                  1);
   }
   {
     auto t = MakeTensorView(&ctx, data, 2, 3, 4);
@@ -371,6 +370,44 @@ TEST(Linalg, FOrder) {
   for (auto it = ptr; it != ptr + kRows; ++it) {
     ASSERT_EQ(*it, k);
     k += kCols;
+  }
+}
+
+TEST(Linalg, IO) {
+  std::vector<double> data(128, 0);
+  std::iota(data.begin(), data.end(), 0.0f);
+  Vector<double> vec(data.begin(), data.end(), {data.size()}, DeviceOrd::CPU());
+  Json jvec{F32Array{}};
+  SaveVector(vec, &jvec);
+
+  auto check = [&data](linalg::Vector<double> const &loaded) {
+    ASSERT_EQ(loaded.Size(), data.size());
+    for (std::size_t i = 0; i < data.size(); ++i) {
+      ASSERT_NEAR(data[i], loaded(i), kRtEps);
+    }
+  };
+
+  {
+    auto str = Json::Dump(jvec);
+    auto jloaded = Json::Load(StringView{str});
+
+    Vector<double> loaded;
+    LoadVector(jloaded, &loaded);
+    check(loaded);
+  }
+  {
+    Vector<double> loaded;
+    LoadVector(jvec, &loaded);
+    check(loaded);
+  }
+  {
+    std::vector<char> str;
+    Json::Dump(jvec, &str, std::ios::binary);
+    auto jloaded = Json::Load(StringView{str.data(), str.size()}, std::ios::binary);
+
+    Vector<double> loaded;
+    LoadVector(jloaded, &loaded);
+    check(loaded);
   }
 }
 }  // namespace xgboost::linalg

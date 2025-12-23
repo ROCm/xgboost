@@ -2,7 +2,6 @@
 
 from typing import Dict
 
-# pylint: disable=too-few-public-methods
 from pyspark.ml.param import TypeConverters
 from pyspark.ml.param.shared import Param, Params
 
@@ -40,7 +39,7 @@ class HasBaseMarginCol(Params):
 class HasFeaturesCols(Params):
     """
     Mixin for param features_cols: a list of feature column names.
-    This parameter is taken effect only when use_gpu is enabled.
+    This parameter is taken effect only when GPU is enabled.
     """
 
     features_cols = Param(

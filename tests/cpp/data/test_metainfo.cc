@@ -1,5 +1,5 @@
 /**
- * Copyright 2016-2024, XGBoost contributors
+ * Copyright 2016-2025, XGBoost contributors
  */
 #include "test_metainfo.h"
 
@@ -11,7 +11,7 @@
 #include <string>
 
 #include "../collective/test_worker.h"  // for TestDistributedGlobal
-#include "../filesystem.h"              // dmlc::TemporaryDirectory
+#include "../filesystem.h"              // TemporaryDirectory
 #include "../helpers.h"                 // for GMockTHrow
 #include "xgboost/base.h"
 
@@ -153,8 +153,8 @@ TEST(MetaInfo, SaveLoadBinary) {
                  [](auto const &str) { return str.c_str(); });
   info.SetFeatureInfo(u8"feature_name", c_names.data(), c_names.size());;
 
-  dmlc::TemporaryDirectory tempdir;
-  const std::string tmp_file = tempdir.path + "/metainfo.binary";
+  common::TemporaryDirectory tempdir;
+  const std::string tmp_file = tempdir.Str() + "/metainfo.binary";
   {
     std::unique_ptr<dmlc::Stream> fs {
       dmlc::Stream::Create(tmp_file.c_str(), "w")
@@ -204,8 +204,8 @@ TEST(MetaInfo, SaveLoadBinary) {
 }
 
 TEST(MetaInfo, LoadQid) {
-  dmlc::TemporaryDirectory tempdir;
-  std::string tmp_file = tempdir.path + "/qid_test.libsvm";
+  common::TemporaryDirectory tempdir;
+  std::string tmp_file = tempdir.Str() + "/qid_test.libsvm";
   {
     std::unique_ptr<dmlc::Stream> fs(dmlc::Stream::Create(tmp_file.c_str(), "w"));
     dmlc::ostream os(fs.get());
@@ -355,4 +355,70 @@ TEST(MetaInfo, HostExtend) {
 }
 
 TEST(MetaInfo, CPUStridedData) { TestMetaInfoStridedData(DeviceOrd::CPU()); }
+
+namespace {
+class TestMetaInfo : public ::testing::TestWithParam<std::tuple<bst_target_t, bool>> {
+ public:
+  void Run(Context const *ctx, bst_target_t n_targets) {
+    MetaInfo info;
+    info.num_row_ = 128;
+    info.num_col_ = 3;
+    info.feature_names.resize(info.num_col_, "a");
+    info.labels.Reshape(info.num_row_, n_targets);
+
+    HostDeviceVector<bst_idx_t> ridx(info.num_row_ / 2, 0);
+    ridx.SetDevice(ctx->Device());
+    auto h_ridx = ridx.HostSpan();
+    for (std::size_t i = 0, j = 0; i < ridx.Size(); i++, j += 2) {
+      h_ridx[i] = j;
+    }
+
+    {
+      info.weights_.Resize(info.num_row_);
+      auto h_w = info.weights_.HostSpan();
+      std::iota(h_w.begin(), h_w.end(), 0);
+    }
+
+    auto out = info.Slice(ctx, ctx->IsCPU() ? h_ridx : ridx.ConstDeviceSpan(), /*nnz=*/256);
+
+    ASSERT_EQ(info.labels.Device(), ctx->Device());
+    auto h_y = info.labels.HostView();
+    auto h_y_out = out.labels.HostView();
+    ASSERT_EQ(h_y_out.Shape(0), ridx.Size());
+    ASSERT_EQ(h_y_out.Shape(1), n_targets);
+
+    auto h_w = info.weights_.ConstHostSpan();
+    auto h_w_out = out.weights_.ConstHostSpan();
+    ASSERT_EQ(h_w_out.size(), ridx.Size());
+
+    for (std::size_t i = 0; i < ridx.Size(); ++i) {
+      for (bst_target_t t = 0; t < n_targets; ++t) {
+        ASSERT_EQ(h_y_out(i, t), h_y(h_ridx[i], t));
+      }
+      ASSERT_EQ(h_w_out[i], h_w[h_ridx[i]]);
+    }
+
+    for (auto v : info.feature_names) {
+      ASSERT_EQ(v, "a");
+    }
+  }
+};
+}  // anonymous namespace
+
+TEST_P(TestMetaInfo, Slice) {
+  Context ctx;
+  auto [n_targets, is_cuda] = this->GetParam();
+  if (is_cuda) {
+    ctx = MakeCUDACtx(0);
+  }
+  this->Run(&ctx, n_targets);
+}
+
+INSTANTIATE_TEST_SUITE_P(Cpu, TestMetaInfo,
+                         ::testing::Values(std::tuple{1u, false}, std::tuple{3u, false}));
+
+#if defined(XGBOOST_USE_CUDA)
+INSTANTIATE_TEST_SUITE_P(Gpu, TestMetaInfo,
+                         ::testing::Values(std::tuple{1u, true}, std::tuple{3u, true}));
+#endif  // defined(XGBOOST_USE_CUDA)
 }  // namespace xgboost

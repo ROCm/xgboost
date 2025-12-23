@@ -1,5 +1,5 @@
 /**
- * Copyright 2023, XGBoost contributors
+ * Copyright 2023-2025, XGBoost contributors
  *
  * Vocabulary explanation:
  *
@@ -13,14 +13,14 @@
  */
 #ifndef XGBOOST_OBJECTIVE_LAMBDARANK_OBJ_H_
 #define XGBOOST_OBJECTIVE_LAMBDARANK_OBJ_H_
-#include <algorithm>                       // for min, max
-#include <cassert>                         // for assert
-#include <cmath>                           // for log, abs
-#include <cstddef>                         // for size_t
-#include <functional>                      // for greater
-#include <memory>                          // for shared_ptr
-#include <random>                          // for minstd_rand, uniform_int_distribution
-#include <vector>                          // for vector
+#include <algorithm>   // for min, max
+#include <cassert>     // for assert
+#include <cmath>       // for log, abs
+#include <cstddef>     // for size_t
+#include <functional>  // for greater
+#include <memory>      // for shared_ptr
+#include <random>      // for minstd_rand, uniform_int_distribution
+#include <vector>      // for vector
 
 #include "../common/algorithm.h"           // for ArgSort
 #include "../common/math.h"                // for Sigmoid
@@ -80,8 +80,14 @@ XGBOOST_DEVICE inline double DeltaMAP(float y_high, float y_low, std::size_t ran
   }
   return delta;
 }
-
-template <bool unbiased, typename Delta>
+/**
+ * @brief Calculate lambda gradient based on delta weight.
+ *
+ * @tparam unbiased Whether positioin bias is taken into account.
+ * @tparam norm_by_diff Do we need to normalize the delta metric using the score difference.
+ * @tparam Functor for calculating the delta weight.
+ */
+template <bool unbiased, bool norm_by_diff, typename Delta>
 XGBOOST_DEVICE GradientPair
 LambdaGrad(linalg::VectorView<float const> labels, common::Span<float const> predts,
            common::Span<size_t const> sorted_idx,
@@ -114,7 +120,7 @@ LambdaGrad(linalg::VectorView<float const> labels, common::Span<float const> pre
   // Change in metric score like \delta NDCG or \delta MAP
   double delta_metric = std::abs(delta(y_high, y_low, rank_high, rank_low));
 
-  if (best_score != worst_score) {
+  if (norm_by_diff && best_score != worst_score) {
     delta_metric /= (delta_score + 0.01);
   }
 
@@ -221,15 +227,16 @@ void MakePairs(Context const* ctx, std::int32_t iter,
   ltr::position_t cnt = group_ptr[g + 1] - group_ptr[g];
 
   if (cache->Param().HasTruncation()) {
-    for (std::size_t i = 0; i < std::min(cnt, cache->Param().NumPair()); ++i) {
+    for (std::size_t i = 0, n = std::min(cnt, cache->Param().NumPair()); i < n; ++i) {
       for (std::size_t j = i + 1; j < cnt; ++j) {
         op(i, j);
       }
     }
   } else {
     CHECK_EQ(g_rank.size(), g_label.Size());
-    std::minstd_rand rnd(iter);
-    rnd.discard(g);  // fixme(jiamingy): honor the global seed
+
+    std::uint32_t seed = (iter + 1) * (static_cast<std::uint32_t>(group_ptr.size()) - 1) + g;
+    std::minstd_rand rnd(seed);
     // sort label according to the rank list
     auto it = common::MakeIndexTransformIter(
         [&g_rank, &g_label](std::size_t idx) { return g_label(g_rank[idx]); });
@@ -238,7 +245,6 @@ void MakePairs(Context const* ctx, std::int32_t iter,
     // permutation iterator to get the original label
     auto rev_it = common::MakeIndexTransformIter(
         [&](std::size_t idx) { return g_label(g_rank[y_sorted_idx[idx]]); });
-
     for (std::size_t i = 0; i < cnt;) {
       std::size_t j = i + 1;
       // find the bucket boundary

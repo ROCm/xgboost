@@ -42,6 +42,20 @@ function(set_default_configuration_release)
     endif()
 endfunction()
 
+if(BUILD_WITH_GIT_HASH)
+  execute_process(COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${xgboost_SOURCE_DIR}
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE XGBOOST_GIT_HASH
+    ERROR_VARIABLE XGBOOST_GIT_ERROR
+    RESULT_VARIABLE GIT_COMMAND_RESULT)
+
+  if(NOT GIT_COMMAND_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to retrieve the git hash:\n${XGBOOST_GIT_ERROR}")
+  endif()
+  message(STATUS "Git hash: ${XGBOOST_GIT_HASH}")
+endif()
+
 # Generate CMAKE_CUDA_ARCHITECTURES form a list of architectures
 # Also generates PTX for the most recent architecture for forwards compatibility
 function(compute_cmake_cuda_archs archs)
@@ -54,7 +68,11 @@ function(compute_cmake_cuda_archs archs)
 
   # Set up defaults based on CUDA varsion
   if(NOT CMAKE_CUDA_ARCHITECTURES)
-    if(CUDA_VERSION VERSION_GREATER_EQUAL "11.8")
+    if(CUDA_VERSION VERSION_GREATER_EQUAL "13.0")
+      set(CMAKE_CUDA_ARCHITECTURES 75 80 90 100 120)
+    elseif(CUDA_VERSION VERSION_GREATER_EQUAL "12.8")
+      set(CMAKE_CUDA_ARCHITECTURES 50 60 70 80 90 100 120)
+    elseif(CUDA_VERSION VERSION_GREATER_EQUAL "11.8")
       set(CMAKE_CUDA_ARCHITECTURES 50 60 70 80 90)
     elseif(CUDA_VERSION VERSION_GREATER_EQUAL "11.0")
       set(CMAKE_CUDA_ARCHITECTURES 50 60 70 80)
@@ -79,12 +97,9 @@ function(xgboost_set_cuda_flags target)
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>
-    $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>)
-
-  if(USE_PER_THREAD_DEFAULT_STREAM)
-    target_compile_options(${target} PRIVATE
-            $<$<COMPILE_LANGUAGE:CUDA>:--default-stream per-thread>)
-  endif()
+    $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>
+    $<$<COMPILE_LANGUAGE:CUDA>:--default-stream per-thread>
+  )
 
   if(FORCE_COLORED_OUTPUT)
     if(FORCE_COLORED_OUTPUT AND (CMAKE_GENERATOR STREQUAL "Ninja") AND
@@ -98,13 +113,11 @@ function(xgboost_set_cuda_flags target)
   if(USE_DEVICE_DEBUG)
     target_compile_options(${target} PRIVATE
       $<$<AND:$<CONFIG:DEBUG>,$<COMPILE_LANGUAGE:CUDA>>:-G;-src-in-ptx>)
-  else()
-    target_compile_options(${target} PRIVATE
-      $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
   endif()
 
   if(USE_NVTX)
     target_compile_definitions(${target} PRIVATE -DXGBOOST_USE_NVTX=1)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
   endif()
 
   # Use CCCL we find before CUDA Toolkit to make sure we get newer headers as intended
@@ -118,8 +131,7 @@ function(xgboost_set_cuda_flags target)
   else()
     # If the downstream user is dynamically linking with libxgboost, it does not
     # need to link with CCCL and CUDA runtime.
-    target_link_libraries(${target}
-      PRIVATE CCCL::CCCL CUDA::cudart_static)
+    target_link_libraries(${target} PRIVATE CCCL::CCCL CUDA::cudart_static)
   endif()
   target_compile_definitions(${target} PRIVATE -DXGBOOST_USE_CUDA=1)
   target_include_directories(
@@ -242,6 +254,12 @@ macro(xgboost_target_properties target)
   if(WIN32 AND MINGW)
     target_compile_options(${target} PUBLIC -static-libstdc++)
   endif()
+
+  if(NOT WIN32 AND ENABLE_ALL_WARNINGS)
+    target_compile_options(${target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Werror=cross-execution-space-call>
+    )
+  endif()
 endmacro()
 
 # Custom definitions used in xgboost.
@@ -269,14 +287,23 @@ macro(xgboost_target_defs target)
   if(PLUGIN_RMM)
     target_compile_definitions(objxgboost PUBLIC -DXGBOOST_USE_RMM=1)
   endif()
+
+  if(USE_NVCOMP)
+    target_compile_definitions(objxgboost PUBLIC -DXGBOOST_USE_NVCOMP=1)
+  endif()
+  if(BUILD_WITH_GIT_HASH)
+    target_compile_definitions(objxgboost PUBLIC -DXGBOOST_GIT_HASH="${XGBOOST_GIT_HASH}")
+  endif()
 endmacro()
 
 # handles dependencies
 macro(xgboost_target_link_libraries target)
-  if(BUILD_STATIC_LIB)
-    target_link_libraries(${target} PUBLIC Threads::Threads ${CMAKE_THREAD_LIBS_INIT})
-  else()
-    target_link_libraries(${target} PRIVATE Threads::Threads ${CMAKE_THREAD_LIBS_INIT})
+  if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Emscripten"))
+    if(BUILD_STATIC_LIB)
+      target_link_libraries(${target} PUBLIC Threads::Threads ${CMAKE_THREAD_LIBS_INIT})
+    else()
+      target_link_libraries(${target} PRIVATE Threads::Threads ${CMAKE_THREAD_LIBS_INIT})
+    endif()
   endif()
 
   if(USE_OPENMP)
@@ -297,6 +324,10 @@ macro(xgboost_target_link_libraries target)
 
   if(PLUGIN_RMM)
     target_link_libraries(${target} PRIVATE rmm::rmm)
+  endif()
+
+  if(USE_NVCOMP)
+    target_link_libraries(${target} PRIVATE nvcomp::nvcomp)
   endif()
 
   if(USE_NCCL)

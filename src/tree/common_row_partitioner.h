@@ -7,7 +7,7 @@
 #define XGBOOST_TREE_COMMON_ROW_PARTITIONER_H_
 
 #include <algorithm>  // for all_of, fill
-#include <cinttypes>  // for uint32_t
+#include <cstdint>    // for uint32_t, int32_t
 #include <limits>     // for numeric_limits
 #include <vector>     // for vector
 
@@ -18,7 +18,7 @@
 #include "../common/partition_builder.h"  // for PartitionBuilder
 #include "../common/row_set.h"            // for RowSetCollection
 #include "../common/threading_utils.h"    // for ParallelFor2d
-#include "xgboost/base.h"                 // for bst_row_t
+#include "xgboost/base.h"                 // for bst_idx_t
 #include "xgboost/collective/result.h"    // for Success, SafeColl
 #include "xgboost/context.h"              // for Context
 #include "xgboost/linalg.h"               // for TensorView
@@ -47,7 +47,7 @@ class ColumnSplitHelper {
   void Partition(Context const* ctx, common::BlockedSpace2d const& space, std::int32_t n_threads,
                  GHistIndexMatrix const& gmat, common::ColumnMatrix const& column_matrix,
                  std::vector<ExpandEntry> const& nodes,
-                 std::vector<int32_t> const& split_conditions, RegTree const* p_tree) {
+                 std::vector<std::int32_t> const& split_conditions, RegTree const* p_tree) {
     // When data is split by column, we don't have all the feature values in the local worker, so
     // we first collect all the decisions and whether the feature is missing into bit vectors.
     std::fill(decision_storage_.begin(), decision_storage_.end(), 0);
@@ -75,7 +75,7 @@ class ColumnSplitHelper {
       bst_bin_t split_cond = column_matrix.IsInitialized() ? split_conditions[node_in_set] : 0;
       partition_builder_->MaskRows<BinIdxType, any_missing, any_cat>(
           node_in_set, nodes, r, split_cond, gmat, column_matrix, *p_tree,
-          (*row_set_collection_)[nid].begin, &decision, &missing);
+          (*row_set_collection_)[nid].begin(), &decision, &missing);
     });
 
     // Reduce thread local
@@ -104,7 +104,7 @@ class ColumnSplitHelper {
       const size_t task_id = partition_builder_->GetTaskIdx(node_in_set, begin);
       partition_builder_->AllocateForTask(task_id);
       partition_builder_->PartitionByMask(node_in_set, nodes, r, gmat, *p_tree,
-                                          (*row_set_collection_)[nid].begin, decision_bits_,
+                                          (*row_set_collection_)[nid].begin(), decision_bits_,
                                           missing_bits_);
     });
   }
@@ -131,12 +131,20 @@ class CommonRowPartitioner {
   CommonRowPartitioner(Context const* ctx, bst_idx_t num_row, bst_idx_t _base_rowid,
                        bool is_col_split)
       : base_rowid{_base_rowid}, is_col_split_{is_col_split} {
-    row_set_collection_.Clear();
-    std::vector<size_t>& row_indices = *row_set_collection_.Data();
+    Reset(ctx, num_row, _base_rowid, is_col_split);
+  }
+
+  void Reset(Context const* ctx, bst_idx_t num_row, bst_idx_t _base_rowid, bool is_col_split) {
+    base_rowid = _base_rowid;
+    is_col_split_ = is_col_split;
+
+    std::vector<bst_idx_t>& row_indices = *row_set_collection_.Data();
     row_indices.resize(num_row);
 
-    std::size_t* p_row_indices = row_indices.data();
-    common::Iota(ctx, p_row_indices, p_row_indices + row_indices.size(), base_rowid);
+    bst_idx_t* p_row_indices = row_indices.data();
+    common::Iota(ctx, p_row_indices, p_row_indices + num_row, base_rowid);
+
+    row_set_collection_.Clear();
     row_set_collection_.Init();
 
     if (is_col_split_) {
@@ -144,11 +152,14 @@ class CommonRowPartitioner {
     }
   }
 
-  template <typename ExpandEntry>
-  void FindSplitConditions(const std::vector<ExpandEntry>& nodes, const RegTree& tree,
-                           const GHistIndexMatrix& gmat, std::vector<int32_t>* split_conditions) {
+  /* Making GHistIndexMatrix_t a templete parameter allows reuse this function for sycl-plugin */
+  template <typename ExpandEntry, typename GHistIndexMatrixT>
+  static void FindSplitConditions(const std::vector<ExpandEntry>& nodes, const RegTree& tree,
+                                  GHistIndexMatrixT const& gmat,
+                                  std::vector<int32_t>* p_split_conditions) {
     auto const& ptrs = gmat.cut.Ptrs();
     auto const& vals = gmat.cut.Values();
+    auto& split_conditions = *p_split_conditions;
 
     for (std::size_t i = 0; i < nodes.size(); ++i) {
       bst_node_t const nidx = nodes[i].nid;
@@ -165,7 +176,7 @@ class CommonRowPartitioner {
           split_cond = static_cast<bst_bin_t>(bound);
         }
       }
-      (*split_conditions)[i] = split_cond;
+      split_conditions[i] = split_cond;
     }
   }
 
@@ -231,7 +242,7 @@ class CommonRowPartitioner {
     // 1. Find split condition for each split
     size_t n_nodes = nodes.size();
 
-    std::vector<int32_t> split_conditions;
+    std::vector<bst_bin_t> split_conditions;
     if (column_matrix.IsInitialized()) {
       split_conditions.resize(n_nodes);
       FindSplitConditions(nodes, *p_tree, gmat, &split_conditions);
@@ -240,8 +251,8 @@ class CommonRowPartitioner {
     // 2.1 Create a blocked space of size SUM(samples in each node)
     common::BlockedSpace2d space(
         n_nodes,
-        [&](size_t node_in_set) {
-          int32_t nid = nodes[node_in_set].nid;
+        [&](std::size_t node_in_set) {
+          auto nid = nodes[node_in_set].nid;
           return row_set_collection_[nid].Size();
         },
         kPartitionBlockSize);
@@ -270,7 +281,7 @@ class CommonRowPartitioner {
         bst_bin_t split_cond = column_matrix.IsInitialized() ? split_conditions[node_in_set] : 0;
         partition_builder_.template Partition<BinIdxType, any_missing, any_cat>(
             node_in_set, nodes, r, split_cond, gmat, column_matrix, *p_tree,
-            row_set_collection_[nid].begin);
+            row_set_collection_[nid].begin());
       });
     }
 
@@ -282,8 +293,7 @@ class CommonRowPartitioner {
     // with updated row-indexes for each tree-node
     common::ParallelFor2d(space, ctx->Threads(), [&](size_t node_in_set, common::Range1d r) {
       const int32_t nid = nodes[node_in_set].nid;
-      partition_builder_.MergeToArray(node_in_set, r.begin(),
-                                      const_cast<size_t*>(row_set_collection_[nid].begin));
+      partition_builder_.MergeToArray(node_in_set, r.begin(), row_set_collection_[nid].begin());
     });
 
     // 5. Add info about splits into row_set_collection_
@@ -300,34 +310,37 @@ class CommonRowPartitioner {
   auto const& operator[](bst_node_t nidx) const { return row_set_collection_[nidx]; }
 
   void LeafPartition(Context const* ctx, RegTree const& tree, common::Span<float const> hess,
-                     std::vector<bst_node_t>* p_out_position) const {
-    partition_builder_.LeafPartition(ctx, tree, this->Partitions(), p_out_position,
-                                     [&](size_t idx) -> bool { return hess[idx] - .0f == .0f; });
+                     common::Span<bst_node_t> out_position) const {
+    partition_builder_.LeafPartition(
+        ctx, tree, this->Partitions(), out_position,
+        [&](size_t idx) -> bool { return hess[idx - this->base_rowid] - .0f == .0f; });
   }
 
   void LeafPartition(Context const* ctx, RegTree const& tree,
                      linalg::TensorView<GradientPair const, 2> gpair,
-                     std::vector<bst_node_t>* p_out_position) const {
+                     common::Span<bst_node_t> out_position) const {
     if (gpair.Shape(1) > 1) {
       partition_builder_.LeafPartition(
-          ctx, tree, this->Partitions(), p_out_position, [&](std::size_t idx) -> bool {
-            auto sample = gpair.Slice(idx, linalg::All());
+          ctx, tree, this->Partitions(), out_position, [&](std::size_t idx) -> bool {
+            auto sample = gpair.Slice(idx - this->base_rowid, linalg::All());
             return std::all_of(linalg::cbegin(sample), linalg::cend(sample),
                                [](GradientPair const& g) { return g.GetHess() - .0f == .0f; });
           });
     } else {
       auto s = gpair.Slice(linalg::All(), 0);
-      partition_builder_.LeafPartition(
-          ctx, tree, this->Partitions(), p_out_position,
-          [&](std::size_t idx) -> bool { return s(idx).GetHess() - .0f == .0f; });
+      partition_builder_.LeafPartition(ctx, tree, this->Partitions(), out_position,
+                                       [&](std::size_t idx) -> bool {
+                                         return s(idx - this->base_rowid).GetHess() - .0f == .0f;
+                                       });
     }
   }
   void LeafPartition(Context const* ctx, RegTree const& tree,
                      common::Span<GradientPair const> gpair,
-                     std::vector<bst_node_t>* p_out_position) const {
-    partition_builder_.LeafPartition(
-        ctx, tree, this->Partitions(), p_out_position,
-        [&](std::size_t idx) -> bool { return gpair[idx].GetHess() - .0f == .0f; });
+                     common::Span<bst_node_t> out_position) const {
+    partition_builder_.LeafPartition(ctx, tree, this->Partitions(), out_position,
+                                     [&](std::size_t idx) -> bool {
+                                       return gpair[idx - this->base_rowid].GetHess() - .0f == .0f;
+                                     });
   }
 
  private:

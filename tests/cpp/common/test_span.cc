@@ -1,5 +1,5 @@
 /**
- * Copyright 2018-2023, XGBoost contributors
+ * Copyright 2018-2024, XGBoost contributors
  */
 #include "test_span.h"
 
@@ -11,10 +11,24 @@
 #include "../../../src/common/transform_iterator.h"  // for MakeIndexTransformIter
 
 namespace xgboost::common {
+namespace {
+using ST = common::Span<int, dynamic_extent>;
+static_assert(std::is_trivially_copyable_v<ST>);
+static_assert(std::is_trivially_move_assignable_v<ST>);
+static_assert(std::is_trivially_move_constructible_v<ST>);
+static_assert(std::is_trivially_copy_assignable_v<ST>);
+static_assert(std::is_trivially_copy_constructible_v<ST>);
+}  // namespace
+
 TEST(Span, TestStatus) {
   int status = 1;
   TestTestStatus {&status}();
   ASSERT_EQ(status, -1);
+
+  std::vector<double> foo;
+  auto bar = Span{foo};
+  ASSERT_FALSE(bar.data());
+  ASSERT_EQ(bar.size(), 0);
 }
 
 TEST(Span, DlfConstructors) {
@@ -174,19 +188,11 @@ TEST(Span, FromFirstLast) {
   }
 }
 
-struct BaseClass {
-  virtual void operator()() {}
-};
-struct DerivedClass : public BaseClass {
-  void operator()() override {}
-};
-
 TEST(Span, FromOther) {
-
   // convert constructor
   {
-    Span<DerivedClass> derived;
-    Span<BaseClass> base { derived };
+    Span<int> derived;
+    Span<int const> base{derived};
     ASSERT_EQ(base.size(), derived.size());
     ASSERT_EQ(base.data(), derived.data());
   }

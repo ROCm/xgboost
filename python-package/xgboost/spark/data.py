@@ -7,17 +7,17 @@ import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
 
-from xgboost import DataIter, DMatrix, QuantileDMatrix, XGBModel
-from xgboost.compat import concat
-
 from .._typing import ArrayLike
-from .utils import get_logger  # type: ignore
+from ..compat import concat
+from ..core import DataIter, DMatrix, QuantileDMatrix
+from ..sklearn import XGBModel
+from .utils import get_logger
 
 
 def stack_series(series: pd.Series) -> np.ndarray:
     """Stack a series of arrays."""
     array = series.to_numpy(copy=False)
-    array = np.stack(array)
+    array = np.stack(array)  # type: ignore
     return array
 
 
@@ -84,8 +84,8 @@ class PartIter(DataIter):
             return None
 
         if self._device_id is not None:
-            import cudf  # pylint: disable=import-error
-            import cupy as cp  # pylint: disable=import-error
+            import cudf
+            import cupy as cp
 
             # We must set the device after import cudf, which will change the device id to 0
             # See https://github.com/rapidsai/cudf/issues/11386
@@ -94,9 +94,9 @@ class PartIter(DataIter):
 
         return data[self._iter]
 
-    def next(self, input_data: Callable) -> int:
+    def next(self, input_data: Callable) -> bool:
         if self._iter == len(self._data[alias.data]):
-            return 0
+            return False
         input_data(
             data=self._fetch(self._data[alias.data]),
             label=self._fetch(self._data.get(alias.label, None)),
@@ -106,7 +106,7 @@ class PartIter(DataIter):
             **self._kwargs,
         )
         self._iter += 1
-        return 1
+        return True
 
     def reset(self) -> None:
         self._iter = 0
@@ -171,6 +171,7 @@ def make_qdm(
 
 
 def create_dmatrix_from_partitions(  # pylint: disable=too-many-arguments
+    *,
     iterator: Iterator[pd.DataFrame],
     feature_cols: Optional[Sequence[str]],
     dev_ordinal: Optional[int],
@@ -351,6 +352,7 @@ def pred_contribs(
         missing=model.missing,
         nthread=model.n_jobs,
         feature_types=model.feature_types,
+        feature_weights=model.feature_weights,
         enable_categorical=model.enable_categorical,
     )
     return model.get_booster().predict(

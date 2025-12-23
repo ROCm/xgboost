@@ -1,49 +1,52 @@
 /**
- * Copyright 2014-2024, XGBoost Contributors
+ * Copyright 2014-2025, XGBoost Contributors
  */
 #include "xgboost/c_api.h"
 
-#include <algorithm>                         // for copy, transform
-#include <cinttypes>                         // for strtoimax
-#include <cmath>                             // for nan
-#include <cstring>                           // for strcmp
-#include <limits>                            // for numeric_limits
-#include <map>                               // for operator!=, _Rb_tree_const_iterator, _Rb_tre...
-#include <memory>                            // for shared_ptr, allocator, __shared_ptr_access
-#include <string>                            // for char_traits, basic_string, operator==, string
-#include <system_error>                      // for errc
-#include <utility>                           // for pair
-#include <vector>                            // for vector
+#include <algorithm>     // for copy, transform
+#include <cinttypes>     // for strtoimax
+#include <cmath>         // for nan
+#include <cstring>       // for strcmp
+#include <limits>        // for numeric_limits
+#include <map>           // for operator!=, _Rb_tree_const_iterator, _Rb_tre...
+#include <memory>        // for shared_ptr, allocator, __shared_ptr_access
+#include <string>        // for char_traits, basic_string, operator==, string
+#include <system_error>  // for errc
+#include <utility>       // for pair
+#include <vector>        // for vector
 
-#include "../common/api_entry.h"             // for XGBAPIThreadLocalEntry
-#include "../common/charconv.h"              // for from_chars, to_chars, NumericLimits, from_ch...
-#include "../common/error_msg.h"             // for NoFederated
-#include "../common/hist_util.h"             // for HistogramCuts
-#include "../common/io.h"                    // for FileExtension, LoadSequentialFile, MemoryBuf...
-#include "../common/threading_utils.h"       // for OmpGetNumThreads, ParallelFor
-#include "../data/adapter.h"                 // for ArrayAdapter, DenseAdapter, RecordBatchesIte...
-#include "../data/ellpack_page.h"            // for EllpackPage
-#include "../data/proxy_dmatrix.h"           // for DMatrixProxy
-#include "../data/simple_dmatrix.h"          // for SimpleDMatrix
-#include "c_api_error.h"                     // for xgboost_CHECK_C_ARG_PTR, API_END, API_BEGIN
-#include "c_api_utils.h"                     // for RequiredArg, OptionalArg, GetMissing, CastDM...
-#include "dmlc/base.h"                       // for BeginPtr
-#include "dmlc/io.h"                         // for Stream
-#include "dmlc/parameter.h"                  // for FieldAccessEntry, FieldEntry, ParamManager
-#include "dmlc/thread_local.h"               // for ThreadLocalStore
-#include "xgboost/base.h"                    // for bst_ulong, bst_float, GradientPair, bst_feat...
-#include "xgboost/context.h"                 // for Context
-#include "xgboost/data.h"                    // for DMatrix, MetaInfo, DataType, ExtSparsePage
-#include "xgboost/feature_map.h"             // for FeatureMap
-#include "xgboost/global_config.h"           // for GlobalConfiguration, GlobalConfigThreadLocal...
-#include "xgboost/host_device_vector.h"      // for HostDeviceVector
-#include "xgboost/json.h"                    // for Json, get, Integer, IsA, Boolean, String
-#include "xgboost/learner.h"                 // for Learner, PredictionType
-#include "xgboost/logging.h"                 // for LOG_FATAL, LogMessageFatal, CHECK, LogCheck_EQ
-#include "xgboost/predictor.h"               // for PredictionCacheEntry
-#include "xgboost/span.h"                    // for Span
-#include "xgboost/string_view.h"             // for StringView, operator<<
-#include "xgboost/version_config.h"          // for XGBOOST_VER_MAJOR, XGBOOST_VER_MINOR, XGBOOS...
+#include "../common/api_entry.h"         // for XGBAPIThreadLocalEntry
+#include "../common/charconv.h"          // for from_chars, to_chars, NumericLimits, from_ch...
+#include "../common/error_msg.h"         // for NoFederated
+#include "../common/hist_util.h"         // for HistogramCuts
+#include "../common/io.h"                // for FileExtension, LoadSequentialFile, MemoryBuf...
+#include "../common/threading_utils.h"   // for OmpGetNumThreads, ParallelFor
+#include "../data/adapter.h"             // for ArrayAdapter, DenseAdapter
+#include "../data/batch_utils.h"         // for MatchingPageBytes, CachePageRatio
+#include "../data/cat_container.h"       // for CatContainer
+#include "../data/ellpack_page.h"        // for EllpackPage
+#include "../data/proxy_dmatrix.h"       // for DMatrixProxy
+#include "../data/simple_dmatrix.h"      // for SimpleDMatrix
+#include "../encoder/types.h"            // for Overloaded
+#include "c_api_error.h"                 // for xgboost_CHECK_C_ARG_PTR, API_END, API_BEGIN
+#include "c_api_utils.h"                 // for RequiredArg, OptionalArg, GetMissing, CastDM...
+#include "dmlc/base.h"                   // for BeginPtr
+#include "dmlc/io.h"                     // for Stream
+#include "dmlc/parameter.h"              // for FieldAccessEntry, FieldEntry, ParamManager
+#include "dmlc/thread_local.h"           // for ThreadLocalStore
+#include "xgboost/base.h"                // for bst_ulong, bst_float, GradientPair, bst_feat...
+#include "xgboost/context.h"             // for Context
+#include "xgboost/data.h"                // for DMatrix, MetaInfo, DataType, ExtSparsePage
+#include "xgboost/feature_map.h"         // for FeatureMap
+#include "xgboost/global_config.h"       // for GlobalConfiguration, GlobalConfigThreadLocal...
+#include "xgboost/host_device_vector.h"  // for HostDeviceVector
+#include "xgboost/json.h"                // for Json, get, Integer, IsA, Boolean, String
+#include "xgboost/learner.h"             // for Learner, PredictionType
+#include "xgboost/logging.h"             // for LOG_FATAL, LogMessageFatal, CHECK, LogCheck_EQ
+#include "xgboost/predictor.h"           // for PredictionCacheEntry
+#include "xgboost/span.h"                // for Span
+#include "xgboost/string_view.h"         // for StringView, operator<<
+#include "xgboost/version_config.h"      // for XGBOOST_VER_MAJOR, XGBOOST_VER_MINOR, XGBOOS...
 
 using namespace xgboost; // NOLINT(*);
 
@@ -78,7 +81,7 @@ void XGBBuildInfoDevice(Json *p_info) {
 #endif
 
 XGB_DLL int XGBuildInfo(char const **out) {
-  API_BEGIN();
+  API_BEGIN_UNGUARD()
   xgboost_CHECK_C_ARG_PTR(out);
   Json info{Object{}};
 
@@ -105,6 +108,10 @@ XGB_DLL int XGBuildInfo(char const **out) {
                                           Json{Integer{__GNUC_PATCHLEVEL__}}};
 #endif
 
+#if defined(__GLIBC__)
+  info["GLIBC_VERSION"] = std::vector<Json>{Json{__GLIBC__}, Json{__GLIBC_MINOR__}};
+#endif  // defined(__GLIBC__)
+
 #if defined(__clang__)
   info["CLANG_VERSION"] =
       std::vector<Json>{Json{Integer{__clang_major__}}, Json{Integer{__clang_minor__}},
@@ -123,6 +130,11 @@ XGB_DLL int XGBuildInfo(char const **out) {
   info["USE_FEDERATED"] = Boolean{false};
 #endif
 
+#if defined(XGBOOST_GIT_HASH)
+  char const *git_hash = XGBOOST_GIT_HASH;
+  info["GIT_HASH"] = String{git_hash};
+#endif
+
   XGBBuildInfoDevice(&info);
 
   auto &out_str = GlobalConfigAPIThreadLocalStore::Get()->ret_str;
@@ -133,19 +145,31 @@ XGB_DLL int XGBuildInfo(char const **out) {
 }
 
 XGB_DLL int XGBRegisterLogCallback(void (*callback)(const char*)) {
-  API_BEGIN_UNGUARD();
+  API_BEGIN_UNGUARD()
   LogCallbackRegistry* registry = LogCallbackRegistryStore::Get();
   registry->Register(callback);
   API_END();
 }
 
 XGB_DLL int XGBSetGlobalConfig(const char* json_str) {
-  API_BEGIN();
+  API_BEGIN_UNGUARD()
 
   xgboost_CHECK_C_ARG_PTR(json_str);
   Json config{Json::Load(StringView{json_str})};
 
-  for (auto& items : get<Object>(config)) {
+  // handle nthread, it's not a dmlc parameter.
+  auto& obj = get<Object>(config);
+  auto it = obj.find("nthread");
+  if (it != obj.cend()) {
+    auto nthread = OptionalArg<Integer>(config, "nthread", Integer::Int{0});
+    if (nthread > 0) {
+      omp_set_num_threads(nthread);
+      GlobalConfigThreadLocalStore::Get()->nthread = nthread;
+    }
+    get<Object>(config).erase("nthread");
+  }
+
+  for (auto &items : obj) {
     switch (items.second.GetValue().Type()) {
     case xgboost::Value::ValueKind::kInteger: {
       items.second = String{std::to_string(get<Integer const>(items.second))};
@@ -185,11 +209,12 @@ XGB_DLL int XGBSetGlobalConfig(const char* json_str) {
     }
     LOG(FATAL) << ss.str()  << " }";
   }
+
   API_END();
 }
 
 XGB_DLL int XGBGetGlobalConfig(const char** json_str) {
-  API_BEGIN();
+  API_BEGIN_UNGUARD()
   auto const& global_config = *GlobalConfigThreadLocalStore::Get();
   Json config {ToJson(global_config)};
   auto const* mgr = global_config.__MANAGER__();
@@ -218,6 +243,7 @@ XGB_DLL int XGBGetGlobalConfig(const char** json_str) {
     }
   }
 
+  config["nthread"] = GlobalConfigThreadLocalStore::Get()->nthread;
   auto& local = *GlobalConfigAPIThreadLocalStore::Get();
   Json::Dump(config, &local.ret_str);
 
@@ -229,6 +255,8 @@ XGB_DLL int XGBGetGlobalConfig(const char** json_str) {
 XGB_DLL int XGDMatrixCreateFromFile(const char *fname, int silent, DMatrixHandle *out) {
   xgboost_CHECK_C_ARG_PTR(fname);
   xgboost_CHECK_C_ARG_PTR(out);
+
+  LOG(WARNING) << error::DeprecatedFunc(__func__, "2.0.0", "XGDMatrixCreateFromURI");
 
   Json config{Object()};
   config["uri"] = std::string{fname};
@@ -256,7 +284,9 @@ XGB_DLL int XGDMatrixCreateFromURI(const char *config, DMatrixHandle *out) {
 XGB_DLL int XGDMatrixCreateFromDataIter(
     void *data_handle,                  // a Java iterator
     XGBCallbackDataIterNext *callback,  // C++ callback defined in xgboost4j.cpp
-    const char *cache_info, DMatrixHandle *out) {
+    const char *cache_info,
+    float missing,
+    DMatrixHandle *out) {
   API_BEGIN();
 
   std::string scache;
@@ -267,10 +297,7 @@ XGB_DLL int XGDMatrixCreateFromDataIter(
       data_handle, callback);
   xgboost_CHECK_C_ARG_PTR(out);
   *out = new std::shared_ptr<DMatrix> {
-    DMatrix::Create(
-        &adapter, std::numeric_limits<float>::quiet_NaN(),
-        1, scache
-    )
+    DMatrix::Create(&adapter, missing, 1, scache)
   };
   API_END();
 }
@@ -300,34 +327,28 @@ XGB_DLL int XGDMatrixCreateFromCallback(DataIterHandle iter, DMatrixHandle proxy
   auto jconfig = Json::Load(StringView{config});
   auto missing = GetMissing(jconfig);
   std::string cache = RequiredArg<String>(jconfig, "cache_prefix", __func__);
-  auto n_threads = OptionalArg<Integer, int64_t>(jconfig, "nthread", 0);
+  std::int32_t n_threads = OptionalArg<Integer, std::int64_t>(jconfig, "nthread", 0);
+  auto on_host = OptionalArg<Boolean>(jconfig, "on_host", false);
+  auto min_cache_page_bytes = OptionalArg<Integer, std::int64_t>(jconfig, "min_cache_page_bytes",
+                                                                 cuda_impl::MatchingPageBytes());
+  CHECK_EQ(min_cache_page_bytes, cuda_impl::MatchingPageBytes())
+      << "Page concatenation is not supported by the DMatrix yet.";
+  auto cache_host_ratio =
+      OptionalArg<Number, float>(jconfig, "cache_host_ratio", cuda_impl::AutoHostRatio());
 
   xgboost_CHECK_C_ARG_PTR(next);
   xgboost_CHECK_C_ARG_PTR(reset);
   xgboost_CHECK_C_ARG_PTR(out);
 
+  auto config =
+      ExtMemConfig{cache, on_host, cache_host_ratio, min_cache_page_bytes, missing, n_threads};
   *out = new std::shared_ptr<xgboost::DMatrix>{
-      xgboost::DMatrix::Create(iter, proxy, reset, next, missing, n_threads, cache)};
+      xgboost::DMatrix::Create(iter, proxy, reset, next, config)};
   API_END();
 }
 
-XGB_DLL int XGDeviceQuantileDMatrixCreateFromCallback(DataIterHandle iter, DMatrixHandle proxy,
-                                                      DataIterResetCallback *reset,
-                                                      XGDMatrixCallbackNext *next, float missing,
-                                                      int nthread, int max_bin,
-                                                      DMatrixHandle *out) {
-  API_BEGIN();
-  LOG(WARNING) << error::DeprecatedFunc(__func__, "1.7.0", "XGQuantileDMatrixCreateFromCallback");
-  *out = new std::shared_ptr<xgboost::DMatrix>{
-      xgboost::DMatrix::Create(iter, proxy, nullptr, reset, next, missing, nthread, max_bin)};
-  API_END();
-}
-
-XGB_DLL int XGQuantileDMatrixCreateFromCallback(DataIterHandle iter, DMatrixHandle proxy,
-                                                DataIterHandle ref, DataIterResetCallback *reset,
-                                                XGDMatrixCallbackNext *next, char const *config,
-                                                DMatrixHandle *out) {
-  API_BEGIN();
+namespace {
+std::shared_ptr<DMatrix> GetRefDMatrix(DataIterHandle ref) {
   std::shared_ptr<DMatrix> _ref{nullptr};
   if (ref) {
     auto pp_ref = static_cast<std::shared_ptr<xgboost::DMatrix> *>(ref);
@@ -336,19 +357,64 @@ XGB_DLL int XGQuantileDMatrixCreateFromCallback(DataIterHandle iter, DMatrixHand
     _ref = *pp_ref;
     CHECK(_ref) << err;
   }
+  return _ref;
+}
+}  // namespace
+
+XGB_DLL int XGQuantileDMatrixCreateFromCallback(DataIterHandle iter, DMatrixHandle proxy,
+                                                DataIterHandle ref, DataIterResetCallback *reset,
+                                                XGDMatrixCallbackNext *next, char const *config,
+                                                DMatrixHandle *out) {
+  API_BEGIN();
+  std::shared_ptr<DMatrix> p_ref{GetRefDMatrix(ref)};
 
   xgboost_CHECK_C_ARG_PTR(config);
   auto jconfig = Json::Load(StringView{config});
   auto missing = GetMissing(jconfig);
   auto n_threads = OptionalArg<Integer, int64_t>(jconfig, "nthread", 0);
   auto max_bin = OptionalArg<Integer, int64_t>(jconfig, "max_bin", 256);
+  auto max_quantile_blocks = OptionalArg<Integer, std::int64_t>(
+      jconfig, "max_quantile_blocks", std::numeric_limits<std::int64_t>::max());
 
   xgboost_CHECK_C_ARG_PTR(next);
   xgboost_CHECK_C_ARG_PTR(reset);
   xgboost_CHECK_C_ARG_PTR(out);
 
-  *out = new std::shared_ptr<xgboost::DMatrix>{
-      xgboost::DMatrix::Create(iter, proxy, _ref, reset, next, missing, n_threads, max_bin)};
+  *out = new std::shared_ptr<xgboost::DMatrix>{xgboost::DMatrix::Create(
+      iter, proxy, p_ref, reset, next, missing, n_threads, max_bin, max_quantile_blocks)};
+  API_END();
+}
+
+XGB_DLL int XGExtMemQuantileDMatrixCreateFromCallback(DataIterHandle iter, DMatrixHandle proxy,
+                                                      DataIterHandle ref,
+                                                      DataIterResetCallback *reset,
+                                                      XGDMatrixCallbackNext *next,
+                                                      char const *config, DMatrixHandle *out) {
+  API_BEGIN();
+  std::shared_ptr<DMatrix> p_ref{GetRefDMatrix(ref)};
+
+  xgboost_CHECK_C_ARG_PTR(config);
+  auto jconfig = Json::Load(StringView{config});
+  auto missing = GetMissing(jconfig);
+  std::int32_t n_threads = OptionalArg<Integer, std::int64_t>(jconfig, "nthread", 0);
+  auto max_bin = OptionalArg<Integer, std::int64_t>(jconfig, "max_bin", 256);
+  auto on_host = OptionalArg<Boolean>(jconfig, "on_host", false);
+  std::string cache = RequiredArg<String>(jconfig, "cache_prefix", __func__);
+  auto min_cache_page_bytes = OptionalArg<Integer, std::int64_t>(jconfig, "min_cache_page_bytes",
+                                                                 cuda_impl::AutoCachePageBytes());
+  auto max_quantile_blocks = OptionalArg<Integer, std::int64_t>(
+      jconfig, "max_quantile_blocks", std::numeric_limits<std::int64_t>::max());
+  auto cache_host_ratio =
+      OptionalArg<Number, float>(jconfig, "cache_host_ratio", cuda_impl::AutoHostRatio());
+
+  xgboost_CHECK_C_ARG_PTR(next);
+  xgboost_CHECK_C_ARG_PTR(reset);
+  xgboost_CHECK_C_ARG_PTR(out);
+
+  auto config =
+      ExtMemConfig{cache, on_host, cache_host_ratio, min_cache_page_bytes, missing, n_threads};
+  *out = new std::shared_ptr<xgboost::DMatrix>{xgboost::DMatrix::Create(
+      iter, proxy, p_ref, reset, next, max_bin, max_quantile_blocks, config)};
   API_END();
 }
 
@@ -359,52 +425,45 @@ XGB_DLL int XGProxyDMatrixCreate(DMatrixHandle *out) {
   API_END();
 }
 
-XGB_DLL int XGProxyDMatrixSetDataCudaArrayInterface(DMatrixHandle handle,
-                                                    char const *c_interface_str) {
-  API_BEGIN();
-  CHECK_HANDLE();
-  xgboost_CHECK_C_ARG_PTR(c_interface_str);
+namespace {
+[[nodiscard]] xgboost::data::DMatrixProxy *GetDMatrixProxy(DMatrixHandle handle) {
   auto p_m = static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
   CHECK(p_m);
   auto m = static_cast<xgboost::data::DMatrixProxy *>(p_m->get());
   CHECK(m) << "Current DMatrix type does not support set data.";
-  m->SetCUDAArray(c_interface_str);
+  return m;
+}
+}  // namespace
+
+XGB_DLL int XGProxyDMatrixSetDataCudaArrayInterface(DMatrixHandle handle, char const *data) {
+  API_BEGIN();
+  CHECK_HANDLE();
+  xgboost_CHECK_C_ARG_PTR(data);
+  GetDMatrixProxy(handle)->SetCudaArray(data);
   API_END();
 }
 
-XGB_DLL int XGProxyDMatrixSetDataCudaColumnar(DMatrixHandle handle, char const *c_interface_str) {
+XGB_DLL int XGProxyDMatrixSetDataCudaColumnar(DMatrixHandle handle, char const *data) {
   API_BEGIN();
   CHECK_HANDLE();
-  xgboost_CHECK_C_ARG_PTR(c_interface_str);
-  auto p_m = static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-  CHECK(p_m);
-  auto m = static_cast<xgboost::data::DMatrixProxy *>(p_m->get());
-  CHECK(m) << "Current DMatrix type does not support set data.";
-  m->SetCUDAArray(c_interface_str);
+  xgboost_CHECK_C_ARG_PTR(data);
+  GetDMatrixProxy(handle)->SetCudaColumnar(data);
   API_END();
 }
 
-XGB_DLL int XGProxyDMatrixSetDataColumnar(DMatrixHandle handle, char const *c_interface_str) {
+XGB_DLL int XGProxyDMatrixSetDataColumnar(DMatrixHandle handle, char const *data) {
   API_BEGIN();
   CHECK_HANDLE();
-  xgboost_CHECK_C_ARG_PTR(c_interface_str);
-  auto p_m = static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-  CHECK(p_m);
-  auto m = static_cast<xgboost::data::DMatrixProxy *>(p_m->get());
-  CHECK(m) << "Current DMatrix type does not support set data.";
-  m->SetColumnarData(c_interface_str);
+  xgboost_CHECK_C_ARG_PTR(data);
+  GetDMatrixProxy(handle)->SetColumnar(data);
   API_END();
 }
 
-XGB_DLL int XGProxyDMatrixSetDataDense(DMatrixHandle handle, char const *c_interface_str) {
+XGB_DLL int XGProxyDMatrixSetDataDense(DMatrixHandle handle, char const *data) {
   API_BEGIN();
   CHECK_HANDLE();
-  xgboost_CHECK_C_ARG_PTR(c_interface_str);
-  auto p_m = static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-  CHECK(p_m);
-  auto m = static_cast<xgboost::data::DMatrixProxy *>(p_m->get());
-  CHECK(m) << "Current DMatrix type does not support set data.";
-  m->SetArrayData(c_interface_str);
+  xgboost_CHECK_C_ARG_PTR(data);
+  GetDMatrixProxy(handle)->SetArray(data);
   API_END();
 }
 
@@ -415,25 +474,11 @@ XGB_DLL int XGProxyDMatrixSetDataCSR(DMatrixHandle handle, char const *indptr, c
   xgboost_CHECK_C_ARG_PTR(indptr);
   xgboost_CHECK_C_ARG_PTR(indices);
   xgboost_CHECK_C_ARG_PTR(data);
-  auto p_m = static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-  CHECK(p_m);
-  auto m = static_cast<xgboost::data::DMatrixProxy *>(p_m->get());
-  CHECK(m) << "Current DMatrix type does not support set data.";
-  m->SetCSRData(indptr, indices, data, ncol, true);
+  GetDMatrixProxy(handle)->SetCsr(indptr, indices, data, ncol, true);
   API_END();
 }
 
 // End Create from data iterator
-
-XGB_DLL int XGDMatrixCreateFromCSREx(const size_t *indptr, const unsigned *indices,
-                                     const bst_float *data, size_t nindptr, size_t nelem,
-                                     size_t num_col, DMatrixHandle *out) {
-  API_BEGIN();
-  LOG(WARNING) << error::DeprecatedFunc(__func__, "2.0.0", "XGDMatrixCreateFromCSR");
-  data::CSRAdapter adapter(indptr, indices, data, nindptr - 1, nelem, num_col);
-  *out = new std::shared_ptr<DMatrix>(DMatrix::Create(&adapter, std::nan(""), 1));
-  API_END();
-}
 
 XGB_DLL int XGDMatrixCreateFromColumnar(char const *data, char const *c_json_config,
                                         DMatrixHandle *out) {
@@ -514,17 +559,6 @@ XGB_DLL int XGDMatrixCreateFromCSC(char const *indptr, char const *indices, char
   API_END();
 }
 
-XGB_DLL int XGDMatrixCreateFromCSCEx(const size_t *col_ptr, const unsigned *indices,
-                                     const bst_float *data, size_t nindptr, size_t, size_t num_row,
-                                     DMatrixHandle *out) {
-  API_BEGIN();
-  LOG(WARNING) << error::DeprecatedFunc(__func__, "2.0.0", "XGDMatrixCreateFromCSC");
-  data::CSCAdapter adapter(col_ptr, indices, data, nindptr - 1, num_row);
-  xgboost_CHECK_C_ARG_PTR(out);
-  *out = new std::shared_ptr<DMatrix>(DMatrix::Create(&adapter, std::nan(""), 1));
-  API_END();
-}
-
 XGB_DLL int XGDMatrixCreateFromMat(const bst_float* data,
                                    xgboost::bst_ulong nrow,
                                    xgboost::bst_ulong ncol, bst_float missing,
@@ -545,17 +579,6 @@ XGB_DLL int XGDMatrixCreateFromMat_omp(const bst_float* data,  // NOLINT
   data::DenseAdapter adapter(data, nrow, ncol);
   xgboost_CHECK_C_ARG_PTR(out);
   *out = new std::shared_ptr<DMatrix>(DMatrix::Create(&adapter, missing, nthread));
-  API_END();
-}
-
-XGB_DLL int XGDMatrixCreateFromDT(void** data, const char** feature_stypes,
-                                  xgboost::bst_ulong nrow,
-                                  xgboost::bst_ulong ncol, DMatrixHandle* out,
-                                  int nthread) {
-  API_BEGIN();
-  data::DataTableAdapter adapter(data, feature_stypes, nrow, ncol);
-  xgboost_CHECK_C_ARG_PTR(out);
-  *out = new std::shared_ptr<DMatrix>(DMatrix::Create(&adapter, std::nan(""), nthread));
   API_END();
 }
 
@@ -671,6 +694,149 @@ XGB_DLL int XGDMatrixGetStrFeatureInfo(DMatrixHandle handle, const char *field,
   xgboost_CHECK_C_ARG_PTR(len);
   *out_features = dmlc::BeginPtr(charp_vecs);
   *len = static_cast<xgboost::bst_ulong>(charp_vecs.size());
+  API_END();
+}
+
+namespace {
+template <typename FidxT>
+void GetCategoriesImpl(enc::HostColumnsView const &cats, FidxT n_features,
+                       std::string *p_out_storage, char const **out) {
+  auto &ret_str = *p_out_storage;
+  ret_str.clear();
+
+  // We can directly use the storage in the cat container instead of allocating temporary storage.
+  Json jout{Array{}};
+  for (decltype(n_features) f_idx = 0; f_idx < n_features; ++f_idx) {
+    if (cats.Empty()) {
+      get<Array>(jout).emplace_back();
+      continue;
+    }
+    auto const &col = cats[f_idx];
+    if (std::visit([](auto &&arg) { return arg.empty(); }, col)) {
+      get<Array>(jout).emplace_back();
+      continue;
+    }
+    std::visit(enc::Overloaded{[&](enc::CatStrArrayView const &str) {
+                                 auto const &offsets = str.offsets;
+                                 auto ovec = linalg::MakeVec(offsets.data(), offsets.size());
+                                 auto jovec = linalg::ArrayInterface(ovec);
+
+                                 auto const &values = str.values;
+                                 auto dvec = linalg::MakeVec(values.data(), values.size());
+                                 auto jdvec = linalg::ArrayInterface(dvec);
+
+                                 get<Array>(jout).emplace_back(Object{});
+                                 get<Array>(jout).back()["offsets"] = std::move(jovec);
+                                 get<Array>(jout).back()["values"] = std::move(jdvec);
+                               },
+                               [&](auto &&values) {
+                                 auto vec = linalg::MakeVec(values.data(), values.size());
+                                 auto jvec = linalg::ArrayInterface(vec);
+                                 get<Array>(jout).emplace_back(std::move(jvec));
+                               }},
+               col);
+  }
+  auto str = Json::Dump(jout);
+  ret_str = std::move(str);
+
+  *out = ret_str.c_str();
+}
+
+CatContainer *CopyCatContainer(Context const *ctx, CatContainer const *cats,
+                               bst_feature_t n_features) {
+  CatContainer *new_cats = new CatContainer{};
+  new_cats->Copy(ctx, *cats);
+  CHECK_EQ(new_cats->Empty(), cats->Empty());
+  if (!new_cats->Empty()) {
+    CHECK_EQ(new_cats->NumFeatures(), n_features);
+    CHECK_EQ(new_cats->NumFeatures(), cats->NumFeatures());
+  }
+  return new_cats;
+}
+}  // anonymous namespace
+
+typedef  void * CategoriesHandle;  // NOLINT
+
+/**
+ * Fetching categories is experimental (3.1), C functions are hidden at the moment.
+ *
+ * No actual container method is exposed through the C API. It's just an opaque handle at
+ * the moment. This way we get to reuse the methods and the context from the DMatrix and
+ * Booster.
+ */
+/**
+ * @brief Create an opaque handle to the internal container.
+ *
+ * @param handle An instance of the data matrix.
+ * @param out    Created handle to the category container. Set to NULL if there's no category.
+ *
+ * @return 0 when success, -1 when failure happens.
+ */
+XGB_DLL int XGDMatrixGetCategories(DMatrixHandle handle, char const * /*config*/,
+                                   CategoriesHandle *out) {
+  API_BEGIN()
+  CHECK_HANDLE()
+
+  auto const p_fmat = *static_cast<std::shared_ptr<DMatrix> *>(handle);
+  auto const cats = p_fmat->Cats();
+  xgboost_CHECK_C_ARG_PTR(out);
+  if (cats->Empty()) {
+    out = nullptr;
+  } else {
+    auto new_cats = CopyCatContainer(p_fmat->Ctx(), cats, p_fmat->Info().num_col_);
+    *out = new_cats;
+  }
+
+  API_END()
+}
+/**
+ * @brief Create an opaque handle to the internal container and export it to arrow.
+ *
+ * @param handle     An instance of the data matrix.
+ * @param out        Created handle to the category container
+ * @param export_out JSON encoded array of categories, with length equal to the number of features.
+ *
+ * @return 0 when success, -1 when failure happens.
+ */
+XGB_DLL int XGDMatrixGetCategoriesExportToArrow(DMatrixHandle handle, char const * /*config*/,
+                                                CategoriesHandle *out, char const **export_out) {
+  API_BEGIN();
+  CHECK_HANDLE()
+
+  auto const p_fmat = *static_cast<std::shared_ptr<DMatrix> *>(handle);
+  auto const cats = p_fmat->Cats();
+  auto n_features = p_fmat->Info().num_col_;
+
+  xgboost_CHECK_C_ARG_PTR(out);
+  xgboost_CHECK_C_ARG_PTR(export_out);
+
+  if (cats->Empty()) {
+    *out = nullptr;
+    *export_out = nullptr;
+  } else {
+    // Create a new container
+    auto new_cats = CopyCatContainer(p_fmat->Ctx(), cats, n_features);
+    *out = new_cats;
+    // Export to arrow
+    auto &ret_str = p_fmat->GetThreadLocal().ret_str;
+    GetCategoriesImpl(new_cats->HostView(), n_features, &ret_str, export_out);
+  }
+
+  API_END();
+}
+/**
+ * @brief Free the opaque handle.
+ *
+ * @param handle An instance of the category container.
+ *
+ * @return 0 when success, -1 when failure happens.
+ */
+XGB_DLL int XGBCategoriesFree(CategoriesHandle handle) {
+  API_BEGIN();
+  xgboost_CHECK_C_ARG_PTR(handle);
+  auto p_cats = static_cast<CatContainer *>(handle);
+  CHECK(p_cats);
+  delete p_cats;
   API_END();
 }
 
@@ -945,6 +1111,13 @@ XGB_DLL int XGBoosterFree(BoosterHandle handle) {
   API_END();
 }
 
+XGB_DLL int XGBoosterReset(BoosterHandle handle) {
+  API_BEGIN();
+  CHECK_HANDLE();
+  static_cast<Learner *>(handle)->Reset();
+  API_END();
+}
+
 XGB_DLL int XGBoosterSetParam(BoosterHandle handle,
                               const char *name,
                               const char *value) {
@@ -1056,19 +1229,18 @@ XGB_DLL int XGBoosterTrainOneIter(BoosterHandle handle, DMatrixHandle dtrain, in
   ArrayInterface<2, false> i_grad{StringView{grad}};
   ArrayInterface<2, false> i_hess{StringView{hess}};
   StringView msg{"Mismatched shape between the gradient and hessian."};
-  CHECK_EQ(i_grad.Shape(0), i_hess.Shape(0)) << msg;
-  CHECK_EQ(i_grad.Shape(1), i_hess.Shape(1)) << msg;
+  CHECK_EQ(i_grad.Shape<0>(), i_hess.Shape<0>()) << msg;
+  CHECK_EQ(i_grad.Shape<1>(), i_hess.Shape<1>()) << msg;
   linalg::Matrix<GradientPair> gpair;
   auto grad_is_cuda = ArrayInterfaceHandler::IsCudaPtr(i_grad.data);
   auto hess_is_cuda = ArrayInterfaceHandler::IsCudaPtr(i_hess.data);
-  CHECK_EQ(i_grad.Shape(0), p_fmat->Info().num_row_)
+  CHECK_EQ(i_grad.Shape<0>(), p_fmat->Info().num_row_)
       << "Mismatched size between the gradient and training data.";
   CHECK_EQ(grad_is_cuda, hess_is_cuda) << "gradient and hessian should be on the same device.";
   auto *learner = static_cast<Learner *>(handle);
   auto ctx = learner->Ctx();
   if (!grad_is_cuda) {
-    gpair.Reshape(i_grad.Shape(0), i_grad.Shape(1));
-    auto const shape = gpair.Shape();
+    gpair.Reshape(i_grad.Shape<0>(), i_grad.Shape<1>());
     auto h_gpair = gpair.HostView();
     DispatchDType(i_grad, DeviceOrd::CPU(), [&](auto &&t_grad) {
       DispatchDType(i_hess, DeviceOrd::CPU(), [&](auto &&t_hess) {
@@ -1234,7 +1406,7 @@ void InplacePredictImpl(std::shared_ptr<DMatrix> p_m, char const *c_json_config,
   *out_shape = dmlc::BeginPtr(shape);
 }
 
-XGB_DLL int XGBoosterPredictFromDense(BoosterHandle handle, char const *array_interface,
+XGB_DLL int XGBoosterPredictFromDense(BoosterHandle handle, char const *data,
                                       char const *c_json_config, DMatrixHandle m,
                                       xgboost::bst_ulong const **out_shape,
                                       xgboost::bst_ulong *out_dim, const float **out_result) {
@@ -1248,8 +1420,8 @@ XGB_DLL int XGBoosterPredictFromDense(BoosterHandle handle, char const *array_in
   }
   auto proxy = dynamic_cast<data::DMatrixProxy *>(p_m.get());
   CHECK(proxy) << "Invalid input type for inplace predict.";
-  xgboost_CHECK_C_ARG_PTR(array_interface);
-  proxy->SetArrayData(array_interface);
+  xgboost_CHECK_C_ARG_PTR(data);
+  proxy->SetArray(data);
   auto *learner = static_cast<xgboost::Learner *>(handle);
   InplacePredictImpl(p_m, c_json_config, learner, out_shape, out_dim, out_result);
   API_END();
@@ -1270,7 +1442,7 @@ XGB_DLL int XGBoosterPredictFromColumnar(BoosterHandle handle, char const *array
   auto proxy = dynamic_cast<data::DMatrixProxy *>(p_m.get());
   CHECK(proxy) << "Invalid input type for inplace predict.";
   xgboost_CHECK_C_ARG_PTR(array_interface);
-  proxy->SetColumnarData(array_interface);
+  proxy->SetColumnar(array_interface);
   auto *learner = static_cast<xgboost::Learner *>(handle);
   InplacePredictImpl(p_m, c_json_config, learner, out_shape, out_dim, out_result);
   API_END();
@@ -1292,14 +1464,14 @@ XGB_DLL int XGBoosterPredictFromCSR(BoosterHandle handle, char const *indptr, ch
   auto proxy = dynamic_cast<data::DMatrixProxy *>(p_m.get());
   CHECK(proxy) << "Invalid input type for inplace predict.";
   xgboost_CHECK_C_ARG_PTR(indptr);
-  proxy->SetCSRData(indptr, indices, data, cols, true);
+  proxy->SetCsr(indptr, indices, data, cols, true);
   auto *learner = static_cast<xgboost::Learner *>(handle);
   InplacePredictImpl(p_m, c_json_config, learner, out_shape, out_dim, out_result);
   API_END();
 }
 
 #if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
-XGB_DLL int XGBoosterPredictFromCUDAArray(BoosterHandle handle, char const *, char const *,
+XGB_DLL int XGBoosterPredictFromCudaArray(BoosterHandle handle, char const *, char const *,
                                           DMatrixHandle, xgboost::bst_ulong const **,
                                           xgboost::bst_ulong *, const float **) {
   API_BEGIN();
@@ -1308,7 +1480,7 @@ XGB_DLL int XGBoosterPredictFromCUDAArray(BoosterHandle handle, char const *, ch
   API_END();
 }
 
-XGB_DLL int XGBoosterPredictFromCUDAColumnar(BoosterHandle handle, char const *, char const *,
+XGB_DLL int XGBoosterPredictFromCudaColumnar(BoosterHandle handle, char const *, char const *,
                                              DMatrixHandle, xgboost::bst_ulong const **,
                                              xgboost::bst_ulong *, const float **) {
   API_BEGIN();
@@ -1318,37 +1490,69 @@ XGB_DLL int XGBoosterPredictFromCUDAColumnar(BoosterHandle handle, char const *,
 }
 #endif  // !defined(XGBOOST_USE_CUDA)
 
-XGB_DLL int XGBoosterLoadModel(BoosterHandle handle, const char* fname) {
+namespace {
+template <typename Buffer, typename Iter = typename Buffer::const_iterator>
+Json DispatchModelType(Buffer const &buffer, StringView ext, bool warn) {
+  auto first_non_space = [&](Iter beg, Iter end) {
+    for (auto i = beg; i != end; ++i) {
+      if (!std::isspace(*i)) {
+        return i;
+      }
+    }
+    return end;
+  };
+
+  Json model;
+  auto it = first_non_space(buffer.cbegin() + 1, buffer.cend());
+  if (it != buffer.cend() && *it == '"') {
+    if (warn) {
+      LOG(WARNING) << "Unknown file format: `" << ext << "`. Using JSON (`json`) as a guess.";
+    }
+    model = Json::Load(StringView{buffer.data(), buffer.size()});
+  } else if (it != buffer.cend() && std::isalpha(*it)) {
+    if (warn) {
+      LOG(WARNING) << "Unknown file format: `" << ext << "`. Using UBJSON (`ubj`) as a guess.";
+    }
+    model = Json::Load(StringView{buffer.data(), buffer.size()}, std::ios::binary);
+  } else {
+    LOG(FATAL) << "Invalid model format. Expecting UBJSON (`ubj`) or JSON (`json`), got `" << ext
+               << "`";
+  }
+  return model;
+}
+}  // namespace
+
+XGB_DLL int XGBoosterLoadModel(BoosterHandle handle, const char *fname) {
   API_BEGIN();
   CHECK_HANDLE();
   xgboost_CHECK_C_ARG_PTR(fname);
   auto read_file = [&]() {
     auto str = common::LoadSequentialFile(fname);
-    CHECK_GE(str.size(), 3);  // "{}\0"
-    CHECK_EQ(str[0], '{');
+    // "{}"
+    CHECK_GE(str.size(), 2) << error::InvalidModel(fname);
+    // The old binary format has the starting bytes "binf".
+    if (str.size() >= 4 && StringView{str.data(), 4} == "binf") {  // NOLINT
+      LOG(FATAL) << error::OldBinaryModel(fname);
+    }
+    CHECK_EQ(str[0], '{') << error::InvalidModel(fname);
     return str;
   };
-  if (common::FileExtension(fname) == "json") {
+  auto ext = common::FileExtension(fname);
+  if (ext == "json") {
     auto buffer = read_file();
     Json in{Json::Load(StringView{buffer.data(), buffer.size()})};
-    static_cast<Learner*>(handle)->LoadModel(in);
-  } else if (common::FileExtension(fname) == "ubj") {
+    static_cast<Learner *>(handle)->LoadModel(in);
+  } else if (ext == "ubj") {
     auto buffer = read_file();
     Json in = Json::Load(StringView{buffer.data(), buffer.size()}, std::ios::binary);
     static_cast<Learner *>(handle)->LoadModel(in);
   } else {
-    std::unique_ptr<dmlc::Stream> fi(dmlc::Stream::Create(fname, "r"));
-    static_cast<Learner*>(handle)->LoadModel(fi.get());
+    auto buffer = read_file();
+    auto in = DispatchModelType(buffer, ext, true);
+    static_cast<Learner *>(handle)->LoadModel(in);
   }
   API_END();
 }
-
-namespace {
-void WarnOldModel() {
-  LOG(WARNING) << "Saving into deprecated binary model format, please consider using `json` or "
-                  "`ubj`. Model format is default to UBJSON in XGBoost 2.1 if not specified.";
-}
-}  // anonymous namespace
 
 XGB_DLL int XGBoosterSaveModel(BoosterHandle handle, const char *fname) {
   API_BEGIN();
@@ -1365,17 +1569,14 @@ XGB_DLL int XGBoosterSaveModel(BoosterHandle handle, const char *fname) {
     Json::Dump(out, &str, mode);
     fo->Write(str.data(), str.size());
   };
-  if (common::FileExtension(fname) == "json") {
+  auto ext = common::FileExtension(fname);
+  if (ext == "json") {
     save_json(std::ios::out);
-  } else if (common::FileExtension(fname) == "ubj") {
+  } else if (ext == "ubj") {
     save_json(std::ios::binary);
-  } else if (common::FileExtension(fname) == "deprecated") {
-    WarnOldModel();
-    auto *bst = static_cast<Learner *>(handle);
-    bst->SaveModel(fo.get());
   } else {
-    LOG(WARNING) << "Saving model in the UBJSON format as default.  You can use file extension:"
-                    " `json`, `ubj` or `deprecated` to choose between formats.";
+    LOG(WARNING) << "Saving model in the UBJSON format as default.  You can use a file extension:"
+                    " `json` or `ubj` to choose between formats.";
     save_json(std::ios::binary);
   }
   API_END();
@@ -1386,9 +1587,13 @@ XGB_DLL int XGBoosterLoadModelFromBuffer(BoosterHandle handle, const void *buf,
   API_BEGIN();
   CHECK_HANDLE();
   xgboost_CHECK_C_ARG_PTR(buf);
-
+  using CharT = std::add_const_t<char>;
+  using IdxType = common::Span<CharT>::index_type;
+  auto buffer = common::Span{static_cast<CharT *>(buf), static_cast<IdxType>(len)};
+  // Don't warn, we have to guess the format with buffer input.
+  auto in = DispatchModelType(buffer, "", false);
   common::MemoryFixSizeBuffer fs((void *)buf, len);  // NOLINT(*)
-  static_cast<Learner *>(handle)->LoadModel(&fs);
+  static_cast<Learner *>(handle)->LoadModel(in);
   API_END();
 }
 
@@ -1421,17 +1626,9 @@ XGB_DLL int XGBoosterSaveModelToBuffer(BoosterHandle handle, char const *json_co
     save_json(std::ios::out);
   } else if (format == "ubj") {
     save_json(std::ios::binary);
-  } else if (format == "deprecated") {
-    WarnOldModel();
-    auto &raw_str = learner->GetThreadLocal().ret_str;
-    raw_str.clear();
-    common::MemoryBufferStream fo(&raw_str);
-    learner->SaveModel(&fo);
-
-    *out_dptr = dmlc::BeginPtr(raw_str);
-    *out_len = static_cast<xgboost::bst_ulong>(raw_str.size());
   } else {
-    LOG(FATAL) << "Unknown format: `" << format << "`";
+    LOG(FATAL) << "Unknown model format: `" << format
+               << "`. Expecting UBJSON (`ubj`) or JSON (`json`).";
   }
 
   API_END();
@@ -1567,6 +1764,59 @@ XGB_DLL int XGBoosterDumpModelExWithFeatures(BoosterHandle handle,
   }
   XGBoostDumpModelImpl(handle, &featmap, with_stats, format, len, out_models);
   API_END();
+}
+
+/**
+ * Experimental (3.1), hidden.
+ */
+/**
+ * See @ref XGDMatrixGetCategories
+ */
+XGB_DLL int XGBoosterGetCategories(DMatrixHandle handle, char const * /*config*/,
+                                   CategoriesHandle *out) {
+  API_BEGIN()
+  CHECK_HANDLE()
+
+  auto *bst = static_cast<Learner *>(handle);
+  auto const cats = bst->Cats();
+  xgboost_CHECK_C_ARG_PTR(out);
+  if (cats->Empty()) {
+    out = nullptr;
+  } else {
+    auto new_cats = CopyCatContainer(bst->Ctx(), cats, bst->GetNumFeature());
+    *out = new_cats;
+  }
+
+  API_END()
+}
+/**
+ * See @ref XGDMatrixGetCategoriesExportToArrow
+ */
+XGB_DLL int XGBoosterGetCategoriesExportToArrow(BoosterHandle handle, char const * /*config*/,
+                                                CategoriesHandle *out, char const **export_out) {
+  API_BEGIN()
+  CHECK_HANDLE()
+
+  auto *bst = static_cast<Learner *>(handle);
+  auto const cats = bst->Cats();
+  auto n_features = bst->GetNumFeature();
+
+  xgboost_CHECK_C_ARG_PTR(out);
+  xgboost_CHECK_C_ARG_PTR(export_out);
+
+  if (cats->Empty()) {
+    *out = nullptr;
+    *export_out = nullptr;
+  } else {
+    // Create a new container
+    auto new_cats = CopyCatContainer(bst->Ctx(), cats, n_features);
+    *out = new_cats;
+    // Export to arrow
+    auto &ret_str = bst->GetThreadLocal().ret_str;
+    GetCategoriesImpl(new_cats->HostView(), n_features, &ret_str, export_out);
+  }
+
+  API_END()
 }
 
 XGB_DLL int XGBoosterGetAttr(BoosterHandle handle, const char *key, const char **out,

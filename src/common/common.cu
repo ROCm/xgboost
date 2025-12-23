@@ -1,30 +1,32 @@
-/*!
- * Copyright 2018-2022 XGBoost contributors
+/**
+ * Copyright 2018-2024, XGBoost contributors
  */
+
 #include "common.h"
+
+#if defined(XGBOOST_USE_CUDA)
+#include <cuda_runtime_api.h>
+#include <thrust/system/cuda/error.h>
+#include <thrust/system_error.h>
+#elif defined(XGBOOST_USE_HIP)
 #include "cuda_to_hip.h"
+#include <thrust/system/hip/error.h>
+#include <thrust/system_error.h>
+#endif
 
-namespace xgboost {
-namespace common {
+namespace dh {
+void ThrowOnCudaError(cudaError_t code, const char *file, int line) {
+  if (code != cudaSuccess) {
+    std::string f;
+    if (file != nullptr) {
+      f = file;
+    }
 
-void SetDevice(std::int32_t device) {
-  if (device >= 0) {
-    dh::safe_cuda(cudaSetDevice(device));
+#if defined(XGBOOST_USE_CUDA)
+    LOG(FATAL) << thrust::system_error(code, thrust::cuda_category(),f + ": " + std::to_string(line)).what();
+#elif defined(XGBOOST_USE_HIP)
+    LOG(FATAL) << thrust::system_error(code, thrust::system_category(),f + ": " + std::to_string(line)).what();
+#endif
   }
 }
-
-int AllVisibleGPUs() {
-  int n_visgpus = 0;
-  try {
-    // When compiled with CUDA but running on CPU only device,
-    // cudaGetDeviceCount will fail.
-    dh::safe_cuda(cudaGetDeviceCount(&n_visgpus));
-  } catch (const dmlc::Error &) {
-    cudaGetLastError();  // reset error.
-    return 0;
-  }
-  return n_visgpus;
-}
-
-}  // namespace common
-}  // namespace xgboost
+}  // namespace dh

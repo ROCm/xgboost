@@ -1,12 +1,17 @@
 /**
- * Copyright 2022-2023 by XGBoost Contributors
+ * Copyright 2022-2025, XGBoost Contributors
  */
 #include <gtest/gtest.h>
 #include <xgboost/context.h>
 #include <xgboost/linalg.h>  // Tensor,Vector
 
+#include <algorithm>  // for min
+#include <thread>     // for thread
+
+#include "../../../src/common/linalg_op.h"  // for begin, end
 #include "../../../src/common/stats.h"
 #include "../../../src/common/transform_iterator.h"  // common::MakeIndexTransformIter
+#include "../collective/test_worker.h"
 #include "../helpers.h"
 
 namespace xgboost::common {
@@ -121,10 +126,153 @@ TEST(Stats, Mean) {
   TestMean(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-TEST(Stats, GPUMean) {
+#if defined(XGBOOST_USE_CUDA)
+TEST(Stats, GpuMean) {
   auto ctx = MakeCUDACtx(0);
   TestMean(&ctx);
 }
+#endif  // defined(XGBOOST_USE_CUDA)
+
+namespace {
+void TestSampleMean(Context const* ctx) {
+  std::size_t m{32}, n{16};
+  linalg::Matrix<float> data({m, n}, ctx->Device());
+  auto h_data = data.HostView();
+  std::iota(linalg::begin(h_data), linalg::end(h_data), .0f);
+  linalg::Vector<float> mean;
+  SampleMean(ctx, false, data, &mean);
+  ASSERT_FLOAT_EQ(mean(0), 248.0f);
+  for (std::size_t i = 1; i < mean.Size(); ++i) {
+    ASSERT_EQ(mean(i), mean(i - 1) + 1.0f);
+  }
+}
+
+void TestSampleMeanDistributed(Context const* ctx) {
+  std::size_t m{32}, n{16};
+  auto device = ctx->Device();
+  std::int32_t n_workers =
+      device.IsCPU() ? std::min(4u, std::thread::hardware_concurrency()) : curt::AllVisibleGPUs();
+  collective::TestDistributedGlobal(n_workers, [m, n, device, n_workers] {
+    auto rank = collective::GetRank();
+    Context ctx = device.IsCUDA() ? MakeCUDACtx(DistGpuIdx()) : Context{};
+    collective::GetWorkerLocalThreads(collective::GetWorldSize(), &ctx);
+    linalg::Matrix<float> data({m, n}, ctx.Device());
+    auto h_data = data.HostView();
+    for (std::size_t i = 0; i < m; ++i) {
+      for (std::size_t j = 0; j < n; ++j) {
+        h_data(i, j) = i + (m * rank) + j;
+      }
+    }
+    linalg::Vector<float> mean;
+    SampleMean(&ctx, false, data, &mean);
+    ASSERT_EQ(mean.Size(), n);
+    double total = n_workers * m;
+    for (std::size_t i = 0; i < n; ++i) {
+      ASSERT_EQ(mean(i), (i + total - 1.0 + i) * total / 2.0 / total);
+    }
+  });
+}
+
+void TestWeightedSampleMean(Context const* ctx) {
+  std::size_t m{32}, n{16};
+  {
+    auto data = linalg::Constant(ctx, 1.0f, m, n);
+    HostDeviceVector<float> w{m, 0.0f, ctx->Device()};
+    auto h_w = w.HostSpan();
+    std::iota(h_w.data(), h_w.data() + h_w.size(), 1.0f);
+    linalg::Vector<float> mean;
+    WeightedSampleMean(ctx, false, data, w, &mean);
+    for (auto v : mean.HostView()) {
+      ASSERT_FLOAT_EQ(v, 1.0f);
+    }
+  }
+  {
+    linalg::Matrix<float> data({m, n}, ctx->Device());
+    auto h_data = data.HostView();
+    std::iota(linalg::begin(h_data), linalg::end(h_data), .0f);
+    HostDeviceVector<float> w{m, 1.0f, ctx->Device()};
+    linalg::Vector<float> mean;
+    WeightedSampleMean(ctx, false, data, w, &mean);
+    ASSERT_FLOAT_EQ(mean(0), 248.0f);
+    for (std::size_t i = 1; i < mean.Size(); ++i) {
+      ASSERT_EQ(mean(i), mean(i - 1) + 1.0f);
+    }
+  }
+}
+
+void TestWeightedSampleMeanDistributed(Context const* ctx) {
+  std::size_t m{32}, n{16};
+  auto device = ctx->Device();
+  std::int32_t n_workers =
+      device.IsCPU() ? std::min(4u, std::thread::hardware_concurrency()) : curt::AllVisibleGPUs();
+
+  collective::TestDistributedGlobal(n_workers, [m, n, device, n_workers] {
+    auto rank = collective::GetRank();
+    Context ctx = device.IsCUDA() ? MakeCUDACtx(DistGpuIdx()) : Context{};
+    collective::GetWorkerLocalThreads(collective::GetWorldSize(), &ctx);
+    linalg::Matrix<float> data({m, n}, ctx.Device());
+    auto h_data = data.HostView();
+    for (std::size_t i = 0; i < m; ++i) {
+      for (std::size_t j = 0; j < n; ++j) {
+        h_data(i, j) = i + (m * rank) + j;
+      }
+    }
+    HostDeviceVector<float> w{m, 1.0f, ctx.Device()};
+    linalg::Vector<float> mean;
+    WeightedSampleMean(&ctx, false, data, w, &mean);
+    ASSERT_EQ(mean.Size(), n);
+    double total = n_workers * m;
+    for (std::size_t i = 0; i < n; ++i) {
+      ASSERT_EQ(mean(i), (i + total - 1.0 + i) * total / 2.0 / total);
+    }
+  });
+}
+}  // namespace
+
+TEST(Stats, SampleMean) {
+  Context ctx;
+  TestSampleMean(&ctx);
+}
+
+TEST(Stats, SampleMeanDist) {
+  Context ctx;
+  TestSampleMeanDistributed(&ctx);
+}
+
+
+TEST(Stats, WeightedSampleMean) {
+  Context ctx;
+  TestWeightedSampleMean(&ctx);
+}
+
+TEST(Stats, WeightedSampleMeanDist) {
+  Context ctx;
+  TestWeightedSampleMeanDistributed(&ctx);
+}
+
+#if defined(XGBOOST_USE_CUDA)
+TEST(Stats, GpuSampleMean) {
+  auto ctx = MakeCUDACtx(0);
+  TestSampleMean(&ctx);
+}
+
+#if defined(XGBOOST_USE_NCCL)
+TEST(Stats, MGPUSampleMeanDist) {
+  auto ctx = MakeCUDACtx(0);
+  TestSampleMeanDistributed(&ctx);
+}
+#endif  // defined(XGBOOST_USE_NCCL)
+
+TEST(Stats, GpuWeightedSampleMean) {
+  auto ctx = MakeCUDACtx(0);
+  TestWeightedSampleMean(&ctx);
+}
+
+#if defined(XGBOOST_USE_NCCL)
+TEST(Stats, MGPUWeightedSampleMeanDist) {
+  auto ctx = MakeCUDACtx(0);
+  TestWeightedSampleMeanDistributed(&ctx);
+}
+#endif  // defined(XGBOOST_USE_NCCL)
 #endif  // defined(XGBOOST_USE_CUDA)
 }  // namespace xgboost::common

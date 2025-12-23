@@ -1,5 +1,5 @@
 /**
- * Copyright 2019-2024 XGBoost contributors
+ * Copyright 2019-2025, XGBoost contributors
  */
 #include <gtest/gtest.h>
 #include <xgboost/c_api.h>
@@ -8,49 +8,23 @@
 #include <xgboost/learner.h>
 #include <xgboost/version_config.h>
 
-#include <array>      // for array
-#include <cstddef>    // std::size_t
-#include <filesystem> // std::filesystem
-#include <limits>     // std::numeric_limits
-#include <string>     // std::string
+#include <algorithm>   // for copy_n
+#include <array>       // for array
+#include <cstddef>     // std::size_t
+#include <filesystem>  // std::filesystem
+#include <limits>      // std::numeric_limits
+#include <string>      // std::string
 #include <vector>
 
 #include "../../../src/c_api/c_api_error.h"
 #include "../../../src/common/io.h"
 #include "../../../src/data/adapter.h"              // for ArrayAdapter
 #include "../../../src/data/array_interface.h"      // for ArrayInterface
+#include "../../../src/data/batch_utils.h"          // for MatchingPageBytes
 #include "../../../src/data/gradient_index.h"       // for GHistIndexMatrix
 #include "../../../src/data/iterative_dmatrix.h"    // for IterativeDMatrix
 #include "../../../src/data/sparse_page_dmatrix.h"  // for SparsePageDMatrix
 #include "../helpers.h"
-
-TEST(CAPI, XGDMatrixCreateFromMatDT) {
-  std::vector<int> col0 = {0, -1, 3};
-  std::vector<float> col1 = {-4.0f, 2.0f, 0.0f};
-  const char *col0_type = "int32";
-  const char *col1_type = "float32";
-  std::vector<void *> data = {col0.data(), col1.data()};
-  std::vector<const char *> types = {col0_type, col1_type};
-  DMatrixHandle handle;
-  XGDMatrixCreateFromDT(data.data(), types.data(), 3, 2, &handle,
-                        0);
-  std::shared_ptr<xgboost::DMatrix> *dmat =
-      static_cast<std::shared_ptr<xgboost::DMatrix> *>(handle);
-  xgboost::MetaInfo &info = (*dmat)->Info();
-  ASSERT_EQ(info.num_col_, 2ul);
-  ASSERT_EQ(info.num_row_, 3ul);
-  ASSERT_EQ(info.num_nonzero_, 6ul);
-
-  for (const auto &batch : (*dmat)->GetBatches<xgboost::SparsePage>()) {
-    auto page = batch.GetView();
-    ASSERT_EQ(page[0][0].fvalue, 0.0f);
-    ASSERT_EQ(page[0][1].fvalue, -4.0f);
-    ASSERT_EQ(page[2][0].fvalue, 3.0f);
-    ASSERT_EQ(page[2][1].fvalue, 0.0f);
-  }
-
-  delete dmat;
-}
 
 TEST(CAPI, XGDMatrixCreateFromMatOmp) {
   std::vector<bst_ulong> num_rows = {100, 11374, 15000};
@@ -482,9 +456,9 @@ auto MakeQDMForTest(Context const *ctx, bst_idx_t n_samples, bst_feature_t n_fea
   } else {
     iter_1 = std::make_unique<NumpyArrayIterForTest>(0.0f, n_samples, n_features, n_batches);
   }
-  auto Xy =
-      std::make_shared<data::IterativeDMatrix>(iter_1.get(), iter_1->Proxy(), nullptr, Reset, Next,
-                                               std::numeric_limits<float>::quiet_NaN(), 0, n_bins);
+  auto Xy = std::make_shared<data::IterativeDMatrix>(
+      iter_1.get(), iter_1->Proxy(), nullptr, Reset, Next, std::numeric_limits<float>::quiet_NaN(),
+      0, n_bins, std::numeric_limits<std::int64_t>::max());
   return std::pair{p_fmat, Xy};
 }
 
@@ -500,8 +474,13 @@ auto MakeExtMemForTest(bst_idx_t n_samples, bst_feature_t n_features, Json dconf
            0);
 
   NumpyArrayIterForTest iter_1{0.0f, n_samples, n_features, n_batches};
-  auto Xy = std::make_shared<data::SparsePageDMatrix>(
-      &iter_1, iter_1.Proxy(), Reset, Next, std::numeric_limits<float>::quiet_NaN(), 0, "");
+  auto config = ExtMemConfig{"",
+                             false,
+                             cuda_impl::AutoHostRatio(),
+                             cuda_impl::MatchingPageBytes(),
+                             std::numeric_limits<float>::quiet_NaN(),
+                             0};
+  auto Xy = std::make_shared<data::SparsePageDMatrix>(&iter_1, iter_1.Proxy(), Reset, Next, config);
   MakeLabelForTest(Xy, p_fmat);
   return std::pair{p_fmat, Xy};
 }
@@ -626,4 +605,112 @@ TEST(CAPI, GPUXGDMatrixGetQuantileCut) {
   TestXGDMatrixGetQuantileCut(&ctx);
 }
 #endif  // defined(XGBOOST_USE_CUDA)
+
+TEST(CAPI, PredictReuseProxy) {
+  // Configuration for creating DMatrix
+  Json fmat_cfg{Object{}};
+  fmat_cfg["missing"] = std::numeric_limits<float>::quiet_NaN();
+  auto sfmat_cfg = Json::Dump(fmat_cfg);
+
+  // Configuration for prediction
+  Json config{Object{}};
+  config["type"] = Integer{0};
+  config["iteration_begin"] = config["iteration_end"] = Integer{0};
+  config["missing"] = Number{std::numeric_limits<float>::quiet_NaN()};
+  config["strict_shape"] = Boolean{true};
+  config["training"] = Boolean{false};
+  auto scfg = Json::Dump(config);
+
+  HostDeviceVector<float> storage;
+  bst_idx_t n_samples = 1024;
+  auto inf = RandomDataGenerator{n_samples, 256, 0.0}.GenerateArrayInterface(&storage);
+  HostDeviceVector<float> storage_y;
+  auto y_inf = RandomDataGenerator{n_samples, 1, 0.0}.GenerateArrayInterface(&storage_y);
+
+  // Create a DMatrix for training
+  DMatrixHandle fmat_hdl{nullptr};
+  ASSERT_EQ(XGDMatrixCreateFromDense(inf.c_str(), sfmat_cfg.c_str(), &fmat_hdl), 0);
+  ASSERT_EQ(XGDMatrixSetInfoFromInterface(fmat_hdl, "label", y_inf.c_str()), 0);
+
+  // Create booster and train.
+  std::array<DMatrixHandle, 1> mats{fmat_hdl};
+  BoosterHandle booster_hdl;
+  ASSERT_EQ(XGBoosterCreate(mats.data(), 1, &booster_hdl), 0);
+
+  for (std::int32_t i = 0; i < 3; ++i) {
+    ASSERT_EQ(XGBoosterUpdateOneIter(booster_hdl, i, fmat_hdl), 0);
+  }
+
+  // Create a proxy that can be reused.
+  DMatrixHandle proxy_hdl{nullptr};
+  ASSERT_EQ(XGProxyDMatrixCreate(&proxy_hdl), 0);
+
+  bst_ulong const *outshape{nullptr};
+  bst_ulong outdim{0};
+  float const *result{nullptr};
+
+  {
+    // Prediction with DMatrix
+    ASSERT_EQ(XGBoosterPredictFromDMatrix(booster_hdl, fmat_hdl, scfg.c_str(), &outshape, &outdim,
+                                          &result),
+              0);
+    bst_ulong n_samples_ret = 0;
+    ASSERT_EQ(XGDMatrixNumRow(fmat_hdl, &n_samples_ret), 0);
+    std::vector<float> vec_0(n_samples_ret);
+    ASSERT_EQ(vec_0.size(), n_samples);
+    ASSERT_EQ(outdim, 2);
+    std::copy_n(result, vec_0.size(), vec_0.begin());
+
+    // In-place predict
+    ASSERT_EQ(XGBoosterPredictFromDense(booster_hdl, inf.c_str(), scfg.c_str(), proxy_hdl,
+                                        &outshape, &outdim, &result),
+              0);
+    ASSERT_EQ(XGDMatrixNumRow(proxy_hdl, &n_samples_ret), 0);
+    std::vector<float> vec_1(n_samples_ret);
+    ASSERT_EQ(vec_1.size(), n_samples);
+    ASSERT_EQ(outdim, 2);
+    std::copy_n(result, vec_1.size(), vec_1.begin());
+
+    // Same result
+    ASSERT_EQ(vec_0, vec_1);
+  }
+
+  {
+    bst_idx_t n_samples = 512;
+
+    // Prediction with DMatrix
+    auto inf = RandomDataGenerator{n_samples, 256, 0.0}.GenerateArrayInterface(&storage);
+    DMatrixHandle fmat_hdl{nullptr};
+    ASSERT_EQ(XGDMatrixCreateFromDense(inf.c_str(), sfmat_cfg.c_str(), &fmat_hdl), 0);
+
+    ASSERT_EQ(XGBoosterPredictFromDMatrix(booster_hdl, fmat_hdl, scfg.c_str(), &outshape, &outdim,
+                                          &result),
+              0);
+    bst_ulong n_samples_ret = 0;
+    ASSERT_EQ(XGDMatrixNumRow(fmat_hdl, &n_samples_ret), 0);
+    std::vector<float> vec_0(n_samples_ret);
+    ASSERT_EQ(vec_0.size(), n_samples);
+    ASSERT_EQ(outdim, 2);
+    std::copy_n(result, vec_0.size(), vec_0.begin());
+
+    // In-place predict, same proxy as before
+    ASSERT_EQ(XGBoosterPredictFromDense(booster_hdl, inf.c_str(), scfg.c_str(), proxy_hdl,
+                                        &outshape, &outdim, &result),
+              0);
+    ASSERT_EQ(XGDMatrixNumRow(proxy_hdl, &n_samples_ret), 0);
+    std::vector<float> vec_1(n_samples_ret);
+    ASSERT_EQ(vec_1.size(), n_samples);
+    ASSERT_EQ(outdim, 2);
+    std::copy_n(result, vec_1.size(), vec_1.begin());
+
+    // Same result
+    ASSERT_EQ(vec_0, vec_1);
+
+    ASSERT_EQ(XGDMatrixFree(fmat_hdl), 0);
+  }
+
+  ASSERT_EQ(XGDMatrixFree(fmat_hdl), 0);
+  ASSERT_EQ(XGBoosterFree(booster_hdl), 0);
+  ASSERT_EQ(XGDMatrixFree(proxy_hdl), 0);
+}
 }  // namespace xgboost

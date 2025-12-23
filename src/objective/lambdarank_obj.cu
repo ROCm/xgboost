@@ -1,20 +1,21 @@
 /**
- * Copyright 2015-2023 by XGBoost contributors
+ * Copyright 2015-2025, XGBoost contributors
  *
  * \brief CUDA implementation of lambdarank.
  */
+#include <dmlc/registry.h>                      // for DMLC_REGISTRY_FILE_TAG
 #include <thrust/fill.h>                        // for fill_n
 #include <thrust/for_each.h>                    // for for_each_n
 #include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
 #include <thrust/iterator/zip_iterator.h>       // for make_zip_iterator
 #include <thrust/tuple.h>                       // for make_tuple, tuple, tie, get
 
-#include <algorithm>                            // for min
-#include <cassert>                              // for assert
-#include <cmath>                                // for abs, log2, isinf
-#include <cstddef>                              // for size_t
-#include <cstdint>                              // for int32_t
-#include <memory>                               // for shared_ptr
+#include <algorithm>  // for min
+#include <cassert>    // for assert
+#include <cmath>      // for abs, log2, isinf
+#include <cstddef>    // for size_t
+#include <cstdint>    // for int32_t
+#include <memory>     // for shared_ptr
 #include <utility>
 
 #include "../common/algorithm.cuh"       // for SegmentedArgSort
@@ -31,7 +32,7 @@
 #include "xgboost/host_device_vector.h"  // for HostDeviceVector
 #include "xgboost/linalg.h"              // for VectorView, Range, Vector
 #include "xgboost/logging.h"
-#include "xgboost/span.h"                // for Span
+#include "xgboost/span.h"  // for Span
 
 #if defined(XGBOOST_USE_HIP)
 #include <hipcub/hipcub.hpp>
@@ -66,11 +67,11 @@ void MinBias(Context const* ctx, std::shared_ptr<ltr::RankingCache> p_cache,
                                                     return std::abs(t_plus(i));
                                                   });
   std::size_t bytes;
-  cub::DeviceSegmentedReduce::Min(nullptr, bytes, val_it, d_min.data(), 2, key_it, key_it + 1,
-                                  cuctx->Stream());
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Min(nullptr, bytes, val_it, d_min.data(), 2, key_it,
+                                                key_it + 1, cuctx->Stream()));
   dh::TemporaryArray<char> temp(bytes);
-  cub::DeviceSegmentedReduce::Min(temp.data().get(), bytes, val_it, d_min.data(), 2, key_it,
-                                  key_it + 1, cuctx->Stream());
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Min(temp.data().get(), bytes, val_it, d_min.data(), 2,
+                                                key_it, key_it + 1, cuctx->Stream()));
 }
 
 /**
@@ -81,12 +82,12 @@ using GradCostNorm = thrust::tuple<GradientPair, double, double>;
 /**
  * \brief Obtain and update the gradient for one pair.
  */
-template <bool unbiased, bool has_truncation, typename Delta>
+template <bool unbiased, bool has_truncation, bool norm_by_diff, typename Delta>
 struct GetGradOp {
   MakePairsOp<has_truncation> make_pair;
   Delta delta;
 
-  bool need_update;
+  bool const need_update;
 
   auto __device__ operator()(std::size_t idx) -> GradCostNorm {
     auto const& args = make_pair.args;
@@ -112,8 +113,11 @@ struct GetGradOp {
 
     double cost{0};
 
-    auto delta_op = [&](auto const&... args) { return delta(args..., g); };
-    GradientPair pg = LambdaGrad<unbiased>(g_label, g_predt, g_rank, rank_high, rank_low, delta_op,
+    auto delta_op = [&](auto const&... args) {
+      return delta(args..., g);
+    };
+    GradientPair pg =
+        LambdaGrad<unbiased, norm_by_diff>(g_label, g_predt, g_rank, rank_high, rank_low, delta_op,
                                            args.ti_plus, args.tj_minus, &cost);
 
     std::size_t idx_high = g_rank[rank_high];
@@ -121,7 +125,6 @@ struct GetGradOp {
 
     if (need_update) {
       // second run, update the gradient
-
       auto ng = Repulse(pg);
 
       auto gr = args.d_roundings(g);
@@ -156,12 +159,13 @@ struct GetGradOp {
         }
       }
     }
+
     return thrust::make_tuple(GradientPair{std::abs(pg.GetGrad()), std::abs(pg.GetHess())},
                               std::abs(cost), -2.0 * static_cast<double>(pg.GetGrad()));
   }
 };
 
-template <bool unbiased, bool has_truncation, typename Delta>
+template <bool unbiased, bool has_truncation, bool norm_by_diff, typename Delta>
 struct MakeGetGrad {
   MakePairsOp<has_truncation> make_pair;
   Delta delta;
@@ -170,8 +174,8 @@ struct MakeGetGrad {
 
   MakeGetGrad(KernelInputs args, Delta d) : make_pair{args}, delta{std::move(d)} {}
 
-  GetGradOp<unbiased, has_truncation, Delta> operator()(bool need_update) {
-    return GetGradOp<unbiased, has_truncation, Delta>{make_pair, delta, need_update};
+  auto operator()(bool need_update) {
+    return GetGradOp<unbiased, has_truncation, norm_by_diff, Delta>{make_pair, delta, need_update};
   }
 };
 
@@ -196,9 +200,9 @@ struct MakeGetGrad {
  * For performance, the segmented sort for sorted scores is the bottleneck and takes up
  * about half of the time, while the reduction and for_each takes up the second half.
  */
-template <bool unbiased, bool has_truncation, typename Delta>
+template <bool unbiased, bool has_truncation, bool norm_by_diff, typename Delta>
 void CalcGrad(Context const* ctx, MetaInfo const& info, std::shared_ptr<ltr::RankingCache> p_cache,
-              MakeGetGrad<unbiased, has_truncation, Delta> make_get_grad) {
+              MakeGetGrad<unbiased, has_truncation, norm_by_diff, Delta> make_get_grad) {
   auto n_groups = p_cache->Groups();
   auto d_threads_group_ptr = p_cache->CUDAThreadsGroupPtr();
   auto d_gptr = p_cache->DataGroupPtr(ctx);
@@ -218,20 +222,20 @@ void CalcGrad(Context const* ctx, MetaInfo const& info, std::shared_ptr<ltr::Ran
     auto hess = std::max(lg.GetHess(), rg.GetHess());
     auto cost = std::max(thrust::get<1>(l), thrust::get<1>(r));
     double sum_lambda = thrust::get<2>(l) + thrust::get<2>(r);
-    return thrust::make_tuple(GradientPair{std::abs(grad), std::abs(hess)}, cost, sum_lambda);
+    return thrust::make_tuple(GradientPair{grad, hess}, cost, sum_lambda);
   };
   auto init = thrust::make_tuple(GradientPair{0.0f, 0.0f}, 0.0, 0.0);
   common::Span<GradCostNorm> d_max_lambdas = p_cache->MaxLambdas<GradCostNorm>(ctx, n_groups);
   CHECK_EQ(n_groups * sizeof(GradCostNorm), d_max_lambdas.size_bytes());
-
+  // Reduce by group.
   std::size_t bytes;
-  cub::DeviceSegmentedReduce::Reduce(nullptr, bytes, val_it, d_max_lambdas.data(), n_groups,
-                                     d_threads_group_ptr.data(), d_threads_group_ptr.data() + 1,
-                                     reduction_op, init, ctx->CUDACtx()->Stream());
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Reduce(
+      nullptr, bytes, val_it, d_max_lambdas.data(), n_groups, d_threads_group_ptr.data(),
+      d_threads_group_ptr.data() + 1, reduction_op, init, ctx->CUDACtx()->Stream()));
   dh::TemporaryArray<char> temp(bytes);
-  cub::DeviceSegmentedReduce::Reduce(
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Reduce(
       temp.data().get(), bytes, val_it, d_max_lambdas.data(), n_groups, d_threads_group_ptr.data(),
-      d_threads_group_ptr.data() + 1, reduction_op, init, ctx->CUDACtx()->Stream());
+      d_threads_group_ptr.data() + 1, reduction_op, init, ctx->CUDACtx()->Stream()));
 
   dh::TemporaryArray<double> min_bias(2);
   auto d_min_bias = dh::ToSpan(min_bias);
@@ -268,26 +272,39 @@ void CalcGrad(Context const* ctx, MetaInfo const& info, std::shared_ptr<ltr::Ran
   /**
    * Lastly, normalization and weight.
    */
-  auto d_weights = common::MakeOptionalWeights(ctx, info.weights_);
+  auto d_weights = common::MakeOptionalWeights(ctx->Device(), info.weights_);
   auto w_norm = p_cache->WeightNorm();
-  auto norm = p_cache->Param().lambdarank_normalization;
+  auto need_norm = p_cache->Param().lambdarank_normalization;
+  auto n_pairs = p_cache->Param().NumPair();
+  bool is_mean = p_cache->Param().IsMean();
+  CHECK_EQ(is_mean, !has_truncation);
   thrust::for_each_n(ctx->CUDACtx()->CTP(), thrust::make_counting_iterator(0ul), d_gpair.Size(),
                      [=] XGBOOST_DEVICE(std::size_t i) mutable {
                        auto g = dh::SegmentId(d_gptr, i);
-                       auto sum_lambda = thrust::get<2>(d_max_lambdas[g]);
-                       // Normalization
-                       if (sum_lambda > 0.0 && norm) {
-                         double norm = std::log2(1.0 + sum_lambda) / sum_lambda;
+                       if (need_norm) {
+                         double norm = 1.0;
+                         if (has_truncation) {
+                           // Normalize using gradient for top-k.
+                           auto sum_lambda = thrust::get<2>(d_max_lambdas[g]);
+                           if (sum_lambda > 0.0) {
+                             norm = std::log2(1.0 + sum_lambda) / sum_lambda;
+                           }
+                         } else {
+                           // Normalize using the number of pairs for mean.
+                           double scale = 1.0 / static_cast<double>(n_pairs);
+                           norm = scale;
+                         }
                          d_gpair(i, 0) *= norm;
                        }
+
                        d_gpair(i, 0) *= (d_weights[g] * w_norm);
                      });
 }
 
 /**
- * \brief Handles boilerplate code like getting device span.
+ * @brief Handles boilerplate code like getting device spans.
  */
-template <typename Delta>
+template <bool norm_by_diff, typename Delta>
 void Launch(Context const* ctx, std::int32_t iter, HostDeviceVector<float> const& preds,
             const MetaInfo& info, std::shared_ptr<ltr::RankingCache> p_cache, Delta delta,
             linalg::VectorView<double const> ti_plus,   // input bias ratio
@@ -305,7 +322,6 @@ void Launch(Context const* ctx, std::int32_t iter, HostDeviceVector<float> const
   out_gpair->Reshape(preds.Size(), 1);
 
   CHECK(p_cache);
-
   auto d_rounding = p_cache->CUDARounding(ctx);
   auto d_cost_rounding = p_cache->CUDACostRounding(ctx);
 
@@ -335,15 +351,15 @@ void Launch(Context const* ctx, std::int32_t iter, HostDeviceVector<float> const
   // dispatch based on unbiased and truncation
   if (p_cache->Param().HasTruncation()) {
     if (unbiased) {
-      CalcGrad(ctx, info, p_cache, MakeGetGrad<true, true, Delta>{args, delta});
+      CalcGrad(ctx, info, p_cache, MakeGetGrad<true, true, norm_by_diff, Delta>{args, delta});
     } else {
-      CalcGrad(ctx, info, p_cache, MakeGetGrad<false, true, Delta>{args, delta});
+      CalcGrad(ctx, info, p_cache, MakeGetGrad<false, true, norm_by_diff, Delta>{args, delta});
     }
   } else {
     if (unbiased) {
-      CalcGrad(ctx, info, p_cache, MakeGetGrad<true, false, Delta>{args, delta});
+      CalcGrad(ctx, info, p_cache, MakeGetGrad<true, false, norm_by_diff, Delta>{args, delta});
     } else {
-      CalcGrad(ctx, info, p_cache, MakeGetGrad<false, false, Delta>{args, delta});
+      CalcGrad(ctx, info, p_cache, MakeGetGrad<false, false, norm_by_diff, Delta>{args, delta});
     }
   }
 }
@@ -393,7 +409,12 @@ void LambdaRankGetGradientNDCG(Context const* ctx, std::int32_t iter,
     return exp_gain ? DeltaNDCG<true>(y_high, y_low, rank_high, rank_low, d_inv_IDCG(g), discount)
                     : DeltaNDCG<false>(y_high, y_low, rank_high, rank_low, d_inv_IDCG(g), discount);
   };
-  Launch(ctx, iter, preds, info, p_cache, delta_ndcg, ti_plus, tj_minus, li, lj, out_gpair);
+  if (p_cache->Param().lambdarank_score_normalization) {
+    Launch<true>(ctx, iter, preds, info, p_cache, delta_ndcg, ti_plus, tj_minus, li, lj, out_gpair);
+  } else {
+    Launch<false>(ctx, iter, preds, info, p_cache, delta_ndcg, ti_plus, tj_minus, li, lj,
+                  out_gpair);
+  }
 }
 
 void MAPStat(Context const* ctx, MetaInfo const& info, common::Span<std::size_t const> d_rank_idx,
@@ -475,8 +496,11 @@ void LambdaRankGetGradientMAP(Context const* ctx, std::int32_t iter,
     auto d = DeltaMAP(y_high, y_low, rank_high, rank_low, g_n_rel, g_acc);
     return d;
   };
-
-  Launch(ctx, iter, predt, info, p_cache, delta_map, ti_plus, tj_minus, li, lj, out_gpair);
+  if (p_cache->Param().lambdarank_score_normalization) {
+    Launch<true>(ctx, iter, predt, info, p_cache, delta_map, ti_plus, tj_minus, li, lj, out_gpair);
+  } else {
+    Launch<false>(ctx, iter, predt, info, p_cache, delta_map, ti_plus, tj_minus, li, lj, out_gpair);
+  }
 }
 
 void LambdaRankGetGradientPairwise(Context const* ctx, std::int32_t iter,
@@ -492,14 +516,15 @@ void LambdaRankGetGradientPairwise(Context const* ctx, std::int32_t iter,
   info.labels.SetDevice(device);
   predt.SetDevice(device);
 
-  auto d_predt = predt.ConstDeviceSpan();
-  auto const d_sorted_idx = p_cache->SortedIdx(ctx, d_predt);
-
   auto delta = [] XGBOOST_DEVICE(float, float, std::size_t, std::size_t, bst_group_t) {
     return 1.0;
   };
 
-  Launch(ctx, iter, predt, info, p_cache, delta, ti_plus, tj_minus, li, lj, out_gpair);
+  if (p_cache->Param().lambdarank_score_normalization) {
+    Launch<true>(ctx, iter, predt, info, p_cache, delta, ti_plus, tj_minus, li, lj, out_gpair);
+  } else {
+    Launch<false>(ctx, iter, predt, info, p_cache, delta, ti_plus, tj_minus, li, lj, out_gpair);
+  }
 }
 
 struct ReduceOp {
@@ -567,11 +592,13 @@ void LambdaRankUpdatePositionBias(Context const* ctx, linalg::VectorView<double 
 
   auto init = thrust::make_tuple(0.0, 0.0);
   std::size_t bytes;
-  cub::DeviceSegmentedReduce::Reduce(nullptr, bytes, val_it, out_it, k, key_it, key_it + 1,
-                                     ReduceOp{}, init, ctx->CUDACtx()->Stream());
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Reduce(nullptr, bytes, val_it, out_it, k, key_it,
+                                                   key_it + 1, ReduceOp{}, init,
+                                                   ctx->CUDACtx()->Stream()));
   dh::TemporaryArray<char> temp(bytes);
-  cub::DeviceSegmentedReduce::Reduce(temp.data().get(), bytes, val_it, out_it, k, key_it,
-                                     key_it + 1, ReduceOp{}, init, ctx->CUDACtx()->Stream());
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Reduce(temp.data().get(), bytes, val_it, out_it, k,
+                                                   key_it, key_it + 1, ReduceOp{}, init,
+                                                   ctx->CUDACtx()->Stream()));
 
   thrust::for_each_n(ctx->CUDACtx()->CTP(), thrust::make_counting_iterator(0ul), li.Size(),
                      [=] XGBOOST_DEVICE(std::size_t i) mutable {

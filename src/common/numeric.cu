@@ -13,8 +13,10 @@ double Reduce(Context const* ctx, HostDeviceVector<float> const& values) {
   values.SetDevice(ctx->Device());
   auto const d_values = values.ConstDeviceSpan();
   dh::XGBCachingDeviceAllocator<char> alloc;
-
-  return dh::Reduce(thrust::cuda::par(alloc), dh::tcbegin(d_values), dh::tcend(d_values), 0.0,
-                    thrust::plus<float>{});
+#if defined(XGBOOST_USE_CUDA)
+  return dh::Reduce(thrust::cuda::par(alloc), dh::tcbegin(d_values), dh::tcend(d_values), 0.0,thrust::plus<float>{});
+#elif defined(XGBOOST_USE_HIP)
+  return dh::Reduce(thrust::hip::par(alloc), dh::tcbegin(d_values), dh::tcend(d_values), 0.0,thrust::plus<float>{});
+#endif
 }
 }  // namespace xgboost::common::cuda_impl

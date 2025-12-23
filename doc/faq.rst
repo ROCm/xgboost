@@ -37,7 +37,7 @@ The ultimate question will still come back to how to push the limit of each comp
 and use less resources to complete the task (thus with less communication and chance of failure).
 
 To achieve these, we decide to reuse the optimizations in the single node XGBoost and build the distributed version on top of it.
-The demand for communication in machine learning is rather simple, in the sense that we can depend on a limited set of APIs (in our case rabit).
+The demand for communication in machine learning is rather simple, in the sense that we can depend on a limited set of APIs.
 Such design allows us to reuse most of the code, while being portable to major platforms such as Hadoop/Yarn, MPI, SGE.
 Most importantly, it pushes the limit of the computation resources we can use.
 
@@ -75,4 +75,4 @@ This could happen, due to non-determinism in floating point summation order and 
 Why do I see different results with sparse and dense data?
 **********************************************************
 
-"Sparse" elements are treated as if they were "missing" by the tree booster, and as zeros by the linear booster. However, if we convert the sparse matrix back to dense matrix, the sparse matrix might fill the missing entries with 0, which is a valid value for xgboost.
+"Sparse" elements are treated as if they were "missing" by the tree booster, and as zeros by the linear booster. However, if we convert the sparse matrix back to dense matrix, the sparse matrix might fill the missing entries with 0, which is a valid value for xgboost. In short, sparse matrix implementations like scipy treats 0 as missing, while 0 is a valid split value for XGBoost decision trees.

@@ -36,6 +36,7 @@
 #include "xgboost/host_device_vector.h"
 #include "xgboost/logging.h"
 #include "xgboost/span.h"
+#include "cuda_rt_utils.h"
 
 #if defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
 #include "rmm/mr/device/per_device_resource.hpp"
@@ -49,6 +50,21 @@
 #endif  // !defined(RMM_VERSION_MAJOR) || !defined(RMM_VERSION_MINOR)
 
 #endif  // defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
+#undef cudaFuncSetAttribute
+#undef cudaOccupancyMaxActiveBlocksPerMultiprocessor
+
+template <typename Func>
+inline hipError_t cudaFuncSetAttribute(Func func, hipFuncAttribute attr, int value) {
+  return hipFuncSetAttribute(reinterpret_cast<const void*>(func), attr, value);
+}
+
+template <typename Func>
+inline hipError_t cudaOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, Func func, 
+                                                                 int blockSize, size_t dynamicSMemSize) {
+  return hipOccupancyMaxActiveBlocksPerMultiprocessor(numBlocks, reinterpret_cast<const void*>(func),
+                                                       blockSize, dynamicSMemSize);
+}
+
 
 namespace dh {
 
@@ -113,6 +129,13 @@ inline int32_t CurrentDevice() {
   return device;
 }
 
+// Helper function to get a device from a potentially CPU context.
+inline auto GetDevice(xgboost::Context const *ctx) {
+  auto d = (ctx->IsCUDA()) ? ctx->Device() : xgboost::DeviceOrd::CUDA(::xgboost::curt::CurrentDevice());
+  CHECK(!d.IsCPU());
+  return d;
+}
+
 inline size_t TotalMemory(int device_idx) {
   size_t device_free = 0;
   size_t device_total = 0;
@@ -157,7 +180,7 @@ inline size_t MaxSharedMemoryOptin(int device_idx) {
 }
 
 inline void CheckComputeCapability() {
-  for (int d_idx = 0; d_idx < xgboost::common::AllVisibleGPUs(); ++d_idx) {
+  for (int d_idx = 0; d_idx < xgboost::curt::AllVisibleGPUs(); ++d_idx) {
     hipDeviceProp_t prop;
     safe_cuda(hipGetDeviceProperties(&prop, d_idx));
     std::ostringstream oss;
@@ -494,7 +517,9 @@ using device_vector = thrust::device_vector<T,  XGBDeviceAllocator<T>>;  // NOLI
 template <typename T>
 using caching_device_vector = thrust::device_vector<T,  XGBCachingDeviceAllocator<T>>;  // NOLINT
 
-// Faster to instantiate than caching_device_vector and invokes no synchronisation
+// Wrapper to handle function pointer casting for HIP APIs
+// These match CUDA signatures but handle HIP's const void* requirement
+
 // Use this where vector functionality (e.g. resize) is not required
 template <typename T>
 class TemporaryArray {
@@ -605,6 +630,40 @@ void CopyToD(HContainer const &h, DContainer *d) {
                                 hipMemcpyHostToDevice));
 }
 
+// Generic CopyTo that matches CUDA signature with stream parameter
+template <class Src, class Dst>
+void CopyTo(Src const &src, Dst *dst, hipStream_t stream = nullptr) {
+  if (src.empty()) {
+    dst->clear();
+    return;
+  }
+  dst->resize(src.size());
+  using SVT = std::remove_cv_t<typename Src::value_type>;
+  using DVT = std::remove_cv_t<typename Dst::value_type>;
+  static_assert(std::is_same_v<SVT, DVT>, "Host and device containers must have same value type.");
+  
+  // Get raw pointers for hipMemcpyAsync
+  auto dst_ptr = [&]() {
+    if constexpr (std::is_pointer_v<decltype(dst->data())>) {
+      return dst->data();
+    } else {
+      return thrust::raw_pointer_cast(dst->data());
+    }
+  }();
+  
+  auto src_ptr = [&]() {
+    if constexpr (std::is_pointer_v<decltype(src.data())>) {
+      return src.data();
+    } else {
+      return thrust::raw_pointer_cast(src.data());
+    }
+  }();
+  
+  dh::safe_cuda(hipMemcpyAsync(dst_ptr, src_ptr, src.size() * sizeof(SVT), 
+                               hipMemcpyDefault, stream));
+}
+
+
 // Keep track of pinned memory allocation
 struct PinnedMemory {
   void *temp_storage{nullptr};
@@ -698,15 +757,36 @@ using TypedDiscard =
     std::conditional_t<HasThrustMinorVer<12>(), detail::TypedDiscardCTK114<T>,
                        detail::TypedDiscard<T>>;
 
+// For non-const vectors → Span<T>
 template <typename VectorT, typename T = typename VectorT::value_type,
-  typename IndexT = typename xgboost::common::Span<T>::index_type>
+          typename IndexT = typename xgboost::common::Span<T>::index_type>
 xgboost::common::Span<T> ToSpan(
     VectorT &vec,
     IndexT offset = 0,
     IndexT size = std::numeric_limits<size_t>::max()) {
   size = size == std::numeric_limits<size_t>::max() ? vec.size() : size;
   CHECK_LE(offset + size, vec.size());
-  return {vec.data().get() + offset, size};
+  
+  return xgboost::common::Span<T>(
+      thrust::raw_pointer_cast(vec.data()) + offset, 
+      size);
+}
+
+// For const vectors → Span<const T>
+template <typename VectorT, typename T = typename VectorT::value_type,
+          typename IndexT = typename xgboost::common::Span<const T>::index_type>
+xgboost::common::Span<const T> ToSpan(
+    const VectorT &vec,
+    IndexT offset = 0,
+    IndexT size = std::numeric_limits<size_t>::max()) {
+  size = size == std::numeric_limits<size_t>::max() ? vec.size() : size;
+  CHECK_LE(offset + size, vec.size());
+  
+  using BaseT = typename std::remove_const<T>::type;
+  
+  return xgboost::common::Span<const BaseT>(
+      thrust::raw_pointer_cast(vec.data()) + offset, 
+      size);
 }
 
 template <typename T>
@@ -714,6 +794,11 @@ xgboost::common::Span<T> ToSpan(thrust::device_vector<T>& vec,
                                 size_t offset, size_t size) {
   return ToSpan(vec, offset, size);
 }
+template <typename T>
+xgboost::common::Span<T> ToSpan(device_vector<T> &vec) {
+  return ToSpan(vec);
+}
+
 
 // thrust begin, similiar to std::begin
 template <typename T>
@@ -806,6 +891,11 @@ XGBOOST_DEVICE thrust::transform_iterator<FuncT, IterT, ReturnT> MakeTransformIt
   return thrust::transform_iterator<FuncT, IterT, ReturnT>(iter, func);
 }
 
+template <typename Fn>
+XGBOOST_DEVICE auto MakeIndexTransformIter(Fn &&fn) {
+  return thrust::make_transform_iterator(thrust::make_counting_iterator(0ul), std::forward<Fn>(fn));
+}
+
 template <typename It>
 size_t XGBOOST_DEVICE SegmentId(It first, It last, size_t idx) {
   size_t segment_id = thrust::upper_bound(thrust::seq, first, last, idx) - 1 - first;
@@ -844,7 +934,7 @@ struct SegmentedUniqueReduceOp {
  * \return Number of unique values in total.
  */
 template <typename DerivedPolicy, typename KeyInIt, typename KeyOutIt, typename ValInIt,
-          typename ValOutIt, typename CompValue, typename CompKey>
+          typename ValOutIt, typename CompValue, typename CompKey = thrust::equal_to<size_t>>
 size_t
 SegmentedUnique(const thrust::detail::execution_policy_base<DerivedPolicy> &exec,
                 KeyInIt key_segments_first, KeyInIt key_segments_last, ValInIt val_first,
@@ -882,17 +972,15 @@ SegmentedUnique(const thrust::detail::execution_policy_base<DerivedPolicy> &exec
                          key_segments_out + segments_len, key_segments_out, 0);
   return n_uniques;
 }
-
-template <typename... Inputs,
-          std::enable_if_t<std::tuple_size<std::tuple<Inputs...>>::value == 7>
-              * = nullptr>
+#if 0
+template <typename... Inputs>
 size_t SegmentedUnique(Inputs &&...inputs) {
   dh::XGBCachingDeviceAllocator<char> alloc;
   return SegmentedUnique(thrust::hip::par(alloc),
                          std::forward<Inputs &&>(inputs)...,
                          thrust::equal_to<size_t>{});
 }
-
+#endif
 /**
  * \brief Unique by key for many groups of data.  Has same constraint as `SegmentedUnique`.
  *
@@ -1001,22 +1089,33 @@ void InclusiveSum(InputIteratorT d_in, OutputIteratorT d_out, OffsetT num_items)
 class CUDAStreamView;
 
 class CUDAEvent {
-  hipEvent_t event_{nullptr};
-
+  std::unique_ptr<hipEvent_t, void (*)(hipEvent_t *)> event_;
  public:
-  CUDAEvent() { dh::safe_cuda(hipEventCreateWithFlags(&event_, hipEventDisableTiming)); }
-  ~CUDAEvent() {
-    if (event_) {
-      dh::safe_cuda(hipEventDestroy(event_));
-    }
+   explicit CUDAEvent(bool disable_timing = true)
+      : event_{[disable_timing] {
+                 auto e = new hipEvent_t;
+                 dh::safe_cuda(hipEventCreateWithFlags(
+                     e, disable_timing ? hipEventDisableTiming : hipEventDefault));
+                 return e;
+               }(),
+               [](hipEvent_t *e) {
+                 if (e) {
+                   dh::safe_cuda(hipEventDestroy(*e));
+                   delete e;
+                 }
+               }} {}
+
+  inline void Record(CUDAStreamView stream);  // NOLINT
+  // Define swap-based ctor to make sure an event is always valid.
+  CUDAEvent(CUDAEvent &&e) : CUDAEvent() { std::swap(this->event_, e.event_); }
+  CUDAEvent &operator=(CUDAEvent &&e) {
+    std::swap(this->event_, e.event_);
+    return *this;
   }
 
-  CUDAEvent(CUDAEvent const &that) = delete;
-  CUDAEvent &operator=(CUDAEvent const &that) = delete;
-
-  inline void Record(CUDAStreamView stream);       // NOLINT
-
-  operator hipEvent_t() const { return event_; }  // NOLINT
+  operator hipEvent_t() const { return *event_; }                // NOLINT
+  hipEvent_t const *data() const { return this->event_.get(); }  // NOLINT
+  void Sync() { dh::safe_cuda(hipEventSynchronize(*this->data())); }
 };
 
 class CUDAStreamView {
@@ -1040,7 +1139,7 @@ class CUDAStreamView {
 };
 
 inline void CUDAEvent::Record(CUDAStreamView stream) {  // NOLINT
-  dh::safe_cuda(hipEventRecord(event_, hipStream_t{stream}));
+  dh::safe_cuda(hipEventRecord(*event_, hipStream_t{stream}));
 }
 
 // Changing this has effect on prediction return, where we need to pass the pointer to
@@ -1051,6 +1150,15 @@ inline CUDAStreamView DefaultStream() {
 #else
   return CUDAStreamView{hipStreamLegacyWkRd};
 #endif
+}
+
+inline auto CachingThrustPolicy() {
+  XGBCachingDeviceAllocator<char> alloc;
+#if THRUST_MAJOR_VERSION >= 2 || defined(XGBOOST_USE_RMM)
+  return thrust::hip::par_nosync(alloc).on(DefaultStream());
+#else
+  return thrust::hip::par(alloc).on(DefaultStream());
+#endif  // THRUST_MAJOR_VERSION >= 2 || defined(XGBOOST_USE_RMM)
 }
 
 class CUDAStream {

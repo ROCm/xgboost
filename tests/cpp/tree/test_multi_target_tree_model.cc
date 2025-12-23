@@ -1,10 +1,12 @@
 /**
- * Copyright 2023-2024, XGBoost Contributors
+ * Copyright 2023-2025, XGBoost Contributors
  */
 #include <gtest/gtest.h>
-#include <xgboost/context.h>     // for Context
+#include <xgboost/context.h>  // for Context
 #include <xgboost/multi_target_tree_model.h>
 #include <xgboost/tree_model.h>  // for RegTree
+
+#include "../helpers.h"
 
 namespace xgboost {
 namespace {
@@ -60,7 +62,7 @@ TEST(MultiTargetTree, DumpDot) {
     auto name = "feat_" + std::to_string(f);
     fmap.PushBack(f, name.c_str(), "q");
   }
-  auto str = tree->DumpModel(fmap, true, "dot");
+  auto str = tree->DumpModel(fmap, false, "dot");
   ASSERT_NE(str.find("leaf=[2, 3, 4]"), std::string::npos);
   ASSERT_NE(str.find("leaf=[3, 4, 5]"), std::string::npos);
 
@@ -71,8 +73,33 @@ TEST(MultiTargetTree, DumpDot) {
     linalg::Vector<float> weight{{1.0f, 2.0f, 3.0f, 4.0f}, {4ul}, DeviceOrd::CPU()};
     tree.ExpandNode(RegTree::kRoot, /*split_idx=*/1, 0.5f, true, weight.HostView(),
                     weight.HostView(), weight.HostView());
-    auto str = tree.DumpModel(fmap, true, "dot");
+    auto str = tree.DumpModel(fmap, false, "dot");
     ASSERT_NE(str.find("leaf=[1, 2, ..., 4]"), std::string::npos);
   }
+}
+
+TEST(MultiTargetTree, View) {
+  auto tree = MakeTreeForTest();
+
+  auto test = [&tree](Context const* ctx) {
+    auto v = tree->GetMultiTargetTree()->View(ctx);
+    ASSERT_EQ(v.NumTargets(), 3);
+    ASSERT_EQ(v.Size(), 3);
+    if (ctx->IsCPU()) {
+      ASSERT_EQ(v.LeftChild(0), 1);
+      ASSERT_EQ(v.RightChild(0), 2);
+    }
+  };
+
+  {
+    Context ctx;
+    test(&ctx);
+  }
+#if defined(XGBOOST_USE_CUDA)
+  {
+    auto ctx = MakeCUDACtx(0);
+    test(&ctx);
+  }
+#endif  // defined(XGBOOST_USE_CUDA)
 }
 }  // namespace xgboost

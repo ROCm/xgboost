@@ -52,6 +52,10 @@ class IndexTransformIter {
   auto operator-(IndexTransformIter const &that) const { return iter_ - that.iter_; }
   bool operator==(IndexTransformIter const &that) const { return iter_ == that.iter_; }
   bool operator!=(IndexTransformIter const &that) const { return !(*this == that); }
+  bool operator<(IndexTransformIter const &that) const { return iter_ < that.iter_; }
+  bool operator>(IndexTransformIter const &that) const { return that < *this; }
+  bool operator<=(IndexTransformIter const &that) const { return !(that < *this); }
+  bool operator>=(IndexTransformIter const &that) const { return !(*this < that); }
 
   IndexTransformIter &operator++() {
     iter_++;
@@ -60,6 +64,15 @@ class IndexTransformIter {
   IndexTransformIter operator++(int) {
     auto ret = *this;
     ++(*this);
+    return ret;
+  }
+  IndexTransformIter &operator--() {
+    iter_--;
+    return *this;
+  }
+  IndexTransformIter operator--(int) {
+    auto ret = *this;
+    --(*this);
     return ret;
   }
   IndexTransformIter &operator+=(difference_type n) {

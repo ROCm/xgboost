@@ -67,6 +67,7 @@ def test_sklearn_demo() -> None:
 
 
 @pytest.mark.skipif(**tm.no_sklearn())
+@pytest.mark.timeout(60)
 def test_sklearn_parallel_demo() -> None:
     script = os.path.join(PYTHON_DEMO_DIR, "sklearn_parallel.py")
     cmd = ["python", script]
@@ -118,7 +119,13 @@ def test_cross_validation_demo() -> None:
 
 def test_external_memory_demo() -> None:
     script = os.path.join(PYTHON_DEMO_DIR, "external_memory.py")
-    cmd = ["python", script]
+    cmd = ["python", script, "--device=cpu"]
+    subprocess.check_call(cmd)
+
+
+def test_distributed_extmem_basic_demo() -> None:
+    script = os.path.join(PYTHON_DEMO_DIR, "distributed_extmem_basic.py")
+    cmd = ["python", script, "--device=cpu"]
     subprocess.check_call(cmd)
 
 
@@ -168,7 +175,7 @@ def test_quantile_reg() -> None:
 
 @pytest.mark.skipif(**tm.no_ubjson())
 def test_json_model() -> None:
-    script = os.path.join(DEMO_DIR, "json-model", "json_parser.py")
+    script = os.path.join(PYTHON_DEMO_DIR, "model_parser.py")
 
     def run_test(reg: xgboost.XGBRegressor) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -222,6 +229,8 @@ def test_cli_regression_demo() -> None:
     subprocess.check_call(cmd, cwd=reg_dir)
 
     exe = os.path.join(DEMO_DIR, os.path.pardir, "xgboost")
+    if not os.path.exists(exe):
+        pytest.skip("CLI executable not found.")
     conf = os.path.join(reg_dir, "machine.conf")
     subprocess.check_call([exe, conf], cwd=reg_dir)
 
@@ -231,9 +240,12 @@ def test_cli_regression_demo() -> None:
 )
 def test_cli_binary_classification() -> None:
     cls_dir = os.path.join(CLI_DEMO_DIR, "binary_classification")
+    exe = os.path.join(DEMO_DIR, os.path.pardir, "xgboost")
+    if not os.path.exists(exe):
+        pytest.skip("CLI executable not found.")
     with tm.DirectoryExcursion(cls_dir, cleanup=True):
         subprocess.check_call(["./runexp.sh"])
-        os.remove("0002.model")
+        os.remove("0002.ubj")
 
 
 # year prediction is not tested due to data size being too large.

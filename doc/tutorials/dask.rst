@@ -11,6 +11,10 @@ algorithms.  For an overview of GPU based training and internal workings, see `A
 Official Dask API for XGBoost
 <https://medium.com/rapids-ai/a-new-official-dask-api-for-xgboost-e8b10f3d1eb7>`_.
 
+.. note::
+
+  The integration is not tested with Windows.
+
 **Contents**
 
 .. contents::
@@ -237,7 +241,7 @@ For most of the use cases with GPUs, the `Dask-CUDA <https://docs.rapids.ai/api/
 Working with other clusters
 ***************************
 
-Using Dask's ``LocalCluster`` is convenient for getting started quickly on a local machine. Once you're ready to scale your work, though, there are a number of ways to deploy Dask on a distributed cluster. You can use `Dask-CUDA <https://docs.rapids.ai/api/dask-cuda/stable/quickstart.html>`_, for example, for GPUs and you can use Dask Cloud Provider to `deploy Dask clusters in the cloud <https://docs.dask.org/en/stable/deploying.html#cloud>`_. See the `Dask documentation for a more comprehensive list <https://docs.dask.org/en/stable/deploying.html#distributed-computing>`_.
+Using Dask's ``LocalCluster`` is convenient for getting started quickly on a local machine. Once you're ready to scale your work, though, there are a number of ways to deploy Dask on a distributed cluster. You can use `Dask-CUDA <https://docs.rapids.ai/api/dask-cuda/stable/quickstart.html>`_, for example, for GPUs and you can use Dask Cloud Provider to `deploy Dask clusters in the cloud <https://docs.dask.org/en/stable/deploying.html#cloud>`_. See the `Dask documentation for a more comprehensive list <https://docs.dask.org/en/stable/deploying.html>`__.
 
 In the example below, a ``KubeCluster`` is used for `deploying Dask on Kubernetes <https://docs.dask.org/en/stable/deploying-kubernetes.html>`_:
 
@@ -355,15 +359,18 @@ Working with asyncio
 
 .. versionadded:: 1.2.0
 
-XGBoost's dask interface supports the new ``asyncio`` in Python and can be integrated into
-asynchronous workflows.  For using dask with asynchronous operations, please refer to
-`this dask example <https://examples.dask.org/applications/async-await.html>`_ and document in
-`distributed <https://distributed.dask.org/en/latest/asynchronous.html>`_. To use XGBoost's
-dask interface asynchronously, the ``client`` which is passed as an argument for training and
-prediction must be operating in asynchronous mode by specifying ``asynchronous=True`` when the
-``client`` is created (example below). All functions (including ``DaskDMatrix``) provided
-by the functional interface will then return coroutines which can then be awaited to retrieve
-their result.
+XGBoost's dask interface supports the new :py:mod:`asyncio` in Python and can be
+integrated into asynchronous workflows.  For using dask with asynchronous operations,
+please refer to `this dask example
+<https://examples.dask.org/applications/async-await.html>`_ and document in `distributed
+<https://distributed.dask.org/en/latest/asynchronous.html>`_. To use XGBoost's Dask
+interface asynchronously, the ``client`` which is passed as an argument for training and
+prediction must be operating in asynchronous mode by specifying ``asynchronous=True`` when
+the ``client`` is created (example below). All functions (including ``DaskDMatrix``)
+provided by the functional interface will then return coroutines which can then be awaited
+to retrieve their result. Please note that XGBoost is a compute-bounded application, where
+parallelism is more important than concurrency. The support for `asyncio` is more about
+compatibility instead of performance gain.
 
 Functional interface:
 
@@ -526,6 +533,47 @@ See https://github.com/coiled/dask-xgboost-nyctaxi for a set of examples of usin
 with dask and optuna.
 
 
+.. _ltr-dask:
+
+****************
+Learning to Rank
+****************
+
+  .. versionadded:: 3.0.0
+
+  .. note::
+
+     Position debiasing is not yet supported.
+
+There are two operation modes in the Dask learning to rank for performance reasons. The
+difference is whether a distributed global sort is needed. Please see :ref:`ltr-dist` for
+how ranking works with distributed training in general. Below we will discuss some of the
+Dask-specific features.
+
+First, if you use the :py:class:`~xgboost.dask.DaskQuantileDMatrix` interface or the
+:py:class:`~xgboost.dask.DaskXGBRanker` with ``allow_group_split`` set to ``True``,
+XGBoost will try to sort and group the samples for each worker based on the query ID. This
+mode tries to skip the global sort and sort only worker-local data, and hence no
+inter-worker data shuffle. Please note that even worker-local sort is costly, particularly
+in terms of memory usage as there's no spilling when
+:py:meth:`~pandas.DataFrame.sort_values` is used, and we need to concatenate the
+data. XGBoost first checks whether the QID is already sorted before actually performing
+the sorting operation. One can choose this if the query groups are relatively consecutive,
+meaning most of the samples within a query group are close to each other and are likely to
+be resided to the same worker. Don't use this if you have performed a random shuffle on
+your data.
+
+If the input data is random, then there's no way we can guarantee most of data within the
+same group being in the same worker. For large query groups, this might not be an
+issue. But for small query groups, it's possible that each worker gets only one or two
+samples from their group for all groups, which can lead to disastrous performance. In that
+case, we can partition the data according to query group, which is the default behavior of
+the :py:class:`~xgboost.dask.DaskXGBRanker` unless the ``allow_group_split`` is set to
+``True``. This mode performs a sort and a groupby on the entire dataset in addition to an
+encoding operation for the query group IDs. Along with partition fragmentation, this
+option can lead to slow performance. See
+:ref:`sphx_glr_python_dask-examples_dask_learning_to_rank.py` for a worked example.
+
 .. _tracker-ip:
 
 ***************
@@ -536,25 +584,22 @@ Troubleshooting
 - In some environments XGBoost might fail to resolve the IP address of the scheduler, a
   symptom is user receiving ``OSError: [Errno 99] Cannot assign requested address`` error
   during training.  A quick workaround is to specify the address explicitly.  To do that
-  dask config is used:
+  the collective :py:class:`~xgboost.collective.Config` is used:
 
-  .. versionadded:: 1.6.0
+  .. versionadded:: 3.0.0
 
 .. code-block:: python
 
     import dask
     from distributed import Client
     from xgboost import dask as dxgb
+    from xgboost.collective import Config
+
     # let xgboost know the scheduler address
-    dask.config.set({"xgboost.scheduler_address": "192.0.0.100"})
+    coll_cfg = Config(retry=1, timeout=20, tracker_host_ip="10.23.170.98", tracker_port=0)
 
     with Client(scheduler_file="sched.json") as client:
-        reg = dxgb.DaskXGBRegressor()
-
-    # We can specify the port for XGBoost as well
-    with dask.config.set({"xgboost.scheduler_address": "192.0.0.100:12345"}):
-        reg = dxgb.DaskXGBRegressor()
-
+        reg = dxgb.DaskXGBRegressor(coll_cfg=coll_cfg)
 
 - Please note that XGBoost requires a different port than dask. By default, on a unix-like
   system XGBoost uses the port 0 to find available ports, which may fail if a user is
@@ -631,6 +676,20 @@ When GPU is used, XGBoost employs `NCCL <https://developer.nvidia.com/nccl>`_ as
 underlying communication framework, which may require some additional configuration via
 environment variable depending on the setting of the cluster. Please note that IPv6
 support is Unix only.
+
+
+******************************
+Logging the evaluation results
+******************************
+
+By default, the Dask interface prints evaluation results in the scheduler process. This
+makes it difficult for a user to monitor training progress. We can define custom
+evaluation monitors using callback functions. See
+:ref:`sphx_glr_python_dask-examples_forward_logging.py` for a worked example on how to
+forward the logs to the client process. In the example, there are two potential solutions
+using Dask builtin methods, including :py:meth:`distributed.Client.forward_logging` and
+:py:func:`distributed.print`. Both of them have some caveats but can be a good starting
+point for developing more sophisticated methods like writing to files.
 
 
 *****************************************************************************

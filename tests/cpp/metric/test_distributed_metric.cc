@@ -47,7 +47,7 @@ class TestDistributedMetric : public ::testing::TestWithParam<Param> {
 
     std::int32_t n_workers{0};
     if (device.IsCUDA()) {
-      n_workers = common::AllVisibleGPUs();
+      n_workers = curt::AllVisibleGPUs();
     } else {
       n_workers = std::min(static_cast<std::int32_t>(std::thread::hardware_concurrency()), 3);
     }
@@ -184,7 +184,7 @@ INSTANTIATE_TEST_SUITE_P(
         result += "ColSplit";
       }
       result += "_";
-      result += info.param.device.IsCPU() ? "CPU" : "CUDA";
+      result += info.param.device.IsCPU() ? "CPU" : "MGPU";
       result += "_";
       result += info.param.name;
       return result;

@@ -4,7 +4,8 @@
 #' - `xgb.plot.deepness()` uses base R graphics, while
 #' - `xgb.ggplot.deepness()` uses "ggplot2".
 #'
-#' @param model Either an `xgb.Booster` model, or the "data.table" returned by [xgb.model.dt.tree()].
+#' @param model Either an `xgb.Booster` model, or the "data.table" returned
+#'   by [xgb.model.dt.tree()].
 #' @param which Which distribution to plot (see details).
 #' @param plot Should the plot be shown? Default is `TRUE`.
 #' @param ... Other parameters passed to [graphics::barplot()] or [graphics::plot()].
@@ -48,26 +49,24 @@
 #' data.table::setDTthreads(nthread)
 #'
 #' ## Change max_depth to a higher number to get a more significant result
-#' bst <- xgboost(
-#'   data = agaricus.train$data,
-#'   label = agaricus.train$label,
-#'   max_depth = 6,
-#'   nthread = nthread,
+#' model <- xgboost(
+#'   agaricus.train$data, factor(agaricus.train$label),
 #'   nrounds = 50,
-#'   objective = "binary:logistic",
+#'   max_depth = 6,
+#'   nthreads = nthread,
 #'   subsample = 0.5,
 #'   min_child_weight = 2
 #' )
 #'
-#' xgb.plot.deepness(bst)
-#' xgb.ggplot.deepness(bst)
+#' xgb.plot.deepness(model)
+#' xgb.ggplot.deepness(model)
 #'
 #' xgb.plot.deepness(
-#'   bst, which = "max.depth", pch = 16, col = rgb(0, 0, 1, 0.3), cex = 2
+#'   model, which = "max.depth", pch = 16, col = rgb(0, 0, 1, 0.3), cex = 2
 #' )
 #'
 #' xgb.plot.deepness(
-#'   bst, which = "med.weight", pch = 16, col = rgb(0, 0, 1, 0.3), cex = 2
+#'   model, which = "med.weight", pch = 16, col = rgb(0, 0, 1, 0.3), cex = 2
 #' )
 #'
 #' @rdname xgb.plot.deepness

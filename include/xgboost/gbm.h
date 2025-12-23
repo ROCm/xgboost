@@ -1,5 +1,5 @@
 /**
- * Copyright 2014-2023 by XGBoost Contributors
+ * Copyright 2014-2025, XGBoost Contributors
  * \file gbm.h
  * \brief Interface of gradient booster,
  *  that learns through gradient statistics.
@@ -15,10 +15,8 @@
 #include <xgboost/model.h>
 
 #include <vector>
-#include <utility>
 #include <string>
 #include <functional>
-#include <unordered_map>
 #include <memory>
 
 namespace xgboost {
@@ -26,6 +24,7 @@ namespace xgboost {
 class Json;
 class FeatureMap;
 class ObjFunction;
+class CatContainer;
 
 struct Context;
 struct LearnerModelParam;
@@ -42,23 +41,14 @@ class GradientBooster : public Model, public Configurable {
  public:
   /*! \brief virtual destructor */
   ~GradientBooster() override = default;
-  /*!
-   * \brief Set the configuration of gradient boosting.
+  /**
+   * @brief Set the configuration of gradient boosting.
    *  User must call configure once before InitModel and Training.
    *
-   * \param cfg configurations on both training and model parameters.
+   * @param cfg configurations on both training and model parameters.
    */
-  virtual void Configure(const std::vector<std::pair<std::string, std::string> >& cfg) = 0;
-  /*!
-   * \brief load model from stream
-   * \param fi input stream.
-   */
-  virtual void Load(dmlc::Stream* fi) = 0;
-  /*!
-   * \brief save model to stream.
-   * \param fo output stream
-   */
-  virtual void Save(dmlc::Stream* fo) const = 0;
+  virtual void Configure(Args const& cfg) = 0;
+
   /**
    * \brief Slice a model using boosting index. The slice m:n indicates taking all trees
    *        that were fit during the boosting rounds m, (m+1), (m+2), ..., (n-1).
@@ -118,21 +108,6 @@ class GradientBooster : public Model, public Configurable {
     LOG(FATAL) << "Inplace predict is not supported by the current booster.";
   }
   /*!
-   * \brief online prediction function, predict score for one instance at a time
-   *  NOTE: use the batch prediction interface if possible, batch prediction is usually
-   *        more efficient than online prediction
-   *        This function is NOT threadsafe, make sure you only call from one thread
-   *
-   * \param inst the instance you want to predict
-   * \param out_preds output vector to hold the predictions
-   * \param layer_begin Beginning of boosted tree layer used for prediction.
-   * \param layer_end   End of booster layer. 0 means do not limit trees.
-   * \sa Predict
-   */
-  virtual void PredictInstance(const SparsePage::Inst& inst,
-                               std::vector<bst_float>* out_preds,
-                               unsigned layer_begin, unsigned layer_end) = 0;
-  /*!
    * \brief predict the leaf index of each tree, the output will be nsample * ntree vector
    *        this is only valid in gbtree predictor
    * \param dmat feature matrix
@@ -161,12 +136,12 @@ class GradientBooster : public Model, public Configurable {
                                                bst_layer_t layer_begin, bst_layer_t layer_end,
                                                bool approximate) = 0;
 
-  /*!
-   * \brief dump the model in the requested format
-   * \param fmap feature map that may help give interpretations of feature
-   * \param with_stats extra statistics while dumping model
-   * \param format the format to dump the model in
-   * \return a vector of dump for boosters.
+  /**
+   * @brief dump the model in the requested format
+   * @param fmap feature map that may help give interpretations of feature
+   * @param with_stats extra statistics while dumping model
+   * @param format the format to dump the model in
+   * @return a vector of dump for boosters.
    */
   [[nodiscard]] virtual std::vector<std::string> DumpModel(const FeatureMap& fmap, bool with_stats,
                                                            std::string format) const = 0;
@@ -176,15 +151,18 @@ class GradientBooster : public Model, public Configurable {
                             std::vector<bst_feature_t>* features,
                             std::vector<float>* scores) const = 0;
   /**
-   * @brief Whether the current booster uses GPU.
+   * @brief Getter for categories.
    */
-  [[nodiscard]] virtual bool UseGPU() const = 0;
-  /*!
-   * \brief create a gradient booster from given name
-   * \param name name of gradient booster
-   * \param generic_param Pointer to runtime parameters
-   * \param learner_model_param pointer to global model parameters
-   * \return The created booster.
+  [[nodiscard]] virtual CatContainer const* Cats() const {
+    LOG(FATAL) << "Retrieving categories is not supported by the current booster.";
+    return nullptr;
+  }
+  /**
+   * @brief create a gradient booster from given name
+   * @param name name of gradient booster
+   * @param generic_param Pointer to runtime parameters
+   * @param learner_model_param pointer to global model parameters
+   * @return The created booster.
    */
   static GradientBooster* Create(const std::string& name, Context const* ctx,
                                  LearnerModelParam const* learner_model_param);

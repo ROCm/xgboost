@@ -1,13 +1,12 @@
 /**
- * Copyright 2019-2023 by XGBoost Contributors
+ * Copyright 2019-2025, XGBoost Contributors
  */
 #include <gtest/gtest.h>
 
-#include <fstream>
 #include <memory>
 #include <vector>
 
-#include "../filesystem.h"  // dmlc::TemporaryDirectory
+#include "../filesystem.h"  // TemporaryDirectory
 #include "../helpers.h"
 #include "xgboost/data.h"
 
@@ -63,26 +62,27 @@ TEST(SparsePage, PushCSC) {
 }
 
 TEST(SparsePage, PushCSCAfterTranspose) {
-  size_t constexpr kPageSize = 1024, kEntriesPerCol = 3;
-  size_t constexpr kEntries = kPageSize * kEntriesPerCol * 2;
-  std::unique_ptr<DMatrix> dmat = CreateSparsePageDMatrix(kEntries);
+  bst_idx_t constexpr kRows = 1024, kCols = 21;
+
+  auto dmat =
+      RandomDataGenerator{kRows, kCols, 0.0f}.Batches(4).GenerateSparsePageDMatrix("temp", true);
   const int ncols = dmat->Info().num_col_;
-  SparsePage page; // Consolidated sparse page
-  for (const auto &batch : dmat->GetBatches<xgboost::SparsePage>()) {
+  SparsePage page;  // Consolidated sparse page
+  for (const auto& batch : dmat->GetBatches<xgboost::SparsePage>()) {
     // Transpose each batch and push
     SparsePage tmp = batch.GetTranspose(ncols, AllThreadsForTest());
     page.PushCSC(tmp);
   }
 
   // Make sure that the final sparse page has the right number of entries
-  ASSERT_EQ(kEntries, page.data.Size());
+  ASSERT_EQ(kRows * kCols, page.data.Size());
 
   page.SortRows(AllThreadsForTest());
   auto v = page.GetView();
   for (size_t i = 0; i < v.Size(); ++i) {
     auto column = v[i];
     for (size_t j = 1; j < column.size(); ++j) {
-      ASSERT_GE(column[j].fvalue, column[j-1].fvalue);
+      ASSERT_GE(column[j].fvalue, column[j - 1].fvalue);
     }
   }
 }
@@ -115,15 +115,15 @@ TEST(DMatrix, Uri) {
   auto constexpr kRows {16};
   auto constexpr kCols {8};
 
-  dmlc::TemporaryDirectory tmpdir;
-  auto const path = tmpdir.path + "/small.csv";
-  CreateTestCSV(path, kRows, kCols);
+  common::TemporaryDirectory tmpdir;
+  auto const path = tmpdir.Path() / "small.csv";
+  CreateTestCSV(path.string(), kRows, kCols);
 
   std::unique_ptr<DMatrix> dmat;
   // FIXME(trivialfis): Enable the following test by restricting csv parser in dmlc-core.
   // EXPECT_THROW(dmat.reset(DMatrix::Load(path, false, true)), dmlc::Error);
 
-  std::string uri = path + "?format=csv";
+  std::string uri = path.string() + "?format=csv";
   dmat.reset(DMatrix::Load(uri, false));
 
   ASSERT_EQ(dmat->Info().num_col_, kCols);

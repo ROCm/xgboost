@@ -1,30 +1,100 @@
 /**
- * Copyright 2017-2023 by XGBoost contributors
+ * Copyright 2017-2025, XGBoost contributors
  */
 #include <gtest/gtest.h>
 #include <xgboost/predictor.h>
 
-#include <cstdint>
-#include <thread>
-
 #include "../../../src/collective/communicator-inl.h"
 #include "../../../src/data/adapter.h"
 #include "../../../src/data/proxy_dmatrix.h"
+#include "../../../src/predictor/array_tree_layout.h"
 #include "../../../src/gbm/gbtree.h"
 #include "../../../src/gbm/gbtree_model.h"
 #include "../collective/test_worker.h"  // for TestDistributedGlobal
-#include "../filesystem.h"  // dmlc::TemporaryDirectory
 #include "../helpers.h"
 #include "test_predictor.h"
 
 namespace xgboost {
-
 TEST(CpuPredictor, Basic) {
   Context ctx;
   size_t constexpr kRows = 5;
   size_t constexpr kCols = 5;
   auto dmat = RandomDataGenerator(kRows, kCols, 0).GenerateDMatrix();
   TestBasic(dmat.get(), &ctx);
+}
+
+
+template <typename ArrayLayoutT>
+void CheckArrayLayout(const RegTree& tree, ArrayLayoutT buffer, int max_depth, int depth, size_t nid, size_t nid_array) {
+  const auto& split_idx = buffer.SplitIndex();
+  const auto& split_cond = buffer.SplitCond();
+  const auto& default_left = buffer.DefaultLeft();
+  const auto& nidx_in_tree = buffer.NidxInTree();
+  const auto& nodes = tree.GetNodes();
+
+  if (depth == max_depth) {
+    ASSERT_EQ(nidx_in_tree[nid_array - (1u << max_depth) + 1], nid);
+    return;
+  }
+
+  if (nodes[nid].IsLeaf()) {
+    ASSERT_EQ(default_left[nid_array], 0);
+    ASSERT_TRUE(std::isnan(split_cond[nid_array]));
+
+    CheckArrayLayout(tree, buffer, max_depth, depth + 1, nid, 2 * nid_array + 2);
+  } else {
+    ASSERT_EQ(nodes[nid].SplitIndex(), split_idx[nid_array]);
+    ASSERT_EQ(nodes[nid].SplitCond(), split_cond[nid_array]);
+    ASSERT_EQ(nodes[nid].DefaultLeft(), default_left[nid_array]);
+
+    if (nodes[nid].LeftChild() != RegTree::kInvalidNodeId) {
+      CheckArrayLayout(tree, buffer, max_depth, depth + 1, nodes[nid].LeftChild(), 2 * nid_array + 1);
+    }
+    if (nodes[nid].RightChild() != RegTree::kInvalidNodeId) {
+      CheckArrayLayout(tree, buffer, max_depth, depth + 1, nodes[nid].RightChild(), 2 * nid_array + 2);
+    }
+  }
+}
+
+TEST(CpuPredictor, ArrayTreeLayout) {
+  Context ctx;
+
+  RegTree tree;
+  size_t n_nodes = 15; // 2^4 - 1
+  for (size_t nid = 0; nid < n_nodes; ++nid) {
+    // Some place-holders
+    size_t split_index = nid + 1;
+    bst_float split_cond = nid + 2;
+    bool default_left = nid % 2 == 0;
+
+    tree.ExpandNode(nid, split_index, split_cond, default_left, 0, 0, 0, 0, 0, 0, 0);
+  }
+
+  {
+    constexpr int kDepth = 1;
+    predictor::ArrayTreeLayout<false, true, kDepth> buffer(tree, tree.GetCategoriesMatrix());
+    CheckArrayLayout(tree, buffer, kDepth, 0, 0, 0);
+  }
+  {
+    constexpr int kDepth = 2;
+    predictor::ArrayTreeLayout<false, true, kDepth> buffer(tree, tree.GetCategoriesMatrix());
+    CheckArrayLayout(tree, buffer, kDepth, 0, 0, 0);
+  }
+  {
+    constexpr int kDepth = 3;
+    predictor::ArrayTreeLayout<false, true, kDepth> buffer(tree, tree.GetCategoriesMatrix());
+    CheckArrayLayout(tree, buffer, kDepth, 0, 0, 0);
+  }
+  {
+    constexpr int kDepth = 4;
+    predictor::ArrayTreeLayout<false, true, kDepth> buffer(tree, tree.GetCategoriesMatrix());
+    CheckArrayLayout(tree, buffer, kDepth, 0, 0, 0);
+  }
+  {
+    constexpr int kDepth = 5;
+    predictor::ArrayTreeLayout<false, true, kDepth> buffer(tree, tree.GetCategoriesMatrix());
+    CheckArrayLayout(tree, buffer, kDepth, 0, 0, 0);
+  }
 }
 
 namespace {
@@ -59,10 +129,17 @@ TEST(CpuPredictor, IterationRangeColmnSplit) {
 
 TEST(CpuPredictor, ExternalMemory) {
   Context ctx;
-  size_t constexpr kPageSize = 64, kEntriesPerCol = 3;
-  size_t constexpr kEntries = kPageSize * kEntriesPerCol * 2;
-  std::unique_ptr<DMatrix> dmat = CreateSparsePageDMatrix(kEntries);
+  bst_idx_t constexpr kRows{64};
+  bst_feature_t constexpr kCols{12};
+  auto dmat =
+      RandomDataGenerator{kRows, kCols, 0.5f}.Batches(3).GenerateSparsePageDMatrix("temp", true);
   TestBasic(dmat.get(), &ctx);
+}
+
+TEST_P(ShapExternalMemoryTest, CPUPredictor) {
+  Context ctx;
+  auto [is_qdm, is_interaction] = this->GetParam();
+  this->Run(&ctx, is_qdm, is_interaction);
 }
 
 TEST(CpuPredictor, InplacePredict) {
@@ -78,7 +155,7 @@ TEST(CpuPredictor, InplacePredict) {
     auto array_interface = GetArrayInterface(&data, kRows, kCols);
     std::string arr_str;
     Json::Dump(array_interface, &arr_str);
-    x->SetArrayData(arr_str.data());
+    x->SetArray(arr_str.data());
     TestInplacePrediction(&ctx, x, kRows, kCols);
   }
 
@@ -95,7 +172,7 @@ TEST(CpuPredictor, InplacePredict) {
     Json::Dump(rptr_interface, &rptr_str);
     Json::Dump(col_interface, &col_str);
     std::shared_ptr<data::DMatrixProxy> x{new data::DMatrixProxy};
-    x->SetCSRData(rptr_str.data(), col_str.data(), data_str.data(), kCols, true);
+    x->SetCsr(rptr_str.data(), col_str.data(), data_str.data(), kCols, true);
     TestInplacePrediction(&ctx, x, kRows, kCols);
   }
 }
@@ -114,7 +191,7 @@ void TestUpdatePredictionCache(bool use_subsampling) {
   }
   gbm->Configure(args);
 
-  auto dmat = RandomDataGenerator(kRows, kCols, 0).GenerateDMatrix(true, true, kClasses);
+  auto dmat = RandomDataGenerator(kRows, kCols, 0).Classes(kClasses).GenerateDMatrix(true);
 
   linalg::Matrix<GradientPair> gpair({kRows, kClasses}, ctx.Device());
   auto h_gpair = gpair.HostView();
@@ -149,7 +226,7 @@ TEST(CPUPredictor, GHistIndexTraining) {
   auto adapter = data::ArrayAdapter(columnar.c_str());
   std::shared_ptr<DMatrix> p_full{
       DMatrix::Create(&adapter, std::numeric_limits<float>::quiet_NaN(), 1)};
-  TestTrainingPrediction(&ctx, kRows, kBins, p_full, p_hist, true);
+  TestTrainingPrediction(&ctx, kRows, kBins, p_full, p_hist);
 }
 
 TEST(CPUPredictor, CategoricalPrediction) {

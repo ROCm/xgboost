@@ -42,6 +42,8 @@ bool ArrayInterfaceHandler::IsCudaPtr(void const* ptr) {
   }
 
 #if defined(XGBOOST_USE_CUDA)
+  // clear potentially pre-existing/unrelated error
+  cudaGetLastError();
   cudaPointerAttributes attr;
   auto err = cudaPointerGetAttributes(&attr, ptr);
   // reset error
@@ -63,7 +65,9 @@ bool ArrayInterfaceHandler::IsCudaPtr(void const* ptr) {
     // other errors, `cudaErrorNoDevice`, `cudaErrorInsufficientDriver` etc.
     return false;
   }
-#elif defined(XGBOOST_USE_HIP)
+#endif
+
+#if defined(XGBOOST_USE_HIP)
   hipPointerAttribute_t attr;
   auto err = hipPointerGetAttributes(&attr, ptr);
   // reset error

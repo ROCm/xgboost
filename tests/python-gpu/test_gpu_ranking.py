@@ -6,7 +6,7 @@ import pytest
 
 import xgboost
 from xgboost import testing as tm
-from xgboost.testing.ranking import run_normalization
+from xgboost.testing.ranking import run_normalization, run_score_normalization
 
 pytestmark = tm.timeout(30)
 
@@ -28,8 +28,8 @@ def comp_training_with_rank_objective(
 
     params = {
         "booster": "gbtree",
-        "tree_method": "gpu_hist",
-        "gpu_id": 0,
+        "tree_method": "hist",
+        "device": "cuda",
     }
 
     num_trees = 100
@@ -53,7 +53,7 @@ def comp_training_with_rank_objective(
     cpu_params = {
         "booster": "gbtree",
         "tree_method": "hist",
-        "gpu_id": -1,
+        "device": "cpu",
     }
     cpu_params["objective"] = rank_objective
     cpu_params["eval_metric"] = metric_name
@@ -115,7 +115,7 @@ def test_with_mq2008(objective, metric) -> None:
         x_valid,
         y_valid,
         qid_valid,
-    ) = tm.data.get_mq2008(os.path.join(os.path.join(tm.demo_dir(__file__), "rank")))
+    ) = tm.data.get_mq2008(tm.demo_dir(__file__))
 
     if metric.find("map") != -1 or objective.find("map") != -1:
         y_train[y_train <= 1] = 0.0
@@ -131,3 +131,8 @@ def test_with_mq2008(objective, metric) -> None:
 
 def test_normalization() -> None:
     run_normalization("cuda")
+
+
+@pytest.mark.parametrize("objective", ["rank:pairwise", "rank:ndcg", "rank:map"])
+def test_score_normalization(objective: str) -> None:
+    run_score_normalization("cuda", objective)

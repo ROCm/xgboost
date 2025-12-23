@@ -1,10 +1,10 @@
 import json
 import os
 import pickle
-import random
+import re
 import tempfile
 import warnings
-from typing import Callable, Optional
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -12,9 +12,17 @@ from sklearn.utils.estimator_checks import parametrize_with_checks
 
 import xgboost as xgb
 from xgboost import testing as tm
+from xgboost.testing.data import get_california_housing
 from xgboost.testing.ranking import run_ranking_categorical, run_ranking_qid_df
 from xgboost.testing.shared import get_feature_weights, validate_data_initialization
 from xgboost.testing.updater import get_basescore
+from xgboost.testing.with_skl import (
+    run_boost_from_prediction_binary,
+    run_boost_from_prediction_multi_clasas,
+    run_housing_rf_regression,
+    run_intercept,
+    run_recoding,
+)
 
 rng = np.random.RandomState(1994)
 pytestmark = [pytest.mark.skipif(**tm.no_sklearn()), tm.timeout(30)]
@@ -213,7 +221,7 @@ def test_ranking_metric() -> None:
 def test_ranking_qid_df():
     import pandas as pd
 
-    run_ranking_qid_df(pd, "hist")
+    run_ranking_qid_df(pd, "hist", "cpu")
 
 
 def test_stacking_regression():
@@ -336,6 +344,36 @@ def test_feature_importances_weight():
         cls.feature_importances_
 
 
+def test_feature_importances_weight_vector_leaf() -> None:
+    from sklearn.datasets import make_multilabel_classification
+
+    X, y = make_multilabel_classification(random_state=1994)
+    with pytest.raises(ValueError, match="gain/total_gain"):
+        clf = xgb.XGBClassifier(multi_strategy="multi_output_tree")
+        clf.fit(X, y)
+        clf.feature_importances_
+
+    with pytest.raises(ValueError, match="cover/total_cover"):
+        clf = xgb.XGBClassifier(
+            multi_strategy="multi_output_tree", importance_type="cover"
+        )
+        clf.fit(X, y)
+        clf.feature_importances_
+
+    clf = xgb.XGBClassifier(
+        multi_strategy="multi_output_tree",
+        importance_type="weight",
+        colsample_bynode=0.2,
+    )
+    clf.fit(X, y, feature_weights=np.arange(0, X.shape[1]))
+    fi = clf.feature_importances_
+    assert fi[0] == 0.0
+    assert fi[-1] > fi[1] * 5
+
+    w = np.polynomial.Polynomial.fit(np.arange(0, X.shape[1]), fi, deg=1)
+    assert w.coef[1] > 0.03
+
+
 @pytest.mark.skipif(**tm.no_pandas())
 def test_feature_importances_gain():
     from sklearn.datasets import load_digits
@@ -428,11 +466,10 @@ def test_num_parallel_tree():
 
 
 def test_regression():
-    from sklearn.datasets import fetch_california_housing
     from sklearn.metrics import mean_squared_error
     from sklearn.model_selection import KFold
 
-    X, y = fetch_california_housing(return_X_y=True)
+    X, y = get_california_housing()
     kf = KFold(n_splits=2, shuffle=True, random_state=rng)
     for train_index, test_index in kf.split(X, y):
         xgb_model = xgb.XGBRegressor().fit(X[train_index], y[train_index])
@@ -459,37 +496,15 @@ def test_regression():
             xgb_model.feature_names_in_
 
 
-def run_housing_rf_regression(tree_method):
-    from sklearn.datasets import fetch_california_housing
-    from sklearn.metrics import mean_squared_error
-    from sklearn.model_selection import KFold
-
-    X, y = fetch_california_housing(return_X_y=True)
-    kf = KFold(n_splits=2, shuffle=True, random_state=rng)
-    for train_index, test_index in kf.split(X, y):
-        xgb_model = xgb.XGBRFRegressor(random_state=42, tree_method=tree_method).fit(
-            X[train_index], y[train_index]
-        )
-        preds = xgb_model.predict(X[test_index])
-        labels = y[test_index]
-        assert mean_squared_error(preds, labels) < 35
-
-    rfreg = xgb.XGBRFRegressor()
-    with pytest.raises(NotImplementedError):
-        rfreg.set_params(early_stopping_rounds=10)
-        rfreg.fit(X, y)
-
-
 def test_rf_regression():
-    run_housing_rf_regression("hist")
+    run_housing_rf_regression("hist", "cpu")
 
 
 @pytest.mark.parametrize("tree_method", ["exact", "hist", "approx"])
 def test_parameter_tuning(tree_method: str) -> None:
-    from sklearn.datasets import fetch_california_housing
     from sklearn.model_selection import GridSearchCV
 
-    X, y = fetch_california_housing(return_X_y=True)
+    X, y = get_california_housing()
     reg = xgb.XGBRegressor(learning_rate=0.1, tree_method=tree_method)
     grid_cv = GridSearchCV(
         reg, {"max_depth": [2, 4], "n_estimators": [50, 200]}, cv=2, verbose=1
@@ -497,17 +512,16 @@ def test_parameter_tuning(tree_method: str) -> None:
     grid_cv.fit(X, y)
     assert grid_cv.best_score_ < 0.7
     assert grid_cv.best_params_ == {
-        "n_estimators": 200,
-        "max_depth": 4 if tree_method == "exact" else 2,
+        "n_estimators": 50,
+        "max_depth": 2,
     }
 
 
 def test_regression_with_custom_objective():
-    from sklearn.datasets import fetch_california_housing
     from sklearn.metrics import mean_squared_error
     from sklearn.model_selection import KFold
 
-    X, y = fetch_california_housing(return_X_y=True)
+    X, y = get_california_housing()
     kf = KFold(n_splits=2, shuffle=True, random_state=rng)
     for train_index, test_index in kf.split(X, y):
         xgb_model = xgb.XGBRegressor(objective=tm.ls_obj).fit(
@@ -630,7 +644,7 @@ def test_sklearn_plotting():
     ax = xgb.plot_importance(classifier)
     assert isinstance(ax, Axes)
     assert ax.get_title() == 'Feature importance'
-    assert ax.get_xlabel() == 'F score'
+    assert ax.get_xlabel() == 'Importance score'
     assert ax.get_ylabel() == 'Features'
     assert len(ax.patches) == 4
 
@@ -795,6 +809,32 @@ def test_parameters_access():
     assert clf.get_params()["tree_method"] is None
 
 
+def test_get_params_works_as_expected():
+    # XGBModel -> BaseEstimator
+    params = xgb.XGBModel(max_depth=2).get_params()
+    assert params["max_depth"] == 2
+    # 'objective' defaults to None in the signature of XGBModel
+    assert params["objective"] is None
+
+    # XGBRegressor -> XGBModel -> BaseEstimator
+    params = xgb.XGBRegressor(max_depth=3).get_params()
+    assert params["max_depth"] == 3
+    # 'objective' defaults to 'reg:squarederror' in the signature of XGBRegressor
+    assert params["objective"] == "reg:squarederror"
+    # 'colsample_bynode' defaults to 'None' for XGBModel (which XGBRegressor inherits from), so it
+    # should be in get_params() output
+    assert params["colsample_bynode"] is None
+
+    # XGBRFRegressor -> XGBRegressor -> XGBModel -> BaseEstimator
+    params = xgb.XGBRFRegressor(max_depth=4, objective="reg:tweedie").get_params()
+    assert params["max_depth"] == 4
+    # 'objective' is a keyword argument for XGBRegressor, so it should be in get_params() output
+    # ... but values passed through kwargs should override the default from the signature of XGBRegressor
+    assert params["objective"] == "reg:tweedie"
+    # 'colsample_bynode' defaults to 0.8 for XGBRFRegressor...that should be preferred to the None from XGBRegressor
+    assert params["colsample_bynode"] == 0.8
+
+
 def test_kwargs_error():
     params = {'updater': 'grow_gpu_hist', 'subsample': .5, 'n_jobs': -1}
     with pytest.raises(TypeError):
@@ -840,7 +880,7 @@ def test_sklearn_get_default_params():
     assert cls.get_params()["base_score"] is None
     cls.fit(X[:4, ...], y[:4, ...])
     base_score = get_basescore(cls)
-    np.testing.assert_equal(base_score, 0.5)
+    np.testing.assert_equal(base_score, [0.5])
 
 
 def run_validation_weights(model):
@@ -1040,7 +1080,7 @@ def test_parameter_validation():
 def test_deprecate_position_arg():
     from sklearn.datasets import load_digits
     X, y = load_digits(return_X_y=True, n_class=2)
-    w = y
+    w = np.random.default_rng(0).uniform(size=y.size)
     with pytest.warns(FutureWarning):
         xgb.XGBRegressor(3, learning_rate=0.1)
     model = xgb.XGBRegressor(n_estimators=1)
@@ -1129,16 +1169,26 @@ def test_feature_weights(tree_method):
     for i in range(kCols):
         fw[i] *= float(i)
 
-    parser_path = os.path.join(tm.demo_dir(__file__), "json-model", "json_parser.py")
+    parser_path = os.path.join(tm.demo_dir(__file__), "guide-python", "model_parser.py")
     poly_increasing = get_feature_weights(
-        X, y, fw, parser_path, tree_method, xgb.XGBRegressor
+        X=X,
+        y=y,
+        fw=fw,
+        parser_path=parser_path,
+        tree_method=tree_method,
+        model=xgb.XGBRegressor,
     )
 
     fw = np.ones(shape=(kCols,))
     for i in range(kCols):
         fw[i] *= float(kCols - i)
     poly_decreasing = get_feature_weights(
-        X, y, fw, parser_path, tree_method, xgb.XGBRegressor
+        X=X,
+        y=y,
+        fw=fw,
+        parser_path=parser_path,
+        tree_method=tree_method,
+        model=xgb.XGBRegressor,
     )
 
     # Approxmated test, this is dependent on the implementation of random
@@ -1146,90 +1196,34 @@ def test_feature_weights(tree_method):
     assert poly_increasing[0] > 0.08
     assert poly_decreasing[0] < -0.08
 
-
-def run_boost_from_prediction_binary(tree_method, X, y, as_frame: Optional[Callable]):
-    """
-    Parameters
-    ----------
-
-    as_frame: A callable function to convert margin into DataFrame, useful for different
-    df implementations.
-    """
-
-    model_0 = xgb.XGBClassifier(
-        learning_rate=0.3, random_state=0, n_estimators=4, tree_method=tree_method
-    )
-    model_0.fit(X=X, y=y)
-    margin = model_0.predict(X, output_margin=True)
-    if as_frame is not None:
-        margin = as_frame(margin)
-
-    model_1 = xgb.XGBClassifier(
-        learning_rate=0.3, random_state=0, n_estimators=4, tree_method=tree_method
-    )
-    model_1.fit(X=X, y=y, base_margin=margin)
-    predictions_1 = model_1.predict(X, base_margin=margin)
-
-    cls_2 = xgb.XGBClassifier(
-        learning_rate=0.3, random_state=0, n_estimators=8, tree_method=tree_method
-    )
-    cls_2.fit(X=X, y=y)
-    predictions_2 = cls_2.predict(X)
-    np.testing.assert_allclose(predictions_1, predictions_2)
-
-
-def run_boost_from_prediction_multi_clasas(
-    estimator, tree_method, X, y, as_frame: Optional[Callable]
-):
-    # Multi-class
-    model_0 = estimator(
-        learning_rate=0.3, random_state=0, n_estimators=4, tree_method=tree_method
-    )
-    model_0.fit(X=X, y=y)
-    margin = model_0.get_booster().inplace_predict(X, predict_type="margin")
-    if as_frame is not None:
-        margin = as_frame(margin)
-
-    model_1 = estimator(
-        learning_rate=0.3, random_state=0, n_estimators=4, tree_method=tree_method
-    )
-    model_1.fit(X=X, y=y, base_margin=margin)
-    predictions_1 = model_1.get_booster().predict(
-        xgb.DMatrix(X, base_margin=margin), output_margin=True
-    )
-
-    model_2 = estimator(
-        learning_rate=0.3, random_state=0, n_estimators=8, tree_method=tree_method
-    )
-    model_2.fit(X=X, y=y)
-    predictions_2 = model_2.get_booster().inplace_predict(X, predict_type="margin")
-
-    if hasattr(predictions_1, "get"):
-        predictions_1 = predictions_1.get()
-    if hasattr(predictions_2, "get"):
-        predictions_2 = predictions_2.get()
-    np.testing.assert_allclose(predictions_1, predictions_2, atol=1e-6)
+    reg = xgb.XGBRegressor(feature_weights=np.ones((kCols, )))
+    with pytest.raises(ValueError, match="Use the one in"):
+        reg.fit(X, y, feature_weights=np.ones((kCols, )))
 
 
 @pytest.mark.parametrize("tree_method", ["hist", "approx", "exact"])
-def test_boost_from_prediction(tree_method):
+def test_boost_from_prediction(tree_method: str) -> None:
     import pandas as pd
     from sklearn.datasets import load_breast_cancer, load_iris, make_regression
 
     X, y = load_breast_cancer(return_X_y=True)
 
-    run_boost_from_prediction_binary(tree_method, X, y, None)
-    run_boost_from_prediction_binary(tree_method, X, y, pd.DataFrame)
+    run_boost_from_prediction_binary(tree_method, "cpu", X, y, None)
+    run_boost_from_prediction_binary(tree_method, "cpu", X, y, pd.DataFrame)
 
     X, y = load_iris(return_X_y=True)
 
-    run_boost_from_prediction_multi_clasas(xgb.XGBClassifier, tree_method, X, y, None)
     run_boost_from_prediction_multi_clasas(
-        xgb.XGBClassifier, tree_method, X, y, pd.DataFrame
+        xgb.XGBClassifier, tree_method, "cpu", X, y, None
+    )
+    run_boost_from_prediction_multi_clasas(
+        xgb.XGBClassifier, tree_method, "cpu", X, y, pd.DataFrame
     )
 
     X, y = make_regression(n_samples=100, n_targets=4)
-    run_boost_from_prediction_multi_clasas(xgb.XGBRegressor, tree_method, X, y, None)
+    run_boost_from_prediction_multi_clasas(
+        xgb.XGBRegressor, tree_method, "cpu", X, y, None
+    )
 
 
 def test_estimator_type():
@@ -1284,7 +1278,7 @@ def test_data_initialization() -> None:
     validate_data_initialization(xgb.QuantileDMatrix, xgb.XGBClassifier, X, y)
 
 
-@parametrize_with_checks([xgb.XGBRegressor()])
+@parametrize_with_checks([xgb.XGBRegressor(enable_categorical=True)])
 def test_estimator_reg(estimator, check):
     if os.environ["PYTEST_CURRENT_TEST"].find("check_supervised_y_no_nan") != -1:
         # The test uses float64 and requires the error message to contain:
@@ -1403,9 +1397,33 @@ def test_evaluation_metric():
         clf.fit(X, y, eval_set=[(X, y)])
 
 
+def test_mixed_metrics() -> None:
+    from sklearn.datasets import make_classification
+    from sklearn.metrics import hamming_loss, hinge_loss, log_loss
+
+    X, y = make_classification(random_state=2025)
+
+    clf = xgb.XGBClassifier(eval_metric=["logloss", hinge_loss], n_estimators=2)
+    clf.fit(X, y, eval_set=[(X, y)])
+    results = clf.evals_result()["validation_0"]
+    assert "logloss" in results
+    assert "hinge_loss" in results
+
+    clf = xgb.XGBClassifier(eval_metric=[hamming_loss, log_loss], n_estimators=2)
+    with pytest.raises(
+        NotImplementedError, match="multiple custom metrics is not yet supported."
+    ):
+        clf.fit(X, y, eval_set=[(X, y)])
+
+    clf = xgb.XGBClassifier(eval_metric=[123, log_loss], n_estimators=2)
+    with pytest.raises(TypeError, match="Invalid type for the `eval_metric`"):
+        clf.fit(X, y, eval_set=[(X, y)])
+
+
 def test_weighted_evaluation_metric():
     from sklearn.datasets import make_hastie_10_2
     from sklearn.metrics import log_loss
+
     X, y = make_hastie_10_2(n_samples=2000, random_state=42)
     labels, y = np.unique(y, return_inverse=True)
     X_train, X_test = X[:1600], X[1600:]
@@ -1443,18 +1461,7 @@ def test_weighted_evaluation_metric():
 
 
 def test_intercept() -> None:
-    X, y, w = tm.make_regression(256, 3, use_cupy=False)
-    reg = xgb.XGBRegressor()
-    reg.fit(X, y, sample_weight=w)
-    result = reg.intercept_
-    assert result.dtype == np.float32
-    assert result[0] < 0.5
-
-    reg = xgb.XGBRegressor(booster="gblinear")
-    reg.fit(X, y, sample_weight=w)
-    result = reg.intercept_
-    assert result.dtype == np.float32
-    assert result[0] < 0.5
+    run_intercept("cpu")
 
 
 def test_fit_none() -> None:
@@ -1477,10 +1484,99 @@ def test_tags() -> None:
         assert tags["multioutput"] is True
         assert tags["multioutput_only"] is False
 
-    for clf in [xgb.XGBClassifier()]:
+    for clf in [xgb.XGBClassifier(), xgb.XGBRFClassifier()]:
         tags = clf._more_tags()
         assert "multioutput" not in tags
         assert tags["multilabel"] is True
 
     tags = xgb.XGBRanker()._more_tags()
     assert "multioutput" not in tags
+
+
+# the try-excepts in this test should be removed once xgboost's
+# minimum supported scikit-learn version is at least 1.6
+def test_sklearn_tags():
+
+    def _assert_has_xgbmodel_tags(tags):
+        # values set by XGBModel.__sklearn_tags__()
+        assert tags.non_deterministic is False
+        assert tags.no_validation is True
+        assert tags.input_tags.allow_nan is True
+
+    for reg in [xgb.XGBRegressor(), xgb.XGBRFRegressor()]:
+        try:
+            # if no AttributeError was thrown, we must be using scikit-learn>=1.6,
+            # and so the actual effects of __sklearn_tags__() should be tested
+            tags = reg.__sklearn_tags__()
+            _assert_has_xgbmodel_tags(tags)
+            # regressor-specific values
+            assert tags.estimator_type == "regressor"
+            assert tags.regressor_tags is not None
+            assert tags.classifier_tags is None
+            assert tags.target_tags.multi_output is True
+            assert tags.target_tags.single_output is True
+        except AttributeError as err:
+            # only the exact error we expected to be raised should be raised
+            assert bool(re.search(r"__sklearn_tags__.* should not be called", str(err)))
+
+    for clf in [xgb.XGBClassifier(), xgb.XGBRFClassifier()]:
+        try:
+            # if no AttributeError was thrown, we must be using scikit-learn>=1.6,
+            # and so the actual effects of __sklearn_tags__() should be tested
+            tags = clf.__sklearn_tags__()
+            _assert_has_xgbmodel_tags(tags)
+            # classifier-specific values
+            assert tags.estimator_type == "classifier"
+            assert tags.regressor_tags is None
+            assert tags.classifier_tags is not None
+            assert tags.classifier_tags.multi_label is True
+        except AttributeError as err:
+            # only the exact error we expected to be raised should be raised
+            assert bool(re.search(r"__sklearn_tags__.* should not be called", str(err)))
+
+    for rnk in [xgb.XGBRanker(),]:
+        try:
+            # if no AttributeError was thrown, we must be using scikit-learn>=1.6,
+            # and so the actual effects of __sklearn_tags__() should be tested
+            tags = rnk.__sklearn_tags__()
+            _assert_has_xgbmodel_tags(tags)
+        except AttributeError as err:
+            # only the exact error we expected to be raised should be raised
+            assert bool(re.search(r"__sklearn_tags__.* should not be called", str(err)))
+
+
+def test_doc_link() -> None:
+    for est in [
+        xgb.XGBRegressor(),
+        xgb.XGBClassifier(),
+        xgb.XGBRanker(),
+        xgb.XGBRFRegressor(),
+        xgb.XGBRFClassifier(),
+    ]:
+        name = est.__class__.__name__
+        link = est._get_doc_link()
+        assert f"xgboost.{name}" in link
+
+
+def test_apply_method() -> None:
+    import pandas as pd
+
+    X_num = np.random.rand(5, 5)
+    df = pd.DataFrame(X_num, columns=[f"f{i}" for i in range(X_num.shape[1])])
+    df["test"] = pd.Series(
+        ["one", "two", "three", "four", "five"], dtype="category"
+    )  # <- categorical column
+    y = np.arange(len(df))
+
+    model = xgb.XGBClassifier(enable_categorical=True)
+    model.fit(df, y)
+
+    model.apply(df)  # this must not raise
+
+    model.set_params(enable_categorical=False)
+    with pytest.raises(ValueError, match="`enable_categorical`"):
+        model.apply(df)
+
+
+def test_recoding() -> None:
+    run_recoding("cpu")

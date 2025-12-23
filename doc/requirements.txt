@@ -10,8 +10,10 @@ numpy
 scipy
 myst-parser
 ray[train]
-xgboost_ray
 sphinx-gallery
+sphinx-issues
+sphinx-tabs
+dask
 pyspark
 cloudpickle
 setuptools

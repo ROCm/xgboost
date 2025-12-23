@@ -13,6 +13,9 @@ pkgs <- c(
   "rmarkdown",
   "ggplot2",
   "DiagrammeR",
+  "DiagrammeRsvg",
+  "rsvg",
+  "htmlwidgets",
   "Ckmeans.1d.dp",
   "vcd",
   "lintr",
@@ -23,7 +26,6 @@ pkgs <- c(
   "RhpcBLASctl",
   ## imports
   "Matrix",
-  "methods",
   "data.table",
   "jsonlite"
 )

@@ -5,19 +5,19 @@
  */
 #include "fit_stump.h"
 
-#include <cinttypes>  // std::int32_t
-#include <cstddef>    // std::size_t
+#include <cstddef>  // std::size_t
+#include <cstdint>  // for int32_t
 
-#include "../collective/aggregator.h"
-#include "../collective/communicator-inl.h"
-#include "../common/common.h"              // AssertGPUSupport
-#include "../common/numeric.h"             // cpu_impl::Reduce
-#include "../common/threading_utils.h"     // ParallelFor
-#include "../common/transform_iterator.h"  // MakeIndexTransformIter
-#include "xgboost/base.h"                  // bst_target_t, GradientPairPrecise
-#include "xgboost/context.h"               // Context
-#include "xgboost/linalg.h"                // TensorView, Tensor, Constant
-#include "xgboost/logging.h"               // CHECK_EQ
+#include "../collective/aggregator.h"   // for GlobalSum
+#include "../common/threading_utils.h"  // ParallelFor
+#include "xgboost/base.h"               // bst_target_t, GradientPairPrecise
+#include "xgboost/context.h"            // Context
+#include "xgboost/linalg.h"             // TensorView, Tensor, Constant
+#include "xgboost/logging.h"            // CHECK_EQ
+
+#if !defined(XGBOOST_USE_CUDA)
+#include "../common/common.h"  // AssertGPUSupport
+#endif
 
 namespace xgboost::tree {
 namespace cpu_impl {
@@ -74,7 +74,7 @@ void FitStump(Context const* ctx, MetaInfo const& info, linalg::Matrix<GradientP
   out->Reshape(n_targets);
 
   gpair.SetDevice(ctx->Device());
-  auto gpair_t = gpair.View(ctx->Device());
+  auto gpair_t = gpair.View(ctx->Device().IsSycl() ? DeviceOrd::CPU() : ctx->Device());
   ctx->IsCUDA() ? cuda_impl::FitStump(ctx, info, gpair_t, out->View(ctx->Device()))
                 : cpu_impl::FitStump(ctx, info, gpair_t, out->HostView());
 }

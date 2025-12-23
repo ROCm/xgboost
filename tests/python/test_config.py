@@ -59,7 +59,7 @@ def test_nested_config() -> None:
     assert verbosity == 1
 
 
-def test_thread_safty():
+def test_thread_safety():
     n_threads = multiprocessing.cpu_count()
     futures = []
     with ThreadPoolExecutor(max_workers=n_threads) as executor:
@@ -69,3 +69,8 @@ def test_thread_safty():
 
     for f in futures:
         f.result()
+
+
+def test_nthread() -> None:
+    config = xgb.get_config()
+    assert config["nthread"] == 0

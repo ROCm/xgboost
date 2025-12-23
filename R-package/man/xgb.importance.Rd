@@ -7,10 +7,7 @@
 xgb.importance(
   model = NULL,
   feature_names = getinfo(model, "feature_name"),
-  trees = NULL,
-  data = NULL,
-  label = NULL,
-  target = NULL
+  trees = NULL
 )
 }
 \arguments{
@@ -19,18 +16,11 @@ xgb.importance(
 \item{feature_names}{Character vector used to overwrite the feature names
 of the model. The default is \code{NULL} (use original feature names).}
 
-\item{trees}{An integer vector of tree indices that should be included
+\item{trees}{An integer vector of (base-1) tree indices that should be included
 into the importance calculation (only for the "gbtree" booster).
 The default (\code{NULL}) parses all trees.
 It could be useful, e.g., in multiclass classification to get feature importances
-for each class separately. \emph{Important}: the tree index in XGBoost models
-is zero-based (e.g., use \code{trees = 0:4} for the first five trees).}
-
-\item{data}{Deprecated.}
-
-\item{label}{Deprecated.}
-
-\item{target}{Deprecated.}
+for each class separately.}
 }
 \value{
 A \code{data.table} with the following columns:
@@ -48,7 +38,9 @@ For a linear model:
 \itemize{
 \item \code{Features}: Names of the features used in the model.
 \item \code{Weight}: Linear coefficient of this feature.
-\item \code{Class}: Class label (only for multiclass models).
+\item \code{Class}: Class label (only for multiclass models). For objects of class \code{xgboost} (as
+produced by \code{\link[=xgboost]{xgboost()}}), it will be a \code{factor}, while for objects of class \code{xgb.Booster}
+(as produced by \code{\link[=xgb.train]{xgb.train()}}), it will be a zero-based integer vector.
 }
 
 If \code{feature_names} is not provided and \code{model} doesn't have \code{feature_names},
@@ -66,74 +58,62 @@ To obtain a meaningful ranking by importance for linear models, the features nee
 be on the same scale (which is also recommended when using L1 or L2 regularization).
 }
 \examples{
-
-# binomial classification using "gbtree":
-data(agaricus.train, package = "xgboost")
-
-bst <- xgboost(
-  data = agaricus.train$data,
-  label = agaricus.train$label,
-  max_depth = 2,
-  eta = 1,
-  nthread = 2,
-  nrounds = 2,
-  objective = "binary:logistic"
+# binary classification using "gbtree":
+data("ToothGrowth")
+x <- ToothGrowth[, c("len", "dose")]
+y <- ToothGrowth$supp
+model_tree_binary <- xgboost(
+  x, y,
+  nrounds = 5L,
+  nthreads = 1L,
+  booster = "gbtree",
+  max_depth = 2L
 )
+xgb.importance(model_tree_binary)
 
-xgb.importance(model = bst)
-
-# binomial classification using "gblinear":
-bst <- xgboost(
-  data = agaricus.train$data,
-  label = agaricus.train$label,
+# binary classification using "gblinear":
+model_tree_linear <- xgboost(
+  x, y,
+  nrounds = 5L,
+  nthreads = 1L,
   booster = "gblinear",
-  eta = 0.3,
-  nthread = 1,
-  nrounds = 20,objective = "binary:logistic"
+  learning_rate = 0.3
 )
+xgb.importance(model_tree_linear)
 
-xgb.importance(model = bst)
-
-# multiclass classification using "gbtree":
-nclass <- 3
-nrounds <- 10
-mbst <- xgboost(
-  data = as.matrix(iris[, -5]),
-  label = as.numeric(iris$Species) - 1,
-  max_depth = 3,
-  eta = 0.2,
-  nthread = 2,
-  nrounds = nrounds,
-  objective = "multi:softprob",
-  num_class = nclass
+# multi-class classification using "gbtree":
+data("iris")
+x <- iris[, c("Sepal.Length", "Sepal.Width", "Petal.Length", "Petal.Width")]
+y <- iris$Species
+model_tree_multi <- xgboost(
+  x, y,
+  nrounds = 5L,
+  nthreads = 1L,
+  booster = "gbtree",
+  max_depth = 3
 )
-
 # all classes clumped together:
-xgb.importance(model = mbst)
-
+xgb.importance(model_tree_multi)
 # inspect importances separately for each class:
+num_classes <- 3L
+nrounds <- 5L
 xgb.importance(
-  model = mbst, trees = seq(from = 0, by = nclass, length.out = nrounds)
+  model_tree_multi, trees = seq(from = 1, by = num_classes, length.out = nrounds)
 )
 xgb.importance(
-  model = mbst, trees = seq(from = 1, by = nclass, length.out = nrounds)
+  model_tree_multi, trees = seq(from = 2, by = num_classes, length.out = nrounds)
 )
 xgb.importance(
-  model = mbst, trees = seq(from = 2, by = nclass, length.out = nrounds)
+  model_tree_multi, trees = seq(from = 3, by = num_classes, length.out = nrounds)
 )
 
-# multiclass classification using "gblinear":
-mbst <- xgboost(
-  data = scale(as.matrix(iris[, -5])),
-  label = as.numeric(iris$Species) - 1,
+# multi-class classification using "gblinear":
+model_linear_multi <- xgboost(
+  x, y,
+  nrounds = 5L,
+  nthreads = 1L,
   booster = "gblinear",
-  eta = 0.2,
-  nthread = 1,
-  nrounds = 15,
-  objective = "multi:softprob",
-  num_class = nclass
+  learning_rate = 0.2
 )
-
-xgb.importance(model = mbst)
-
+xgb.importance(model_linear_multi)
 }

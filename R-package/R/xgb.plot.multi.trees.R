@@ -2,12 +2,9 @@
 #'
 #' Visualization of the ensemble of trees as a single collective unit.
 #'
-#' @inheritParams xgb.plot.tree
-#' @param features_keep Number of features to keep in each position of the multi trees,
-#'        by default 5.
-#'
+#' Note that this function does not work with models that were fitted to
+#' categorical data.
 #' @details
-#'
 #' This function tries to capture the complexity of a gradient boosted tree model
 #' in a cohesive way by compressing an ensemble of trees into a single tree-graph representation.
 #' The goal is to improve the interpretability of a model generally seen as black box.
@@ -25,6 +22,10 @@
 #' This function is inspired by this blog post:
 #' <https://wellecks.wordpress.com/2015/02/21/peering-into-the-black-box-visualizing-lambdamart/>
 #'
+#' @inheritParams xgb.plot.tree
+#' @param features_keep Number of features to keep in each position of the multi trees,
+#'   by default 5.
+#' @param render Should the graph be rendered or not? The default is `TRUE`.
 #' @inherit xgb.plot.tree return
 #'
 #' @examples
@@ -35,39 +36,38 @@
 #' nthread <- 2
 #' data.table::setDTthreads(nthread)
 #'
-#' bst <- xgboost(
-#'   data = agaricus.train$data,
-#'   label = agaricus.train$label,
-#'   max_depth = 15,
-#'   eta = 1,
-#'   nthread = nthread,
+#' model <- xgboost(
+#'   agaricus.train$data, factor(agaricus.train$label),
 #'   nrounds = 30,
-#'   objective = "binary:logistic",
-#'   min_child_weight = 50,
-#'   verbose = 0
+#'   verbosity = 0L,
+#'   nthreads = nthread,
+#'   max_depth = 15,
+#'   learning_rate = 1,
+#'   min_child_weight = 50
 #' )
 #'
-#' p <- xgb.plot.multi.trees(model = bst, features_keep = 3)
+#' p <- xgb.plot.multi.trees(model, features_keep = 3)
 #' print(p)
 #'
-#' \dontrun{
 #' # Below is an example of how to save this plot to a file.
-#' # Note that for export_graph() to work, the {DiagrammeRsvg} and {rsvg} packages
-#' # must also be installed.
-#'
-#' library(DiagrammeR)
-#'
-#' gr <- xgb.plot.multi.trees(model = bst, features_keep = 3, render = FALSE)
-#' export_graph(gr, "tree.pdf", width = 1500, height = 600)
+#' if (require("DiagrammeR") && require("DiagrammeRsvg") && require("rsvg")) {
+#'   fname <- file.path(tempdir(), "tree.pdf")
+#'   gr <- xgb.plot.multi.trees(model, features_keep = 3, render = FALSE)
+#'   export_graph(gr, fname, width = 1500, height = 600)
 #' }
-#'
 #' @export
 xgb.plot.multi.trees <- function(model, features_keep = 5, plot_width = NULL, plot_height = NULL,
                                  render = TRUE, ...) {
+  check.deprecation(deprecated_multitrees_params, match.call(), ...)
   if (!requireNamespace("DiagrammeR", quietly = TRUE)) {
     stop("DiagrammeR is required for xgb.plot.multi.trees")
   }
-  check.deprecation(...)
+  if (xgb.has_categ_features(model)) {
+    stop(
+      "Cannot use 'xgb.plot.multi.trees' for models with categorical features.",
+      " Try 'xgb.plot.tree' instead."
+    )
+  }
   tree.matrix <- xgb.model.dt.tree(model = model)
 
   # first number of the path represents the tree, then the following numbers are related to the path to follow
@@ -112,11 +112,10 @@ xgb.plot.multi.trees <- function(model, features_keep = 5, plot_width = NULL, pl
 
   edges.dt <- data.table::rbindlist(
     l = list(
-      tree.matrix[Feature != "Leaf", .(abs.node.position, Yes)],
-      tree.matrix[Feature != "Leaf", .(abs.node.position, No)]
+      tree.matrix[Feature != "Leaf", .(From = abs.node.position, To = Yes)],
+      tree.matrix[Feature != "Leaf", .(From = abs.node.position, To = No)]
     )
   )
-  data.table::setnames(edges.dt, c("From", "To"))
   edges.dt <- edges.dt[, .N, .(From, To)]
   edges.dt[, N := NULL]
 

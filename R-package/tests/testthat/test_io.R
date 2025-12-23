@@ -8,23 +8,24 @@ test <- agaricus.test
 test_that("load/save raw works", {
   nrounds <- 8
   booster <- xgb.train(
-    data = xgb.DMatrix(train$data, label = train$label),
-    nrounds = nrounds, objective = "binary:logistic",
-    nthread = 2
+    data = xgb.DMatrix(train$data, label = train$label, nthread = 1),
+    nrounds = nrounds,
+    params = xgb.params(
+      objective = "binary:logistic",
+      nthread = 2
+    )
   )
 
   json_bytes <- xgb.save.raw(booster, raw_format = "json")
   ubj_bytes <- xgb.save.raw(booster, raw_format = "ubj")
-  old_bytes <- xgb.save.raw(booster, raw_format = "deprecated")
 
   from_json <- xgb.load.raw(json_bytes)
   from_ubj <- xgb.load.raw(ubj_bytes)
 
-  json2old <- xgb.save.raw(from_json, raw_format = "deprecated")
-  ubj2old <- xgb.save.raw(from_ubj, raw_format = "deprecated")
+  json2ubj <- xgb.save.raw(from_json, raw_format = "ubj")
+  ubj2ubj <- xgb.save.raw(from_ubj, raw_format = "ubj")
 
-  expect_equal(json2old, ubj2old)
-  expect_equal(json2old, old_bytes)
+  expect_equal(json2ubj, ubj2ubj)
 })
 
 test_that("saveRDS preserves C and R attributes", {
@@ -34,7 +35,7 @@ test_that("saveRDS preserves C and R attributes", {
   dm <- xgb.DMatrix(x, label = y, nthread = 1)
   model <- xgb.train(
     data = dm,
-    params = list(nthread = 1, max_depth = 2),
+    params = xgb.params(nthread = 1, max_depth = 2),
     nrounds = 5
   )
   attributes(model)$my_attr <- "qwerty"

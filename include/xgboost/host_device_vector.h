@@ -85,7 +85,7 @@ enum GPUAccess {
 
 template <typename T>
 class HostDeviceVector {
-  static_assert(std::is_standard_layout<T>::value, "HostDeviceVector admits only POD types");
+  static_assert(std::is_standard_layout_v<T>, "HostDeviceVector admits only POD types");
 
  public:
   explicit HostDeviceVector(size_t size = 0, T v = T(), DeviceOrd device = DeviceOrd::CPU());
@@ -101,6 +101,7 @@ class HostDeviceVector {
 
   [[nodiscard]] bool Empty() const { return Size() == 0; }
   [[nodiscard]] std::size_t Size() const;
+  [[nodiscard]] std::size_t SizeBytes() const { return this->Size() * sizeof(T); }
   [[nodiscard]] DeviceOrd Device() const;
   common::Span<T> DeviceSpan();
   common::Span<const T> ConstDeviceSpan() const;
@@ -135,7 +136,9 @@ class HostDeviceVector {
 
   void SetDevice(DeviceOrd device) const;
 
-  void Resize(size_t new_size, T v = T());
+  void Resize(std::size_t new_size);
+  /** @brief Resize and initialize the data if the new size is larger than the old size. */
+  void Resize(std::size_t new_size, T v);
 
   using value_type = T;  // NOLINT
 

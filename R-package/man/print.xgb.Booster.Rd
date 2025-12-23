@@ -21,18 +21,17 @@ Print information about \code{xgb.Booster}.
 data(agaricus.train, package = "xgboost")
 train <- agaricus.train
 
-bst <- xgboost(
-  data = train$data,
-  label = train$label,
-  max_depth = 2,
-  eta = 1,
-  nthread = 2,
+bst <- xgb.train(
+  data = xgb.DMatrix(train$data, label = train$label, nthread = 1),
   nrounds = 2,
-  objective = "binary:logistic"
+  params = xgb.params(
+    max_depth = 2,
+    nthread = 2,
+    objective = "binary:logistic"
+  )
 )
 
 attr(bst, "myattr") <- "memo"
 
 print(bst)
-
 }

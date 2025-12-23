@@ -1,5 +1,5 @@
 /**
- * Copyright 2015-2024, XGBoost Contributors
+ * Copyright 2015-2025, XGBoost Contributors
  * \file data.cc
  */
 #include "xgboost/data.h"
@@ -17,43 +17,46 @@
 #include <tuple>        // for get, apply
 #include <type_traits>  // for remove_pointer_t, remove_reference
 
-#include "../collective/communicator-inl.h"  // for GetRank, GetWorldSize, Allreduce, IsFederated
-#include "../collective/allgather.h"
-#include "../collective/allreduce.h"
-#include "../common/algorithm.h"             // for StableSort
-#include "../common/api_entry.h"             // for XGBAPIThreadLocalEntry
-#include "../common/error_msg.h"             // for GroupSize, GroupWeight, InfInData
-#include "../common/group_data.h"            // for ParallelGroupBuilder
-#include "../common/io.h"                    // for PeekableInStream
-#include "../common/linalg_op.h"             // for ElementWiseTransformHost
-#include "../common/math.h"                  // for CheckNAN
-#include "../common/numeric.h"               // for Iota, RunLengthEncode
-#include "../common/threading_utils.h"       // for ParallelFor
-#include "../common/version.h"               // for Version
-#include "../data/adapter.h"                 // for COOTuple, FileAdapter, IsValidFunctor
-#include "../data/iterative_dmatrix.h"       // for IterativeDMatrix
-#include "./sparse_page_dmatrix.h"           // for SparsePageDMatrix
-#include "array_interface.h"                 // for ArrayInterfaceHandler, ArrayInterface, Dispa...
-#include "dmlc/base.h"                       // for BeginPtr
-#include "dmlc/common.h"                     // for OMPException
-#include "dmlc/data.h"                       // for Parser
-#include "dmlc/endian.h"                     // for ByteSwap, DMLC_IO_NO_ENDIAN_SWAP
-#include "dmlc/io.h"                         // for Stream
-#include "dmlc/thread_local.h"               // for ThreadLocalStore
-#include "ellpack_page.h"                    // for EllpackPage
-#include "file_iterator.h"                   // for ValidateFileFormat, FileIterator, Next, Reset
-#include "gradient_index.h"                  // for GHistIndexMatrix
-#include "simple_dmatrix.h"                  // for SimpleDMatrix
-#include "sparse_page_writer.h"              // for SparsePageFormatReg
-#include "validation.h"                      // for LabelsCheck, WeightsCheck, ValidateQueryGroup
-#include "xgboost/base.h"                    // for bst_group_t, bst_idx_t, bst_float, bst_ulong
-#include "xgboost/context.h"                 // for Context
-#include "xgboost/host_device_vector.h"      // for HostDeviceVector
-#include "xgboost/learner.h"                 // for HostDeviceVector
-#include "xgboost/linalg.h"                  // for Tensor, Stack, TensorView, Vector, ArrayInte...
-#include "xgboost/logging.h"                 // for Error, LogCheck_EQ, CHECK, CHECK_EQ, LOG
-#include "xgboost/span.h"                    // for Span, operator!=, SpanIterator
-#include "xgboost/string_view.h"             // for operator==, operator<<, StringView
+#include "../collective/allgather.h"          // for AllgatherStrings
+#include "../collective/allreduce.h"          // for Allreduce
+#include "../collective/communicator-inl.h"   // for GetRank, IsFederated
+#include "../common/algorithm.h"              // for StableSort
+#include "../common/api_entry.h"              // for XGBAPIThreadLocalEntry
+#include "../common/error_msg.h"              // for GroupSize, GroupWeight, InfInData
+#include "../common/group_data.h"             // for ParallelGroupBuilder
+#include "../common/io.h"                     // for PeekableInStream
+#include "../common/linalg_op.h"              // for ElementWiseTransformHost
+#include "../common/math.h"                   // for CheckNAN
+#include "../common/numeric.h"                // for Iota, RunLengthEncode
+#include "../common/threading_utils.h"        // for ParallelFor
+#include "../common/version.h"                // for Version
+#include "../data/adapter.h"                  // for FileAdapter
+#include "../data/entry.h"                    // for COOTuple, IsValidFunctor
+#include "../data/extmem_quantile_dmatrix.h"  // for ExtMemQuantileDMatrix
+#include "../data/iterative_dmatrix.h"        // for IterativeDMatrix
+#include "./sparse_page_dmatrix.h"            // for SparsePageDMatrix
+#include "array_interface.h"                  // for ArrayInterfaceHandler, ArrayInterface, Dispa...
+#include "cat_container.h"                    // for CatContainer
+#include "dmlc/base.h"                        // for BeginPtr
+#include "dmlc/common.h"                      // for OMPException
+#include "dmlc/data.h"                        // for Parser
+#include "dmlc/endian.h"                      // for ByteSwap, DMLC_IO_NO_ENDIAN_SWAP
+#include "dmlc/io.h"                          // for Stream
+#include "dmlc/thread_local.h"                // for ThreadLocalStore
+#include "ellpack_page.h"                     // for EllpackPage
+#include "file_iterator.h"                    // for ValidateFileFormat, FileIterator, Next, Reset
+#include "gradient_index.h"                   // for GHistIndexMatrix
+#include "simple_dmatrix.h"                   // for SimpleDMatrix
+#include "sparse_page_writer.h"               // for SparsePageFormatReg
+#include "validation.h"                       // for LabelsCheck, WeightsCheck, ValidateQueryGroup
+#include "xgboost/base.h"                     // for bst_group_t, bst_idx_t, bst_float, bst_ulong
+#include "xgboost/context.h"                  // for Context
+#include "xgboost/host_device_vector.h"       // for HostDeviceVector
+#include "xgboost/learner.h"                  // for HostDeviceVector
+#include "xgboost/linalg.h"                   // for Tensor, Stack, TensorView, Vector, ArrayInte...
+#include "xgboost/logging.h"                  // for Error, LogCheck_EQ, CHECK, CHECK_EQ, LOG
+#include "xgboost/span.h"                     // for Span, operator!=, SpanIterator
+#include "xgboost/string_view.h"              // for operator==, operator<<, StringView
 
 namespace dmlc {
 DMLC_REGISTRY_ENABLE(::xgboost::data::SparsePageFormatReg<::xgboost::SparsePage>);
@@ -197,6 +200,8 @@ namespace xgboost {
 
 uint64_t constexpr MetaInfo::kNumField;
 
+MetaInfo::MetaInfo() : cats_{std::make_shared<CatContainer>()} {}
+
 // implementation of inline functions
 void MetaInfo::Clear() {
   num_row_ = num_col_ = num_nonzero_ = 0;
@@ -223,6 +228,7 @@ void MetaInfo::Clear() {
  * | feature_names      | kStr     | False     | ${size}     |           1 | ${feature_names}       |
  * | feature_types      | kStr     | False     | ${size}     |           1 | ${feature_types}       |
  * | feature_weights    | kFloat32 | False     | ${size}     |           1 | ${feature_weights}     |
+ * | cats               | kStr     | False     | ${size}     |           1 | ${cats}     |
  *
  * Note that the scalar fields (is_scalar=True) will have num_row and num_col missing.
  * Also notice the difference between the saved name and the name used in `SetInfo':
@@ -248,12 +254,20 @@ void MetaInfo::SaveBinary(dmlc::Stream *fo) const {
   SaveVectorField(fo, u8"labels_upper_bound", DataType::kFloat32,
                   {labels_upper_bound_.Size(), 1}, labels_upper_bound_); ++field_cnt;
 
-  SaveVectorField(fo, u8"feature_names", DataType::kStr,
-                  {feature_names.size(), 1}, feature_names); ++field_cnt;
-  SaveVectorField(fo, u8"feature_types", DataType::kStr,
-                  {feature_type_names.size(), 1}, feature_type_names); ++field_cnt;
+  SaveVectorField(fo, u8"feature_names", DataType::kStr, {feature_names.size(), 1}, feature_names);
+  ++field_cnt;
+  SaveVectorField(fo, u8"feature_types", DataType::kStr, {feature_type_names.size(), 1},
+                  feature_type_names);
+  ++field_cnt;
   SaveVectorField(fo, u8"feature_weights", DataType::kFloat32, {feature_weights.Size(), 1},
                   feature_weights);
+  ++field_cnt;
+
+  Json jcats{Object{}};
+  this->cats_->Save(&jcats);
+  std::vector<char> values;
+  Json::Dump(jcats, &values, std::ios::binary);
+  SaveVectorField(fo, u8"cats", DataType::kStr, {values.size(), 1}, values);
   ++field_cnt;
 
   CHECK_EQ(field_cnt, kNumField) << "Wrong number of fields";
@@ -301,6 +315,7 @@ const std::vector<size_t>& MetaInfo::LabelAbsSort(Context const* ctx) const {
 void MetaInfo::LoadBinary(dmlc::Stream *fi) {
   auto version = Version::Load(fi);
   auto major = std::get<0>(version);
+  auto minor = std::get<1>(version);
   // MetaInfo is saved in `SparsePageSource'.  So the version in MetaInfo represents the
   // version of DMatrix.
   std::stringstream msg;
@@ -308,11 +323,8 @@ void MetaInfo::LoadBinary(dmlc::Stream *fi) {
       << " is no longer supported. "
       << "Please process and save your data in current version: "
       << Version::String(Version::Self()) << " again.";
-  CHECK_GE(major, 1) << msg.str();
-  if (major == 1) {
-    auto minor = std::get<1>(version);
-    CHECK_GE(minor, 6) << msg.str();
-  }
+  CHECK_GE(major, 3) << msg.str();
+  CHECK_GE(minor, 1) << msg.str();
 
   const uint64_t expected_num_field = kNumField;
   uint64_t num_field { 0 };
@@ -348,10 +360,17 @@ void MetaInfo::LoadBinary(dmlc::Stream *fi) {
   LoadVectorField(fi, u8"feature_weights", DataType::kFloat32, &feature_weights);
 
   this->has_categorical_ = LoadFeatureType(feature_type_names, &feature_types.HostVector());
+
+  std::vector<char> values;
+  LoadVectorField(fi, u8"cats", DataType::kStr, &values);
+  auto jcats = Json::Load(StringView{values.data(), values.size()}, std::ios::binary);
+  this->cats_->Load(jcats);
 }
 
+namespace {
 template <typename T>
-std::vector<T> Gather(const std::vector<T> &in, common::Span<int const> ridxs, size_t stride = 1) {
+std::vector<T> Gather(const std::vector<T>& in, common::Span<bst_idx_t const> ridxs,
+                      size_t stride = 1) {
   if (in.empty()) {
     return {};
   }
@@ -360,16 +379,56 @@ std::vector<T> Gather(const std::vector<T> &in, common::Span<int const> ridxs, s
   for (auto i = 0ull; i < size; i++) {
     auto ridx = ridxs[i];
     for (size_t j = 0; j < stride; ++j) {
-      out[i * stride +j] = in[ridx * stride + j];
+      out[i * stride + j] = in[ridx * stride + j];
     }
   }
   return out;
 }
+}  // namespace
 
-MetaInfo MetaInfo::Slice(common::Span<int32_t const> ridxs) const {
+namespace cuda_impl {
+void SliceMetaInfo(Context const* ctx, MetaInfo const& info, common::Span<bst_idx_t const> ridx,
+                   MetaInfo* p_out);
+#if !defined(XGBOOST_USE_CUDA)&& !defined(XGBOOST_USE_HIP)
+void SliceMetaInfo(Context const*, MetaInfo const&, common::Span<bst_idx_t const>, MetaInfo*) {
+  common::AssertGPUSupport();
+}
+#endif
+}  // namespace cuda_impl
+
+MetaInfo MetaInfo::Slice(Context const* ctx, common::Span<bst_idx_t const> ridxs,
+                         bst_idx_t nnz) const {
+  /**
+   * Shape
+   */
   MetaInfo out;
   out.num_row_ = ridxs.size();
   out.num_col_ = this->num_col_;
+  out.num_nonzero_ = nnz;
+
+  /**
+   * Feature Info
+   */
+  out.feature_weights.SetDevice(ctx->Device());
+  out.feature_weights.Resize(this->feature_weights.Size());
+  out.feature_weights.Copy(this->feature_weights);
+
+  out.feature_names = this->feature_names;
+
+  out.feature_types.SetDevice(ctx->Device());
+  out.feature_types.Resize(this->feature_types.Size());
+  out.feature_types.Copy(this->feature_types);
+
+  out.feature_type_names = this->feature_type_names;
+
+  /**
+   * Sample Info
+   */
+  if (ctx->IsCUDA()) {
+    cuda_impl::SliceMetaInfo(ctx, *this, ridxs, &out);
+    return out;
+  }
+
   // Groups is maintained by a higher level Python function.  We should aim at deprecating
   // the slice function.
   if (this->labels.Size() != this->num_row_) {
@@ -385,13 +444,11 @@ MetaInfo MetaInfo::Slice(common::Span<int32_t const> ridxs) const {
     });
   }
 
-  out.labels_upper_bound_.HostVector() =
-      Gather(this->labels_upper_bound_.HostVector(), ridxs);
-  out.labels_lower_bound_.HostVector() =
-      Gather(this->labels_lower_bound_.HostVector(), ridxs);
+  out.labels_upper_bound_.HostVector() = Gather(this->labels_upper_bound_.HostVector(), ridxs);
+  out.labels_lower_bound_.HostVector() = Gather(this->labels_lower_bound_.HostVector(), ridxs);
   // weights
   if (this->weights_.Size() + 1 == this->group_ptr_.size()) {
-    auto& h_weights =  out.weights_.HostVector();
+    auto& h_weights = out.weights_.HostVector();
     // Assuming all groups are available.
     out.weights_.HostVector() = h_weights;
   } else {
@@ -413,14 +470,6 @@ MetaInfo MetaInfo::Slice(common::Span<int32_t const> ridxs) const {
     });
   }
 
-  out.feature_weights.Resize(this->feature_weights.Size());
-  out.feature_weights.Copy(this->feature_weights);
-
-  out.feature_names = this->feature_names;
-  out.feature_types.Resize(this->feature_types.Size());
-  out.feature_types.Copy(this->feature_types);
-  out.feature_type_names = this->feature_type_names;
-
   return out;
 }
 
@@ -432,7 +481,7 @@ MetaInfo MetaInfo::Copy() const {
 
 namespace {
 template <int32_t D, typename T>
-void CopyTensorInfoImpl(Context const& ctx, Json arr_interface, linalg::Tensor<T, D>* p_out) {
+void CopyTensorInfoImpl(Context const* ctx, Json arr_interface, linalg::Tensor<T, D>* p_out) {
   ArrayInterface<D> array{arr_interface};
   if (array.n == 0) {
     p_out->Reshape(array.shape);
@@ -456,7 +505,7 @@ void CopyTensorInfoImpl(Context const& ctx, Json arr_interface, linalg::Tensor<T
   CHECK(t_out.CContiguous());
   auto const shape = t_out.Shape();
   DispatchDType(array, DeviceOrd::CPU(), [&](auto&& in) {
-    linalg::ElementWiseTransformHost(t_out, ctx.Threads(), [&](auto i, auto) {
+    linalg::ElementWiseTransformHost(t_out, ctx->Threads(), [&](auto i, auto) {
       return std::apply(in, linalg::UnravelIndex<D>(i, shape));
     });
   });
@@ -480,13 +529,13 @@ void MetaInfo::SetInfo(Context const& ctx, StringView key, StringView interface_
   }
 
   if (is_cuda) {
-    this->SetInfoFromCUDA(ctx, key, j_interface);
+    this->SetInfoFromCUDA(&ctx, key, j_interface);
   } else {
-    this->SetInfoFromHost(ctx, key, j_interface);
+    this->SetInfoFromHost(&ctx, key, j_interface);
   }
 }
 
-void MetaInfo::SetInfoFromHost(Context const& ctx, StringView key, Json arr) {
+void MetaInfo::SetInfoFromHost(Context const* ctx, StringView key, Json arr) {
   // multi-dim float info
   if (key == "base_margin") {
     CopyTensorInfoImpl(ctx, arr, &this->base_margin_);
@@ -505,7 +554,9 @@ void MetaInfo::SetInfoFromHost(Context const& ctx, StringView key, Json arr) {
   } else if (key == "label") {
     CopyTensorInfoImpl(ctx, arr, &this->labels);
     if (this->num_row_ != 0 && this->labels.Shape(0) != this->num_row_) {
-      CHECK_EQ(this->labels.Size() % this->num_row_, 0) << "Incorrect size for labels.";
+      CHECK_EQ(this->labels.Size() % this->num_row_, 0)
+          << "Incorrect size for labels: (" << this->labels.Shape(0) << "," << this->labels.Shape(1)
+          << ") v.s. " << this->num_row_;
       size_t n_targets = this->labels.Size() / this->num_row_;
       this->labels.Reshape(this->num_row_, n_targets);
     }
@@ -711,6 +762,10 @@ void MetaInfo::Extend(MetaInfo const& that, bool accumulate_rows, bool check_col
     this->feature_names = that.feature_names;
   }
 
+  if (!this->feature_types.Empty()) {
+    data::CheckFeatureTypes(this->feature_types, that.feature_types);
+  }
+
   if (!that.feature_type_names.empty()) {
     this->feature_type_names = that.feature_type_names;
     auto& h_feature_types = feature_types.HostVector();
@@ -730,7 +785,8 @@ void MetaInfo::Extend(MetaInfo const& that, bool accumulate_rows, bool check_col
   }
 }
 
-void MetaInfo::SynchronizeNumberOfColumns(Context const* ctx) {
+void MetaInfo::SynchronizeNumberOfColumns(Context const* ctx, DataSplitMode split_mode) {
+  this->data_split_mode = split_mode;
   auto op = IsColumnSplit() ? collective::Op::kSum : collective::Op::kMax;
   auto rc = collective::Allreduce(ctx, linalg::MakeVec(&num_col_, 1), op);
   collective::SafeColl(rc);
@@ -800,8 +856,8 @@ void MetaInfo::Validate(DeviceOrd device) const {
 }
 
 #if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
-void MetaInfo::SetInfoFromCUDA(Context const&, StringView, Json) { common::AssertGPUSupport(); }
-#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
+void MetaInfo::SetInfoFromCUDA(Context const*, StringView, Json) { common::AssertGPUSupport(); }
+#endif  // !defined(XGBOOST_USE_CUDA)
 
 bool MetaInfo::IsVerticalFederated() const {
   return collective::IsFederated() && IsColumnSplit();
@@ -809,6 +865,19 @@ bool MetaInfo::IsVerticalFederated() const {
 
 bool MetaInfo::ShouldHaveLabels() const {
   return !IsVerticalFederated() || collective::GetRank() == 0;
+}
+
+[[nodiscard]] CatContainer const* MetaInfo::Cats() const { return this->cats_.get(); }
+[[nodiscard]] CatContainer* MetaInfo::Cats() { return this->cats_.get(); }
+
+[[nodiscard]] std::shared_ptr<CatContainer const> MetaInfo::CatsShared() const {
+  return this->cats_;
+}
+
+void MetaInfo::Cats(std::shared_ptr<CatContainer> cats) {
+  this->cats_ = std::move(cats);
+  CHECK_LT(cats_->NumCatsTotal(),
+           static_cast<decltype(cats->NumCatsTotal())>(std::numeric_limits<bst_cat_t>::max()));
 }
 
 using DMatrixThreadLocal =
@@ -838,8 +907,8 @@ DMatrix* TryLoadBinary(std::string fname, bool silent) {
       if (magic == data::SimpleDMatrix::kMagic) {
         DMatrix* dmat = new data::SimpleDMatrix(&is);
         if (!silent) {
-          LOG(CONSOLE) << dmat->Info().num_row_ << 'x' << dmat->Info().num_col_ << " matrix with "
-                       << dmat->Info().num_nonzero_ << " entries loaded from " << fname;
+          LOG(INFO) << dmat->Info().num_row_ << 'x' << dmat->Info().num_col_ << " matrix with "
+                    << dmat->Info().num_nonzero_ << " entries loaded from " << fname;
         }
         return dmat;
       }
@@ -850,16 +919,10 @@ DMatrix* TryLoadBinary(std::string fname, bool silent) {
 }  // namespace
 
 DMatrix* DMatrix::Load(const std::string& uri, bool silent, DataSplitMode data_split_mode) {
-  std::string fname, cache_file;
   auto dlm_pos = uri.find('#');
-  if (dlm_pos != std::string::npos) {
-    cache_file = uri.substr(dlm_pos + 1, uri.length());
-    fname = uri.substr(0, dlm_pos);
-    CHECK_EQ(cache_file.find('#'), std::string::npos)
-        << "Only one `#` is allowed in file path for cache file specification.";
-  } else {
-    fname = uri;
-  }
+  CHECK(dlm_pos == std::string::npos)
+      << "External memory training with text input has been removed.";
+  std::string fname = uri;
 
   // legacy handling of binary data loading
   DMatrix* loaded = TryLoadBinary(fname, silent);
@@ -868,61 +931,62 @@ DMatrix* DMatrix::Load(const std::string& uri, bool silent, DataSplitMode data_s
   }
 
   int partid = 0, npart = 1;
-  DMatrix* dmat{};
 
-  if (cache_file.empty()) {
-    fname = data::ValidateFileFormat(fname);
-    std::unique_ptr<dmlc::Parser<std::uint32_t>> parser(
-        dmlc::Parser<std::uint32_t>::Create(fname.c_str(), partid, npart, "auto"));
-    data::FileAdapter adapter(parser.get());
-    dmat = DMatrix::Create(&adapter, std::numeric_limits<float>::quiet_NaN(), Context{}.Threads(),
-                           cache_file, data_split_mode);
-  } else {
-    CHECK(data_split_mode != DataSplitMode::kCol)
-        << "Column-wise data split is not supported for external memory.";
-    data::FileIterator iter{fname, static_cast<uint32_t>(partid), static_cast<uint32_t>(npart)};
-    dmat = new data::SparsePageDMatrix{&iter,
-                                       iter.Proxy(),
-                                       data::fileiter::Reset,
-                                       data::fileiter::Next,
-                                       std::numeric_limits<float>::quiet_NaN(),
-                                       1,
-                                       cache_file};
-  }
+  static std::once_flag warning_flag;
+  std::call_once(warning_flag, []() {
+    LOG(WARNING) << "Text file input has been deprecated since 3.1";
+  });
 
-  return dmat;
+  fname = data::ValidateFileFormat(fname);
+  std::unique_ptr<dmlc::Parser<std::uint32_t>> parser(
+      dmlc::Parser<std::uint32_t>::Create(fname.c_str(), partid, npart, "auto"));
+  data::FileAdapter adapter(parser.get());
+  return DMatrix::Create(&adapter, std::numeric_limits<float>::quiet_NaN(), Context{}.Threads(), "",
+                         data_split_mode);
 }
 
 template <typename DataIterHandle, typename DMatrixHandle, typename DataIterResetCallback,
           typename XGDMatrixCallbackNext>
 DMatrix* DMatrix::Create(DataIterHandle iter, DMatrixHandle proxy, std::shared_ptr<DMatrix> ref,
                          DataIterResetCallback* reset, XGDMatrixCallbackNext* next, float missing,
-                         int nthread, bst_bin_t max_bin) {
-  return new data::IterativeDMatrix(iter, proxy, ref, reset, next, missing, nthread, max_bin);
+                         int nthread, bst_bin_t max_bin, std::int64_t max_quantile_blocks) {
+  return new data::IterativeDMatrix(iter, proxy, ref, reset, next, missing, nthread, max_bin,
+                                    max_quantile_blocks);
 }
 
-template <typename DataIterHandle, typename DMatrixHandle,
-          typename DataIterResetCallback, typename XGDMatrixCallbackNext>
-DMatrix *DMatrix::Create(DataIterHandle iter, DMatrixHandle proxy,
-                         DataIterResetCallback *reset,
-                         XGDMatrixCallbackNext *next, float missing,
-                         int32_t n_threads,
-                         std::string cache) {
-  return new data::SparsePageDMatrix(iter, proxy, reset, next, missing, n_threads,
-                                     cache);
+template <typename DataIterHandle, typename DMatrixHandle, typename DataIterResetCallback,
+          typename XGDMatrixCallbackNext>
+DMatrix* DMatrix::Create(DataIterHandle iter, DMatrixHandle proxy, DataIterResetCallback* reset,
+                         XGDMatrixCallbackNext* next, ExtMemConfig const& config) {
+  return new data::SparsePageDMatrix{iter, proxy, reset, next, config};
 }
+
+template <typename DataIterHandle, typename DMatrixHandle, typename DataIterResetCallback,
+          typename XGDMatrixCallbackNext>
+DMatrix* DMatrix::Create(DataIterHandle iter, DMatrixHandle proxy, std::shared_ptr<DMatrix> ref,
+                         DataIterResetCallback* reset, XGDMatrixCallbackNext* next,
+                         bst_bin_t max_bin, std::int64_t max_quantile_blocks,
+                         ExtMemConfig const& config) {
+  return new data::ExtMemQuantileDMatrix{
+      iter, proxy, ref, reset, next, max_bin, max_quantile_blocks, config};
+}
+
+template DMatrix*
+DMatrix::Create<DataIterHandle, DMatrixHandle, DataIterResetCallback, XGDMatrixCallbackNext>(
+    DataIterHandle iter, DMatrixHandle proxy, std::shared_ptr<DMatrix> ref,
+    DataIterResetCallback* reset, XGDMatrixCallbackNext* next, float missing, int nthread,
+    int max_bin, std::int64_t max_quantile_blocks);
 
 template DMatrix* DMatrix::Create<DataIterHandle, DMatrixHandle, DataIterResetCallback,
                                   XGDMatrixCallbackNext>(DataIterHandle iter, DMatrixHandle proxy,
-                                                         std::shared_ptr<DMatrix> ref,
                                                          DataIterResetCallback* reset,
-                                                         XGDMatrixCallbackNext* next, float missing,
-                                                         int nthread, int max_bin);
+                                                         XGDMatrixCallbackNext* next,
+                                                         ExtMemConfig const&);
 
-template DMatrix *DMatrix::Create<DataIterHandle, DMatrixHandle,
-                                  DataIterResetCallback, XGDMatrixCallbackNext>(
-    DataIterHandle iter, DMatrixHandle proxy, DataIterResetCallback *reset,
-    XGDMatrixCallbackNext *next, float missing, int32_t n_threads, std::string);
+template DMatrix*
+DMatrix::Create<DataIterHandle, DMatrixHandle, DataIterResetCallback, XGDMatrixCallbackNext>(
+    DataIterHandle, DMatrixHandle, std::shared_ptr<DMatrix>, DataIterResetCallback*,
+    XGDMatrixCallbackNext*, bst_bin_t, std::int64_t, ExtMemConfig const&);
 
 template <typename AdapterT>
 DMatrix* DMatrix::Create(AdapterT* adapter, float missing, int nthread, const std::string&,
@@ -938,9 +1002,6 @@ DMatrix* DMatrix::Create(AdapterT* adapter, float missing, int nthread, const st
 
 INSTANTIATION_CREATE(DenseAdapter)
 INSTANTIATION_CREATE(ArrayAdapter)
-INSTANTIATION_CREATE(CSRAdapter)
-INSTANTIATION_CREATE(CSCAdapter)
-INSTANTIATION_CREATE(DataTableAdapter)
 INSTANTIATION_CREATE(FileAdapter)
 INSTANTIATION_CREATE(CSRArrayAdapter)
 INSTANTIATION_CREATE(CSCArrayAdapter)
@@ -950,7 +1011,7 @@ INSTANTIATION_CREATE(ColumnarAdapter)
 
 template DMatrix* DMatrix::Create(
     data::IteratorAdapter<DataIterHandle, XGBCallbackDataIterNext, XGBoostBatchCSR>* adapter,
-    float missing, int nthread, const std::string& cache_prefix, DataSplitMode data_split_mode);
+    float missing, int nthread, std::string const& cache_prefix, DataSplitMode data_split_mode);
 
 SparsePage SparsePage::GetTranspose(int num_columns, int32_t n_threads) const {
   SparsePage transpose;
@@ -1050,7 +1111,7 @@ void SparsePage::Push(const SparsePage &batch) {
 }
 
 template <typename AdapterBatchT>
-uint64_t SparsePage::Push(const AdapterBatchT& batch, float missing, int nthread) {
+bst_idx_t SparsePage::Push(AdapterBatchT const& batch, float missing, std::int32_t nthread) {
   constexpr bool kIsRowMajor = AdapterBatchT::kIsRowMajor;
   // Allow threading only for row-major case as column-major requires O(nthread*batch_size) memory
   nthread = kIsRowMajor ? nthread : 1;
@@ -1208,21 +1269,19 @@ void SparsePage::PushCSC(const SparsePage &batch) {
   self_offset = std::move(offset);
 }
 
-template uint64_t SparsePage::Push(const data::DenseAdapterBatch& batch, float missing,
-                                   int nthread);
-template uint64_t SparsePage::Push(const data::ArrayAdapterBatch& batch, float missing,
-                                   int nthread);
-template uint64_t SparsePage::Push(const data::CSRAdapterBatch& batch, float missing, int nthread);
-template uint64_t SparsePage::Push(const data::CSRArrayAdapterBatch& batch, float missing,
-                                   int nthread);
-template uint64_t SparsePage::Push(const data::CSCArrayAdapterBatch& batch, float missing,
-                                   int nthread);
-template uint64_t SparsePage::Push(const data::CSCAdapterBatch& batch, float missing, int nthread);
-template uint64_t SparsePage::Push(const data::DataTableAdapterBatch& batch, float missing,
-                                   int nthread);
-template uint64_t SparsePage::Push(const data::FileAdapterBatch& batch, float missing, int nthread);
-template uint64_t SparsePage::Push(const data::ColumnarAdapterBatch& batch, float missing,
-                                   std::int32_t nthread);
+#define INSTANTIATE_PUSH(__BATCH_T)                                                    \
+  template std::uint64_t SparsePage::Push(const data::__BATCH_T& batch, float missing, \
+                                          std::int32_t nthread);
+
+INSTANTIATE_PUSH(DenseAdapterBatch)
+INSTANTIATE_PUSH(ArrayAdapterBatch)
+INSTANTIATE_PUSH(CSRArrayAdapterBatch)
+INSTANTIATE_PUSH(CSCArrayAdapterBatch)
+INSTANTIATE_PUSH(FileAdapterBatch)
+INSTANTIATE_PUSH(ColumnarAdapterBatch)
+INSTANTIATE_PUSH(EncColumnarAdapterBatch)
+
+#undef INSTANTIATE_PUSH
 
 namespace data {
 // List of files that will be force linked in static links.

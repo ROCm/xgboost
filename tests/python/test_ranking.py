@@ -13,7 +13,7 @@ import xgboost
 from xgboost import testing as tm
 from xgboost.testing.data import RelDataCV, simulate_clicks, sort_ltr_samples
 from xgboost.testing.params import lambdarank_parameter_strategy
-from xgboost.testing.ranking import run_normalization
+from xgboost.testing.ranking import run_normalization, run_score_normalization
 
 
 def test_ndcg_custom_gain():
@@ -67,6 +67,28 @@ def test_ndcg_custom_gain():
     assert (
         history["validation_0"]["ndcg@32"][0] < history["validation_0"]["ndcg@32"][-1]
     )
+
+
+def test_ndcg_non_exp() -> None:
+    # NDCG exp gain must have label smaller than 32
+    X, y, q, w = tm.make_ltr(n_samples=1024, n_features=4, n_query_groups=3, max_rel=44)
+
+    def fit(ltr: xgboost.XGBRanker):
+        ltr.fit(
+            X,
+            y,
+            qid=q,
+            sample_weight=w,
+            eval_set=[(X, y)],
+            eval_qid=(q,),
+            sample_weight_eval_set=(w,),
+        )
+
+    ltr = xgboost.XGBRanker(tree_method="hist", ndcg_exp_gain=True, n_estimators=2)
+    with pytest.raises(ValueError, match="Set `ndcg_exp_gain`"):
+        fit(ltr)
+    ltr = xgboost.XGBRanker(tree_method="hist", ndcg_exp_gain=False, n_estimators=2)
+    fit(ltr)
 
 
 def test_ranking_with_unweighted_data():
@@ -191,7 +213,7 @@ def test_unbiased() -> None:
         lambdarank_pair_method="topk",
         objective="rank:ndcg",
         callbacks=[Position()],
-        boost_from_average=0,
+        base_score=0.5,
     )
     ltr.fit(x, c, qid=q, eval_set=[(x, c)], eval_qid=[q])
 
@@ -213,13 +235,18 @@ def test_normalization() -> None:
     run_normalization("cpu")
 
 
+@pytest.mark.parametrize("objective", ["rank:pairwise", "rank:ndcg", "rank:map"])
+def test_score_normalization(objective: str) -> None:
+    run_score_normalization("cpu", objective)
+
+
 class TestRanking:
     @classmethod
     def setup_class(cls):
         """
         Download and setup the test fixtures
         """
-        cls.dpath = 'demo/rank/'
+        cls.dpath = "demo/"
         (x_train, y_train, qid_train, x_test, y_test, qid_test,
          x_valid, y_valid, qid_valid) = tm.data.get_mq2008(cls.dpath)
 

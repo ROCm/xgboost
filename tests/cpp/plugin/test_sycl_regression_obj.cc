@@ -45,15 +45,76 @@ TEST(SyclObjective, LogisticRawGPair) {
   TestsLogisticRawGPair(&ctx);
 }
 
-TEST(SyclObjective, CPUvsSycl) {
+TEST(SyclObjective, PoissonRegressionGPair) {
   Context ctx;
   ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
-  ObjFunction * obj_sycl =
-      ObjFunction::Create("reg:squarederror_sycl", &ctx);
+  TestPoissonRegressionGPair(&ctx);
+}
 
-  ctx = ctx.MakeCPU();
+TEST(SyclObjective, PoissonRegressionBasic) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestPoissonRegressionBasic(&ctx);
+}
+
+TEST(SyclObjective, GammaRegressionGPair) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestGammaRegressionGPair(&ctx);
+}
+
+TEST(SyclObjective, GammaRegressionBasic) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestGammaRegressionBasic(&ctx);
+}
+
+TEST(SyclObjective, TweedieRegressionGPair) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestTweedieRegressionGPair(&ctx);
+}
+
+TEST(SyclObjective, TweedieRegressionBasic) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestTweedieRegressionBasic(&ctx);
+}
+
+TEST(SyclObjective, CoxRegressionGPair) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestCoxRegressionGPair(&ctx);
+}
+
+TEST(SyclObjective, AbsoluteError) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestAbsoluteError(&ctx);
+}
+
+TEST(SyclObjective, AbsoluteErrorLeaf) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestAbsoluteErrorLeaf(&ctx);
+}
+
+TEST(SyclObjective, DeclareUnifiedTest(PseudoHuber)) {
+  Context ctx;
+  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  TestPseudoHuber(&ctx);
+}
+
+TEST(SyclObjective, CPUvsSycl) {
+  Context ctx_sycl;
+  ctx_sycl.UpdateAllowUnknown(Args{{"device", "sycl"}});
+  ObjFunction * obj_sycl =
+      ObjFunction::Create("reg:squarederror", &ctx_sycl);
+
+  Context ctx_cpu;
+  ctx_cpu.UpdateAllowUnknown(Args{{"device", "cpu"}});
   ObjFunction * obj_cpu =
-      ObjFunction::Create("reg:squarederror", &ctx);
+      ObjFunction::Create("reg:squarederror", &ctx_cpu);
 
   linalg::Matrix<GradientPair> cpu_out_preds;
   linalg::Matrix<GradientPair> sycl_out_preds;

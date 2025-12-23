@@ -1,36 +1,47 @@
 /**
- * Copyright 2022-2023 by XGBoost Contributors
+ * Copyright 2022-2025, XGBoost Contributors
  */
 #ifndef XGBOOST_COMMON_ALGORITHM_CUH_
 #define XGBOOST_COMMON_ALGORITHM_CUH_
 
-#include <thrust/copy.h>       // copy
-#include <thrust/sort.h>       // stable_sort_by_key
-#include <thrust/tuple.h>      // tuple,get
+#include <thrust/copy.h>                         // for copy
+#include <thrust/iterator/counting_iterator.h>   // for make_counting_iterator
+#include <thrust/sort.h>                         // for stable_sort_by_key
+#include <thrust/tuple.h>                        // for tuple, get
 
-#include <cstddef>             // size_t
-#include <cstdint>             // int32_t
+#include <cstddef>      // size_t
+#include <cstdint>      // int32_t
 
 #if defined(XGBOOST_USE_CUDA)
-#include <cub/cub.cuh>         // DispatchSegmentedRadixSort,NullType,DoubleBuffer
+#include <cub/cub.cuh>  // DispatchSegmentedRadixSort,NullType,DoubleBuffer
 #elif defined(XGBOOST_USE_HIP)
 #include <hipcub/hipcub.hpp>
 #endif
 
-#include <iterator>            // distance
-#include <limits>              // numeric_limits
-#include <type_traits>         // conditional_t,remove_const_t
+#include <iterator>     // distance
+#include <limits>       // numeric_limits
+#include <type_traits>  // conditional_t,remove_const_t
 
 #include "common.h"            // safe_cuda
 #include "cuda_context.cuh"    // CUDAContext
-#include "device_helpers.cuh"  // TemporaryArray,SegmentId,LaunchN,Iota,device_vector
+#include "device_helpers.cuh"  // TemporaryArray,SegmentId,LaunchN,Iota
+#include "device_vector.cuh"   // for device_vector
 #include "xgboost/base.h"      // XGBOOST_DEVICE
 #include "xgboost/context.h"   // Context
+#include "xgboost/linalg.h"    // for VectorView
 #include "xgboost/logging.h"   // CHECK
 #include "xgboost/span.h"      // Span,byte
 
 namespace xgboost::common {
 namespace detail {
+
+#if CUB_VERSION >= 300000
+  constexpr auto kCubSortOrderAscending = cub::SortOrder::Ascending;
+  constexpr auto kCubSortOrderDescending = cub::SortOrder::Descending;
+#else
+  constexpr bool kCubSortOrderAscending = false;
+  constexpr bool kCubSortOrderDescending = true;
+#endif
 
 // Wrapper around cub sort to define is_decending
 template <bool IS_DESCENDING, typename KeyT, typename BeginOffsetIteratorT,
@@ -49,8 +60,9 @@ static void DeviceSegmentedRadixSortKeys(CUDAContext const *ctx, void *d_temp_st
   cub::DoubleBuffer<KeyT> d_keys(const_cast<KeyT *>(d_keys_in), d_keys_out);
   cub::DoubleBuffer<cub::NullType> d_values;
 
+  constexpr auto kCubSortOrder = IS_DESCENDING ? kCubSortOrderDescending : kCubSortOrderAscending;
   dh::safe_cuda((cub::DispatchSegmentedRadixSort<
-                 IS_DESCENDING, KeyT, cub::NullType, BeginOffsetIteratorT, EndOffsetIteratorT,
+                 kCubSortOrder, KeyT, cub::NullType, BeginOffsetIteratorT, EndOffsetIteratorT,
                  OffsetT>::Dispatch(d_temp_storage, temp_storage_bytes, d_keys, d_values, num_items,
                                     num_segments, d_begin_offsets, d_end_offsets, begin_bit,
                                     end_bit, false, ctx->Stream(), debug_synchronous)));
@@ -84,7 +96,6 @@ void DeviceSegmentedRadixSortPair(void *d_temp_storage,
 #if defined(XGBOOST_USE_CUDA)
   cub::DoubleBuffer<KeyT> d_keys(const_cast<KeyT *>(d_keys_in), d_keys_out);
   cub::DoubleBuffer<ValueT> d_values(const_cast<ValueT *>(d_values_in), d_values_out);
-#endif
 
   // In old version of cub, num_items in dispatch is also int32_t, no way to change.
   using OffsetT = std::conditional_t<dh::BuildWithCUDACub() && dh::HasThrustMinorVer<13>(),
@@ -92,22 +103,22 @@ void DeviceSegmentedRadixSortPair(void *d_temp_storage,
   CHECK_LE(num_items, std::numeric_limits<OffsetT>::max());
   // For Thrust >= 1.12 or CUDA >= 11.4, we require system cub installation
 
-#if defined(XGBOOST_USE_CUDA)
+  constexpr auto kCubSortOrder = descending ? kCubSortOrderDescending : kCubSortOrderAscending;
 #if THRUST_MAJOR_VERSION >= 2
   dh::safe_cuda((cub::DispatchSegmentedRadixSort<
-                 descending, KeyT, ValueT, BeginOffsetIteratorT, EndOffsetIteratorT,
+                 kCubSortOrder, KeyT, ValueT, BeginOffsetIteratorT, EndOffsetIteratorT,
                  OffsetT>::Dispatch(d_temp_storage, temp_storage_bytes, d_keys, d_values, num_items,
                                     num_segments, d_begin_offsets, d_end_offsets, begin_bit,
                                     end_bit, false, stream)));
 #elif (THRUST_MAJOR_VERSION == 1 && THRUST_MINOR_VERSION >= 13)
   dh::safe_cuda((cub::DispatchSegmentedRadixSort<
-                 descending, KeyT, ValueT, BeginOffsetIteratorT, EndOffsetIteratorT,
+                 kCubSortOrder, KeyT, ValueT, BeginOffsetIteratorT, EndOffsetIteratorT,
                  OffsetT>::Dispatch(d_temp_storage, temp_storage_bytes, d_keys, d_values, num_items,
                                     num_segments, d_begin_offsets, d_end_offsets, begin_bit,
                                     end_bit, false, stream, false)));
 #else
   dh::safe_cuda(
-      (cub::DispatchSegmentedRadixSort<descending, KeyT, ValueT, BeginOffsetIteratorT,
+      (cub::DispatchSegmentedRadixSort<kCubSortOrder, KeyT, ValueT, BeginOffsetIteratorT,
                                        OffsetT>::Dispatch(d_temp_storage, temp_storage_bytes,
                                                           d_keys, d_values, num_items, num_segments,
                                                           d_begin_offsets, d_end_offsets, begin_bit,
@@ -228,8 +239,7 @@ void SegmentedArgMergeSort(Context const *ctx, SegIt seg_begin, SegIt seg_end, V
 
 #if defined(XGBOOST_USE_CUDA)
 template <bool accending, typename IdxT, typename U>
-void ArgSort(xgboost::Context const *ctx, xgboost::common::Span<U> keys,
-             xgboost::common::Span<IdxT> sorted_idx) {
+void ArgSort(Context const *ctx, Span<U> keys, Span<IdxT> sorted_idx) {
   std::size_t bytes = 0;
   auto cuctx = ctx->CUDACtx();
   dh::Iota(sorted_idx, cuctx->Stream());
@@ -246,47 +256,48 @@ void ArgSort(xgboost::Context const *ctx, xgboost::common::Span<U> keys,
   // track https://github.com/NVIDIA/cub/pull/340 for 64bit length support
   using OffsetT = std::conditional_t<!dh::BuildWithCUDACub(), std::ptrdiff_t, int32_t>;
   CHECK_LE(sorted_idx.size(), std::numeric_limits<OffsetT>::max());
+
   if (accending) {
     void *d_temp_storage = nullptr;
 #if THRUST_MAJOR_VERSION >= 2
-    dh::safe_cuda((cub::DispatchRadixSort<false, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderAscending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         cuctx->Stream())));
 #else
-    dh::safe_cuda((cub::DispatchRadixSort<false, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderAscending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         nullptr, false)));
 #endif
     dh::TemporaryArray<char> storage(bytes);
     d_temp_storage = storage.data().get();
 #if THRUST_MAJOR_VERSION >= 2
-    dh::safe_cuda((cub::DispatchRadixSort<false, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderAscending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         cuctx->Stream())));
 #else
-    dh::safe_cuda((cub::DispatchRadixSort<false, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderAscending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         nullptr, false)));
 #endif
   } else {
     void *d_temp_storage = nullptr;
 #if THRUST_MAJOR_VERSION >= 2
-    dh::safe_cuda((cub::DispatchRadixSort<true, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderDescending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         cuctx->Stream())));
 #else
-    dh::safe_cuda((cub::DispatchRadixSort<true, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderDescending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         nullptr, false)));
 #endif
     dh::TemporaryArray<char> storage(bytes);
     d_temp_storage = storage.data().get();
 #if THRUST_MAJOR_VERSION >= 2
-    dh::safe_cuda((cub::DispatchRadixSort<true, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderDescending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         cuctx->Stream())));
 #else
-    dh::safe_cuda((cub::DispatchRadixSort<true, KeyT, ValueT, OffsetT>::Dispatch(
+    dh::safe_cuda((cub::DispatchRadixSort<detail::kCubSortOrderDescending, KeyT, ValueT, OffsetT>::Dispatch(
         d_temp_storage, bytes, d_keys, d_values, sorted_idx.size(), 0, sizeof(KeyT) * 8, false,
         nullptr, false)));
 #endif
@@ -296,51 +307,192 @@ void ArgSort(xgboost::Context const *ctx, xgboost::common::Span<U> keys,
                                 sorted_idx.size_bytes(), cudaMemcpyDeviceToDevice,
                                 cuctx->Stream()));
 }
-#elif defined(XGBOOST_USE_HIP)
-template <bool accending, typename IdxT, typename U>
-void ArgSort(xgboost::Context const *ctx, xgboost::common::Span<U> keys,
-             xgboost::common::Span<IdxT> sorted_idx) {
-  std::size_t bytes = 0;
-  auto cuctx = ctx->CUDACtx();
-  dh::Iota(sorted_idx, cuctx->Stream());
-
-  using KeyT = typename decltype(keys)::value_type;
-  using ValueT = std::remove_const_t<IdxT>;
-
-  dh::TemporaryArray<KeyT> out(keys.size());
-  dh::TemporaryArray<IdxT> sorted_idx_out(sorted_idx.size());
-
-  // track https://github.com/NVIDIA/cub/pull/340 for 64bit length support
-  using OffsetT = std::conditional_t<!dh::BuildWithCUDACub(), std::ptrdiff_t, int32_t>;
-  CHECK_LE(sorted_idx.size(), std::numeric_limits<OffsetT>::max());
-  if (accending) {
-    void *d_temp_storage = nullptr;
-
-    dh::safe_cuda((rocprim::radix_sort_pairs(d_temp_storage,
-                    bytes, keys.data(), out.data().get(), sorted_idx.data(), sorted_idx_out.data().get(), sorted_idx.size(), 0,
-                    sizeof(KeyT) * 8, cuctx->Stream(), false)));
-
-    dh::TemporaryArray<char> storage(bytes);
-    d_temp_storage = storage.data().get();
-    dh::safe_cuda((rocprim::radix_sort_pairs(d_temp_storage,
-                    bytes, keys.data(), out.data().get(), sorted_idx.data(), sorted_idx_out.data().get(), sorted_idx.size(), 0,
-                    sizeof(KeyT) * 8, cuctx->Stream(), false)));
-  } else {
-    void *d_temp_storage = nullptr;
-
-    dh::safe_cuda((rocprim::radix_sort_pairs_desc(d_temp_storage,
-                    bytes, keys.data(), out.data().get(), sorted_idx.data(), sorted_idx_out.data().get(), sorted_idx.size(), 0,
-                    sizeof(KeyT) * 8, cuctx->Stream(), false)));
-    dh::TemporaryArray<char> storage(bytes);
-    d_temp_storage = storage.data().get();
-    dh::safe_cuda((rocprim::radix_sort_pairs_desc(d_temp_storage,
-                    bytes, keys.data(), out.data().get(), sorted_idx.data(), sorted_idx_out.data().get(), sorted_idx.size(), 0,
-                    sizeof(KeyT) * 8, cuctx->Stream(), false)));
-  }
-
-  dh::safe_cuda(hipMemcpyAsync(sorted_idx.data(), sorted_idx_out.data().get(),
-                            sorted_idx.size_bytes(), hipMemcpyDeviceToDevice, cuctx->Stream()));
-}
 #endif
+
+#if defined(XGBOOST_USE_HIP)
+template <bool ascending, typename IdxT, typename U>
+void ArgSort(Context const *ctx, Span<U> keys, Span<IdxT> sorted_idx) {
+    using KeyT = typename std::remove_const_t<U>;
+    using ValueT = std::remove_const_t<IdxT>;
+    auto cuctx = ctx->CUDACtx();
+    auto stream = cuctx->Stream(); 
+    size_t size = keys.size();
+
+    // 1. Initialize the indices (ValueT)
+    dh::Iota(sorted_idx, stream);
+
+    // 2. Prepare Double Buffers
+    // Temporary storage for keys and indices to facilitate ping-ponging
+    dh::TemporaryArray<KeyT> keys_alt(size);
+    dh::TemporaryArray<ValueT> idx_alt(size);
+
+    rocprim::double_buffer<KeyT> d_keys(const_cast<KeyT*>(keys.data()), keys_alt.data().get());
+    rocprim::double_buffer<ValueT> d_values(sorted_idx.data(), idx_alt.data().get());
+
+    // 3. Determine Temporary Storage Size
+    size_t temp_storage_bytes = 0;
+    if constexpr (ascending) {
+        rocprim::radix_sort_pairs(
+            nullptr, temp_storage_bytes,
+            d_keys, d_values, size,
+            0, sizeof(KeyT) * 8,
+            stream
+        );
+    } else {
+        rocprim::radix_sort_pairs_desc(
+            nullptr, temp_storage_bytes,
+            d_keys, d_values, size,
+            0, sizeof(KeyT) * 8,
+            stream
+        );
+    }
+
+    // 4. Allocate Temporary Storage and Execute Sort
+    dh::TemporaryArray<char> temp_storage(temp_storage_bytes);
+    
+    if constexpr (ascending) {
+        rocprim::radix_sort_pairs(
+            temp_storage.data().get(), temp_storage_bytes,
+            d_keys, d_values, size,
+            0, sizeof(KeyT) * 8,
+            stream
+        );
+    } else {
+        rocprim::radix_sort_pairs_desc(
+            temp_storage.data().get(), temp_storage_bytes,
+            d_keys, d_values, size,
+            0, sizeof(KeyT) * 8,
+            stream
+        );
+    }
+
+    // 5. Post-Sorting Nuance: Ensure results are in the user-provided 'sorted_idx'
+    // If the final 'current' buffer is the alternate buffer, we must copy it back.
+    if (d_values.current() != sorted_idx.data()) {
+        dh::safe_cuda(hipMemcpyAsync(
+            sorted_idx.data(), 
+            d_values.current(), 
+            sizeof(ValueT) * size, 
+            hipMemcpyDeviceToDevice, 
+            stream
+        ));
+    }
+}
+
+#endif // XGBOOST_USE_HIP
+
+template <typename InIt, typename OutIt, typename Predicate>
+void CopyIf(CUDAContext const *cuctx, InIt in_first, InIt in_second, OutIt out_first,
+            Predicate pred) {
+  // We loop over batches because thrust::copy_if can't deal with sizes > 2^31
+  // See thrust issue #1302, XGBoost #6822
+  size_t constexpr kMaxCopySize = std::numeric_limits<int>::max() / 2;
+  size_t length = std::distance(in_first, in_second);
+  for (size_t offset = 0; offset < length; offset += kMaxCopySize) {
+    auto begin_input = in_first + offset;
+    auto end_input = in_first + std::min(offset + kMaxCopySize, length);
+    out_first = thrust::copy_if(cuctx->CTP(), begin_input, end_input, out_first, pred);
+  }
+}
+
+// Go one level down into cub::DeviceScan API to set OffsetT as 64 bit So we don't crash
+// on n > 2^31.
+template <typename InputIteratorT, typename OutputIteratorT, typename ScanOpT, typename OffsetT>
+void InclusiveScan(xgboost::Context const *ctx, InputIteratorT d_in, OutputIteratorT d_out,
+                   ScanOpT scan_op, OffsetT num_items) {
+
+#if (defined(XGBOOST_USE_CUDA) && (CUB_VERSION >= 300000))
+  static_assert(std::is_unsigned_v<OffsetT>, "OffsetT must be unsigned");
+  static_assert(sizeof(OffsetT) >= 4, "OffsetT must be at least 4 bytes long");
+#endif
+  auto cuctx = ctx->CUDACtx();
+  std::size_t bytes = 0;
+#if defined(XGBOOST_USE_CUDA)
+#if THRUST_MAJOR_VERSION >= 2
+  dh::safe_cuda((
+      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
+          nullptr, bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr)));
+#else
+  safe_cuda((
+      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
+          nullptr, bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr, false)));
+#endif // THRUST_MAJOR_VERSION
+#endif // XGBOOST_USE_CUDA
+
+#if defined(XGBOOST_USE_HIP)
+		hipcub::DeviceScan::InclusiveScan(nullptr, bytes, d_in, d_out, scan_op, num_items, nullptr);
+#endif
+
+  dh::TemporaryArray<char> storage(bytes);
+
+#if defined(XGBOOST_USE_CUDA)
+#if THRUST_MAJOR_VERSION >= 2
+  dh::safe_cuda((
+      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
+          storage.data().get(), bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr)));
+#else
+  safe_cuda((
+      cub::DispatchScan<InputIteratorT, OutputIteratorT, ScanOpT, cub::NullType, OffsetT>::Dispatch(
+          storage.data().get(), bytes, d_in, d_out, scan_op, cub::NullType(), num_items, nullptr,
+          false)));
+#endif
+#endif
+
+#if defined(XGBOOST_USE_HIP)
+      hipcub::DeviceScan::InclusiveScan(storage.data().get(), bytes, d_in, d_out, scan_op, num_items, nullptr);
+#endif
+}
+
+template <typename InputIteratorT, typename OutputIteratorT, typename OffsetT>
+void InclusiveSum(Context const *ctx, InputIteratorT d_in, OutputIteratorT d_out,
+                  OffsetT num_items) {
+#if defined(XGBOOST_USE_CUDA)
+#if CUB_VERSION >= 300000
+  InclusiveScan(ctx, d_in, d_out, cuda::std::plus{}, num_items);
+#else
+  InclusiveScan(ctx, d_in, d_out, cub::Sum{}, num_items);
+#endif
+#endif
+#if defined(XGBOOST_USE_HIP)
+  InclusiveScan(ctx, d_in, d_out, std::plus{}, num_items);
+#endif
+
+}
+
+template <typename... Args>
+void RunLengthEncode(dh::CUDAStreamView stream, Args &&...args) {
+  std::size_t n_bytes = 0;
+  dh::safe_cuda(cub::DeviceRunLengthEncode::Encode(nullptr, n_bytes, args..., stream));
+  dh::CachingDeviceUVector<char> tmp(n_bytes);
+  dh::safe_cuda(cub::DeviceRunLengthEncode::Encode(tmp.data(), n_bytes, args..., stream));
+}
+
+template <typename... Args>
+void SegmentedSum(dh::CUDAStreamView stream, Args &&...args) {
+  std::size_t n_bytes = 0;
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Sum(nullptr, n_bytes, args..., stream));
+  dh::CachingDeviceUVector<char> tmp(n_bytes);
+  dh::safe_cuda(cub::DeviceSegmentedReduce::Sum(tmp.data(), n_bytes, args..., stream));
+}
+
+/**
+ * @brief Customized version of @ref thrust::all_of
+ *
+ * @ref thrust::all_of uses small intervals for early stop. But we often use this function
+ * to perform checks on data and in most cases need to walk through the entire dataset
+ * (like all data point is valid). This function uses @ref thrust::reduce to avoid
+ * excessive kernel launches and synchronizations.
+ */
+template <typename Policy, typename InputIt, typename Chk>
+[[nodiscard]] std::enable_if_t<
+    std::is_same_v<bool,
+                   std::invoke_result_t<Chk, typename std::iterator_traits<InputIt>::value_type>>,
+    bool>
+AllOf(Policy policy, InputIt first, InputIt second, Chk &&check) {
+  auto n = std::distance(first, second);
+  auto it =
+      dh::MakeIndexTransformIter([=] XGBOOST_DEVICE(std::size_t i) { return check(first[i]); });
+  return dh::Reduce(policy, it, it + n, true, thrust::logical_and<>{});
+}
 }  // namespace xgboost::common
 #endif  // XGBOOST_COMMON_ALGORITHM_CUH_

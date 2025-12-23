@@ -1,6 +1,6 @@
-#############################################
-XGBoost4J-Spark-GPU Tutorial (version 1.6.1+)
-#############################################
+############################
+XGBoost4J-Spark-GPU Tutorial
+############################
 
 **XGBoost4J-Spark-GPU** is an open source library aiming to accelerate distributed XGBoost training on Apache Spark cluster from
 end to end with GPUs by leveraging the `RAPIDS Accelerator for Apache Spark <https://nvidia.github.io/spark-rapids/>`_ product.
@@ -71,7 +71,7 @@ To make the Iris dataset recognizable to XGBoost, we need to encode the String-t
 label, i.e. "class", to the Double-typed label.
 
 One way to convert the String-typed label to Double is to use Spark's built-in feature transformer
-`StringIndexer <https://spark.apache.org/docs/2.3.1/api/scala/index.html#org.apache.spark.ml.feature.StringIndexer>`_.
+`StringIndexer <https://spark.apache.org/docs/latest/api/scala/org/apache/spark/ml/feature/StringIndexer.html>`_.
 But this feature is not accelerated in RAPIDS Accelerator, which means it will fall back
 to CPU. Instead, we use an alternative way to achieve the same goal with the following code:
 
@@ -107,10 +107,10 @@ With window operations, we have mapped the string column of labels to label indi
 Training
 ========
 
-The GPU version of XGBoost-Spark supports both regression and classification
+XGBoost4j-Spark-Gpu supports regression, classification and ranking
 models. Although we use the Iris dataset in this tutorial to show how we use
-``XGBoost/XGBoost4J-Spark-GPU`` to resolve a multi-classes classification problem, the
-usage in Regression is very similar to classification.
+``XGBoost4J-Spark-GPU`` to resolve a multi-classes classification problem, the
+usage in Regression and Ranking is very similar to classification.
 
 To train a XGBoost model for classification, we need to define a XGBoostClassifier first:
 
@@ -168,12 +168,13 @@ model can then be used in other tasks like prediction.
 Prediction
 ==========
 
-When we get a model, either a XGBoostClassificationModel or a XGBoostRegressionModel, it takes a DataFrame as an input,
+When we get a model, a XGBoostClassificationModel or a XGBoostRegressionModel or a XGBoostRankerModel, it takes a DataFrame as an input,
 reads the column containing feature vectors, predicts for each feature vector, and outputs a new DataFrame
 with the following columns by default:
 
 * XGBoostClassificationModel will output margins (``rawPredictionCol``), probabilities(``probabilityCol``) and the eventual prediction labels (``predictionCol``) for each possible label.
 * XGBoostRegressionModel will output prediction a label(``predictionCol``).
+* XGBoostRankerModel will output prediction a label(``predictionCol``).
 
 .. code-block:: scala
 
@@ -215,8 +216,9 @@ and the prediction for each instance.
 Submit the application
 **********************
 
-Assuming you have configured the Spark standalone cluster with GPU support. Otherwise, please
-refer to `spark standalone configuration with GPU support <https://nvidia.github.io/spark-rapids/docs/get-started/getting-started-on-prem.html#spark-standalone-cluster>`_.
+Assuming you have configured the Spark standalone cluster with GPU support. Otherwise,
+please refer to `spark standalone configuration with GPU support
+<https://docs.nvidia.com/spark-rapids/user-guide/latest/getting-started/on-premise.html>`__.
 
 Starting from XGBoost 2.1.0, stage-level scheduling is automatically enabled. Therefore,
 if you are using Spark standalone cluster version 3.4.0 or higher, we strongly recommend
@@ -226,25 +228,20 @@ would be ``"spark.task.resource.gpu.amount=1/spark.executor.cores"``. However, i
 using a XGBoost version earlier than 2.1.0 or a Spark standalone cluster version below 3.4.0,
 you still need to set ``"spark.task.resource.gpu.amount"`` equal to ``"spark.executor.resource.gpu.amount"``.
 
-.. note::
-
-  As of now, the stage-level scheduling feature in XGBoost is limited to the Spark standalone cluster mode.
-  However, we have plans to expand its compatibility to YARN and Kubernetes once Spark 3.5.1 is officially released.
-
-Assuming that the application main class is "Iris" and the application jar is "iris-1.0.0.jar",`
+Assuming that the application main class is "Iris" and the application jar is "iris-1.0.0.jar",
 provided below is an instance demonstrating how to submit the xgboost application to an Apache
 Spark Standalone cluster.
 
 .. code-block:: bash
 
-  rapids_version=23.10.0
-  xgboost_version=2.0.1
+  rapids_version=24.08.0
+  xgboost_version=$LATEST_VERSION
   main_class=Iris
   app_jar=iris-1.0.0.jar
 
   spark-submit \
     --master $master \
-    --packages com.nvidia:rapids-4-spark_2.12:${rapids_version},ml.dmlc:xgboost4j-gpu_2.12:${xgboost_version},ml.dmlc:xgboost4j-spark-gpu_2.12:${xgboost_version} \
+    --packages com.nvidia:rapids-4-spark_2.12:${rapids_version},ml.dmlc:xgboost4j-spark-gpu_2.12:${xgboost_version} \
     --conf spark.executor.cores=12 \
     --conf spark.task.cpus=1 \
     --conf spark.executor.resource.gpu.amount=1 \
@@ -255,10 +252,33 @@ Spark Standalone cluster.
     --class ${main_class} \
      ${app_jar}
 
-* First, we need to specify the ``RAPIDS Accelerator, xgboost4j-gpu, xgboost4j-spark-gpu`` packages by ``--packages``
+* First, we need to specify the ``RAPIDS Accelerator, xgboost4j-spark-gpu`` packages by ``--packages``
 * Second, ``RAPIDS Accelerator`` is a Spark plugin, so we need to configure it by specifying ``spark.plugins=com.nvidia.spark.SQLPlugin``
 
 For details about other ``RAPIDS Accelerator`` other configurations, please refer to the `configuration <https://nvidia.github.io/spark-rapids/docs/configs.html>`_.
 
 For ``RAPIDS Accelerator Frequently Asked Questions``, please refer to the
-`frequently-asked-questions <https://nvidia.github.io/spark-rapids/docs/FAQ.html#frequently-asked-questions>`_.
+`frequently-asked-questions <https://docs.nvidia.com/spark-rapids/user-guide/latest/faq.html>`_.
+
+***********
+RMM Support
+***********
+
+.. versionadded:: 3.0
+
+When compiled with the RMM plugin (see :doc:`/build`), the XGBoost spark package can reuse
+the RMM memory pool automatically based on `spark.rapids.memory.gpu.pooling.enabled` and
+`spark.rapids.memory.gpu.pool`. Please note that both submit options need to be set
+accordingly. In addition, XGBoost employs NCCL for GPU communication, which requires some
+GPU memory for communication buffers and one should not let RMM take all the available
+memory. Example configuration related to memory pool:
+
+.. code-block:: bash
+
+  spark-submit \
+    --master $master \
+    --conf spark.rapids.memory.gpu.allocFraction=0.5 \
+    --conf spark.rapids.memory.gpu.maxAllocFraction=0.8 \
+    --conf spark.rapids.memory.gpu.pool=ARENA \
+    --conf spark.rapids.memory.gpu.pooling.enabled=true \
+    ...

@@ -3,6 +3,7 @@
 import os
 import pickle
 import subprocess
+from typing import Any, Dict
 
 import numpy as np
 import pytest
@@ -71,14 +72,14 @@ class TestPickling:
         x, y = build_dataset()
         train_x = xgb.DMatrix(x, label=y)
 
-        param = {"tree_method": "gpu_hist", "gpu_id": 0}
+        param = {"tree_method": "hist", "device": "cuda"}
         bst = xgb.train(param, train_x)
         self.run_pickling(bst)
 
         bst = xgb.XGBRegressor(**param).fit(x, y)
         self.run_pickling(bst)
 
-        param = {"booster": "gblinear", "updater": "gpu_coord_descent", "gpu_id": 0}
+        param = {"booster": "gblinear", "updater": "coord_descent", "device": "cuda"}
         bst = xgb.train(param, train_x)
         self.run_pickling(bst)
 
@@ -91,7 +92,7 @@ class TestPickling:
         dtrain = xgb.DMatrix(X, y)
 
         bst = xgb.train(
-            {"tree_method": "gpu_hist", "gpu_id": 1}, dtrain, num_boost_round=6
+            {"tree_method": "hist", "device": "cuda:1"}, dtrain, num_boost_round=6
         )
 
         model_path = "model.pkl"
@@ -111,37 +112,42 @@ class TestPickling:
         x, y = tm.make_sparse_regression(10, 10, sparsity=0.8, as_dense=True)
         train_x = xgb.DMatrix(x, label=y)
 
-        param = {"tree_method": "gpu_hist", "verbosity": 1}
-        bst = xgb.train(param, train_x)
+        def run_test(param: Dict[str, Any]) -> None:
+            bst = xgb.train(param, train_x)
 
-        save_pickle(bst, model_path)
+            save_pickle(bst, model_path)
 
-        args = self.args_template.copy()
-        root = tm.project_root(__file__)
-        path = os.path.join(root, "tests", "python-gpu", "load_pickle.py")
-        args.append(path + "::TestLoadPickle::test_context_is_removed")
+            args = self.args_template.copy()
+            root = tm.project_root(__file__)
+            path = os.path.join(root, "tests", "python-gpu", "load_pickle.py")
+            args.append(path + "::TestLoadPickle::test_context_is_removed")
 
-        cuda_environment = {"CUDA_VISIBLE_DEVICES": "-1"}
-        env = os.environ.copy()
-        env.update(cuda_environment)
+            cuda_environment = {"CUDA_VISIBLE_DEVICES": "-1"}
+            env = os.environ.copy()
+            env.update(cuda_environment)
 
-        # Load model in a CPU only environment.
-        status = subprocess.call(args, env=env)
-        assert status == 0
+            # Load model in a CPU only environment.
+            status = subprocess.call(args, env=env)
+            assert status == 0
 
-        args = self.args_template.copy()
-        args.append(
-            "./tests/python-gpu/"
-            "load_pickle.py::TestLoadPickle::test_context_is_preserved"
-        )
+            args = self.args_template.copy()
+            args.append(
+                "./tests/python-gpu/"
+                "load_pickle.py::TestLoadPickle::test_context_is_preserved"
+            )
 
-        # Load in environment that has GPU.
-        env = os.environ.copy()
-        assert "CUDA_VISIBLE_DEVICES" not in env.keys()
-        status = subprocess.call(args, env=env)
-        assert status == 0
+            # Load in environment that has GPU.
+            env = os.environ.copy()
+            assert "CUDA_VISIBLE_DEVICES" not in env.keys()
+            status = subprocess.call(args, env=env)
+            assert status == 0
 
-        os.remove(model_path)
+            os.remove(model_path)
+
+        param = {"tree_method": "hist", "verbosity": 1, "device": "cuda"}
+        run_test(param)
+        param = {"booster": "gblinear", "updater": "coord_descent", "device": "cuda"}
+        run_test(param)
 
     @pytest.mark.skipif(**tm.no_sklearn())
     def test_predict_sklearn_pickle(self) -> None:
@@ -150,9 +156,9 @@ class TestPickling:
         x, y = load_digits(return_X_y=True)
 
         kwargs = {
-            "tree_method": "gpu_hist",
+            "tree_method": "hist",
             "objective": "binary:logistic",
-            "gpu_id": 0,
+            "device": "cuda",
             "n_estimators": 10,
         }
 

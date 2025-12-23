@@ -1,5 +1,5 @@
 /**
- * Copyright 2014-2024, XGBoost Contributors
+ * Copyright 2014-2025, XGBoost Contributors
  * \file io.h
  * \brief general stream interface for serialization, I/O
  * \author Tianqi Chen
@@ -7,14 +7,13 @@
 #ifndef XGBOOST_COMMON_IO_H_
 #define XGBOOST_COMMON_IO_H_
 
-#include <dmlc/io.h>
-
 #include <algorithm>    // for min, fill_n, copy_n
 #include <array>        // for array
 #include <cstddef>      // for byte, size_t
 #include <cstdlib>      // for malloc, realloc, free
 #include <cstring>      // for memcpy
 #include <fstream>      // for ifstream
+#include <functional>   // for function
 #include <limits>       // for numeric_limits
 #include <memory>       // for unique_ptr
 #include <string>       // for string
@@ -23,6 +22,7 @@
 #include <vector>       // for vector
 
 #include "common.h"               // for DivRoundUp
+#include "dmlc/io.h"              // for SeekStream
 #include "xgboost/string_view.h"  // for StringView
 
 namespace xgboost::common {
@@ -224,7 +224,24 @@ inline std::string ReadAll(std::string const &path) {
   return content;
 }
 
-struct MMAPFile;
+struct MmapFileImpl;
+
+/**
+ * @brief A handle to mmap file.
+ */
+struct MMAPFile {
+  std::unique_ptr<MmapFileImpl> p_impl;
+  [[nodiscard]] void const* Data() const;
+  [[nodiscard]] void* Data();
+  [[nodiscard]] Span<std::byte> BasePtr() const;
+};
+
+namespace detail {
+// call mmap
+[[nodiscard]] MMAPFile* OpenMmap(std::string path, std::size_t offset, std::size_t length);
+// close the mapped file handle.
+void CloseMmap(MMAPFile* handle);
+}  // namespace detail
 
 /**
  * @brief Handler for one-shot resource. Unlike `std::pmr::*`, the resource handler is
@@ -235,8 +252,13 @@ class ResourceHandler {
  public:
   // RTTI
   enum Kind : std::uint8_t {
-    kMalloc = 0,
-    kMmap = 1,
+    kMalloc = 0,             // System memory.
+    kMmap = 1,               // Memory mapp.
+    kCudaMalloc = 2,         // CUDA device memory.
+    kCudaMmap = 3,           // CUDA with mmap.
+    kCudaHostCache = 4,      // CUDA pinned host memory.
+    kCudaGrowOnly = 5,       // CUDA virtual memory allocator.
+    kCudaPinnedMemPool = 6,  // CUDA memory pool for pinned host memory.
   };
 
  private:
@@ -251,6 +273,26 @@ class ResourceHandler {
 
   [[nodiscard]] virtual std::size_t Size() const = 0;
   [[nodiscard]] auto Type() const { return kind_; }
+  [[nodiscard]] StringView TypeName() const {
+    switch (this->Type()) {
+      case kMalloc:
+        return "Malloc";
+      case kMmap:
+        return "Mmap";
+      case kCudaMalloc:
+        return "CudaMalloc";
+      case kCudaMmap:
+        return "CudaMmap";
+      case kCudaHostCache:
+        return "CudaHostCache";
+      case kCudaGrowOnly:
+        return "CudaGrowOnly";
+      case kCudaPinnedMemPool:
+        return "CudaPinnedMemPool";
+    }
+    LOG(FATAL) << "Unreachable.";
+    return {};
+  }
 
   // Allow exceptions for cleaning up resource.
   virtual ~ResourceHandler() noexcept(false);
@@ -339,11 +381,11 @@ class MallocResource : public ResourceHandler {
  * @brief A class for wrapping mmap as a resource for RAII.
  */
 class MmapResource : public ResourceHandler {
-  std::unique_ptr<MMAPFile> handle_;
+  std::unique_ptr<MMAPFile, std::function<void(MMAPFile*)>> handle_;
   std::size_t n_;
 
  public:
-  MmapResource(std::string path, std::size_t offset, std::size_t length);
+  MmapResource(StringView path, std::size_t offset, std::size_t length);
   ~MmapResource() noexcept(false) override;
 
   [[nodiscard]] void* Data() override;
@@ -471,10 +513,30 @@ class PrivateMmapConstStream : public AlignedResourceReadStream {
    * @param offset    See the `offset` parameter of `mmap` for details.
    * @param length    See the `length` parameter of `mmap` for details.
    */
-  explicit PrivateMmapConstStream(std::string path, std::size_t offset, std::size_t length)
+  explicit PrivateMmapConstStream(StringView path, std::size_t offset, std::size_t length)
       : AlignedResourceReadStream{std::shared_ptr<MmapResource>{  // NOLINT
-            new MmapResource{std::move(path), offset, length}}} {}
+            new MmapResource{path, offset, length}}} {}
   ~PrivateMmapConstStream() noexcept(false) override;
+};
+
+/**
+ * @brief Read a portion of a file into a memory buffer. This class helps integration with
+ *        external memory file format.
+ */
+class MemBufFileReadStream : public AlignedResourceReadStream {
+  static std::shared_ptr<MallocResource> ReadFileIntoBuffer(StringView path, std::size_t offset,
+                                                            std::size_t length);
+
+ public:
+  /**
+   * @brief Construct a stream for reading file.
+   *
+   * @param path      File path.
+   * @param offset    The number of bytes into the file.
+   * @param length    The number of bytes to read.
+   */
+  explicit MemBufFileReadStream(StringView path, std::size_t offset, std::size_t length)
+      : AlignedResourceReadStream{ReadFileIntoBuffer(path, offset, length)} {}
 };
 
 /**
@@ -538,5 +600,10 @@ class AlignedMemWriteStream : public AlignedFileWriteStream {
 
   [[nodiscard]] std::size_t Tell() const noexcept(true);
 };
+
+// Run a system command, get its stdout.
+[[nodiscard]] std::string CmdOutput(StringView cmd);
+
+[[nodiscard]] std::size_t TotalMemory();
 }  // namespace xgboost::common
 #endif  // XGBOOST_COMMON_IO_H_

@@ -1,5 +1,5 @@
 /*!
- * Copyright 2017-2023 XGBoost contributors
+ * Copyright 2017-2025 XGBoost contributors
  */
 #include <gtest/gtest.h>
 #pragma GCC diagnostic push
@@ -36,9 +36,10 @@ TEST(SyclPredictor, ExternalMemory) {
   Context ctx;
   ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
 
-  size_t constexpr kPageSize = 64, kEntriesPerCol = 3;
-  size_t constexpr kEntries = kPageSize * kEntriesPerCol * 2;
-  std::unique_ptr<DMatrix> dmat = CreateSparsePageDMatrix(kEntries);
+  bst_idx_t constexpr kRows{64};
+  bst_feature_t constexpr kCols{12};
+  auto dmat =
+      RandomDataGenerator{kRows, kCols, 0.5f}.Batches(3).GenerateSparsePageDMatrix("temp", true);
   TestBasic(dmat.get(), &ctx);
 }
 
@@ -57,7 +58,7 @@ TEST(SyclPredictor, InplacePredict) {
     auto array_interface = GetArrayInterface(&data, kRows, kCols);
     std::string arr_str;
     Json::Dump(array_interface, &arr_str);
-    x->SetArrayData(arr_str.data());
+    x->SetArray(arr_str.data());
     TestInplacePrediction(&ctx, x, kRows, kCols);
   }
 }
@@ -98,12 +99,6 @@ TEST(SyclPredictor, Sparse) {
   ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
   TestSparsePrediction(&ctx, 0.2);
   TestSparsePrediction(&ctx, 0.8);
-}
-
-TEST(SyclPredictor, Multi) {
-  Context ctx;
-  ctx.UpdateAllowUnknown(Args{{"device", "sycl"}});
-  TestVectorLeafPrediction(&ctx);
 }
 
 }  // namespace xgboost

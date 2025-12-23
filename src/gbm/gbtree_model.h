@@ -1,6 +1,7 @@
 /**
- * Copyright 2017-2023, XGBoost Contributors
- * \file gbtree_model.h
+ * Copyright 2017-2025, XGBoost Contributors
+ *
+ * @file gbtree_model.h
  */
 #ifndef XGBOOST_GBM_GBTREE_MODEL_H_
 #define XGBOOST_GBM_GBTREE_MODEL_H_
@@ -19,6 +20,7 @@
 #include <vector>
 
 #include "../common/threading_utils.h"
+#include "../data/cat_container.h"  // for CatContainer
 
 namespace xgboost {
 
@@ -40,44 +42,24 @@ struct GBTreeModelParam : public dmlc::Parameter<GBTreeModelParam> {
   /**
    * \brief number of trees
    */
-  std::int32_t num_trees;
+  std::int32_t num_trees{0};
   /**
    * \brief Number of trees for a forest.
    */
-  std::int32_t num_parallel_tree;
-  /*! \brief reserved parameters */
-  int32_t reserved[38];
+  std::int32_t num_parallel_tree{1};
 
-  /*! \brief constructor */
-  GBTreeModelParam() {
-    std::memset(this, 0, sizeof(GBTreeModelParam));  // FIXME(trivialfis): Why?
-    static_assert(sizeof(GBTreeModelParam) == (4 + 2 + 2 + 32) * sizeof(int32_t),
-                  "64/32 bit compatibility issue");
-    num_parallel_tree = 1;
-  }
+  GBTreeModelParam() = default;
 
   // declare parameters, only declare those that need to be set.
   DMLC_DECLARE_PARAMETER(GBTreeModelParam) {
-    DMLC_DECLARE_FIELD(num_trees)
-        .set_lower_bound(0)
-        .set_default(0)
-        .describe("Number of features used for training and prediction.");
+    DMLC_DECLARE_FIELD(num_trees).set_lower_bound(0).set_default(0).describe(
+        "Number of trees for the entire booster model.");
     DMLC_DECLARE_FIELD(num_parallel_tree)
         .set_default(1)
         .set_lower_bound(1)
         .describe(
             "Number of parallel trees constructed during each iteration."
             " This option is used to support boosted random forest.");
-  }
-
-  // Swap byte order for all fields. Useful for transporting models between machines with different
-  // endianness (big endian vs little endian)
-  GBTreeModelParam ByteSwap() const {
-    GBTreeModelParam x = *this;
-    dmlc::ByteSwap(&x.num_trees, sizeof(x.num_trees), 1);
-    dmlc::ByteSwap(&x.num_parallel_tree, sizeof(x.num_parallel_tree), 1);
-    dmlc::ByteSwap(x.reserved, sizeof(x.reserved[0]), sizeof(x.reserved) / sizeof(x.reserved[0]));
-    return x;
   }
 };
 
@@ -94,7 +76,7 @@ struct GBTreeModel : public Model {
 
   void InitTreesToUpdate() {
     if (trees_to_update.size() == 0u) {
-      for (auto & tree : trees) {
+      for (auto& tree : trees) {
         trees_to_update.push_back(std::move(tree));
       }
       trees.clear();
@@ -105,9 +87,6 @@ struct GBTreeModel : public Model {
       iteration_indptr.push_back(0);
     }
   }
-
-  void Load(dmlc::Stream* fi);
-  void Save(dmlc::Stream* fo) const;
 
   void SaveModel(Json* p_out) const override;
   void LoadModel(Json const& p_out) override;
@@ -146,22 +125,28 @@ struct GBTreeModel : public Model {
   // model parameter
   GBTreeModelParam param;
   /*! \brief vector of trees stored in the model */
-  std::vector<std::unique_ptr<RegTree> > trees;
+  std::vector<std::unique_ptr<RegTree>> trees;
   /*! \brief for the update process, a place to keep the initial trees */
-  std::vector<std::unique_ptr<RegTree> > trees_to_update;
+  std::vector<std::unique_ptr<RegTree>> trees_to_update;
   /**
-   * \brief Group index for trees.
+   * @brief Group index for trees.
    */
   std::vector<int> tree_info;
   /**
-   * \brief Number of trees accumulated for each iteration.
+   * @brief Number of trees accumulated for each iteration.
    */
   std::vector<bst_tree_t> iteration_indptr{0};
 
+  [[nodiscard]] CatContainer const* Cats() const { return this->cats_.get(); }
+  [[nodiscard]] CatContainer* Cats() { return this->cats_.get(); }
+  [[nodiscard]] std::shared_ptr<CatContainer> CatsShared() const { return this->cats_; }
+  void Cats(std::shared_ptr<CatContainer> cats) { this->cats_ = cats; }
+
  private:
   /**
-   * \brief Whether the stack contains multi-target tree.
+   * @brief Categories in the training data.
    */
+  std::shared_ptr<CatContainer> cats_{std::make_shared<CatContainer>()};
   Context const* ctx_;
 };
 }  // namespace gbm

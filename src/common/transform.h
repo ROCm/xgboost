@@ -23,6 +23,10 @@
 #include "device_helpers.hip.h"
 #endif  // defined (__CUDACC__) || defined(__HIPCC__)
 
+#if defined (SYCL_LANGUAGE_VERSION)
+#include "../plugin/sycl/common/transform.h"
+#endif  // defined (SYCL_LANGUAGE_VERSION)
+
 namespace xgboost {
 namespace common {
 
@@ -73,10 +77,10 @@ class Transform {
      */
     template <typename... HDV>
     void Eval(HDV... vectors) const {
-      bool on_device = device_.IsCUDA();
-
-      if (on_device) {
+      if (device_.IsCUDA()) {
         LaunchCUDA(func_, vectors...);
+      } else if (device_.IsSycl()) {
+        LaunchSycl(func_, vectors...);
       } else {
         LaunchCPU(func_, vectors...);
       }
@@ -130,7 +134,7 @@ class Transform {
     }
 
 #if defined(__CUDACC__) || defined(__HIPCC__)
-    template <typename std::enable_if<CompiledWithCuda>::type* = nullptr,
+    template <typename std::enable_if_t<CompiledWithCuda>* = nullptr,
               typename... HDV>
     void LaunchCUDA(Functor _func, HDV*... _vectors) const {
       UnpackShard(device_, _vectors...);
@@ -153,15 +157,30 @@ class Transform {
     }
 #else
     /*! \brief Dummy function defined when compiling for CPU.  */
-    template <typename std::enable_if<!CompiledWithCuda>::type* = nullptr,
-              typename... HDV>
-    void LaunchCUDA(Functor _func, HDV*...) const {
+    template <typename std::enable_if_t<!CompiledWithCuda> * = nullptr, typename... HDV>
+    void LaunchCUDA(Functor _func, HDV *...) const {
       // Remove unused parameter compiler warning.
       (void) _func;
 
       LOG(FATAL) << "Not part of device code. WITH_CUDA: " << WITH_CUDA();
     }
 #endif  // defined(__CUDACC__) || defined(__HIPCC__)
+
+#if defined (SYCL_LANGUAGE_VERSION)
+    template <typename... HDV>
+    void LaunchSycl(Functor _func, HDV*... _vectors) const {
+      UnpackShard(device_, _vectors...);
+
+      size_t range_size = *range_.end() - *range_.begin();
+      Range shard_range {0, static_cast<Range::DifferenceType>(range_size)};
+      sycl::common::LaunchSyclKernel(device_, _func, shard_range, UnpackHDVOnDevice(_vectors)...);
+    }
+#else
+    template <typename... HDV>
+    void LaunchSycl(Functor _func, HDV *... _vectors) const {
+      LaunchCPU(_func, _vectors...);
+    }
+#endif  // defined(SYCL_LANGUAGE_VERSION)
 
     template <typename... HDV>
     void LaunchCPU(Functor func, HDV *...vectors) const {

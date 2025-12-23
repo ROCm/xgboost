@@ -1,5 +1,5 @@
 /**
- * Copyright 2019-2023, XGBoost contributors
+ * Copyright 2019-2025, XGBoost contributors
  */
 #include <gtest/gtest.h>
 #include <xgboost/context.h>
@@ -14,7 +14,7 @@
 
 #include "../../../src/data/proxy_dmatrix.h"  // for DMatrixProxy
 #include "../../../src/gbm/gbtree.h"
-#include "../filesystem.h"  // dmlc::TemporaryDirectory
+#include "../filesystem.h"  // TemporaryDirectory
 #include "../helpers.h"
 #include "xgboost/base.h"
 #include "xgboost/predictor.h"
@@ -45,11 +45,11 @@ TEST(GBTree, SelectTreeMethod) {
   gbtree.Configure({{"booster", "dart"}, {"tree_method", "hist"}});
   ASSERT_EQ(tparam.updater_seq, "grow_quantile_histmaker");
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-  ctx.UpdateAllowUnknown(Args{{"gpu_id", "0"}});
-  gbtree.Configure({{"tree_method", "gpu_hist"}});
+#ifdef XGBOOST_USE_CUDA
+  ctx.UpdateAllowUnknown(Args{{"device", "cuda"}});
+  gbtree.Configure({{"tree_method", "hist"}});
   ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
-  gbtree.Configure({{"booster", "dart"}, {"tree_method", "gpu_hist"}});
+  gbtree.Configure({{"booster", "dart"}, {"tree_method", "hist"}});
   ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
 #endif  // XGBOOST_USE_CUDA, XGBOOST_USE_HIP
 }
@@ -128,14 +128,14 @@ TEST(GBTree, ChoosePredictor) {
   p_dmat->Info().labels.Reshape(kRows);
 
   auto learner = std::unique_ptr<Learner>(Learner::Create({p_dmat}));
-  learner->SetParams(Args{{"tree_method", "gpu_hist"}, {"gpu_id", "0"}});
+  learner->SetParams(Args{{"tree_method", "hist"}, {"device", "cuda"}});
   for (size_t i = 0; i < 4; ++i) {
     learner->UpdateOneIter(i, p_dmat);
   }
   ASSERT_TRUE(data.HostCanWrite());
 
-  dmlc::TemporaryDirectory tempdir;
-  const std::string fname = tempdir.path + "/model_param.bst";
+  common::TemporaryDirectory tempdir;
+  const std::string fname = tempdir.Str() + "/model_param.bst";
   {
     std::unique_ptr<dmlc::Stream> fo(dmlc::Stream::Create(fname.c_str(), "w"));
     learner->Save(fo.get());
@@ -146,7 +146,7 @@ TEST(GBTree, ChoosePredictor) {
     std::unique_ptr<dmlc::Stream> fi(dmlc::Stream::Create(fname.c_str(), "r"));
     learner->Load(fi.get());
   }
-  learner->SetParams(Args{{"tree_method", "gpu_hist"}, {"gpu_id", "0"}});
+  learner->SetParams(Args{{"tree_method", "hist"}, {"device", "cuda"}});
   for (size_t i = 0; i < 4; ++i) {
     learner->UpdateOneIter(i, p_dmat);
   }
@@ -162,7 +162,7 @@ TEST(GBTree, ChoosePredictor) {
 
   // another new learner
   learner = std::unique_ptr<Learner>(Learner::Create({p_dmat}));
-  learner->SetParams(Args{{"tree_method", "gpu_hist"}, {"gpu_id", "0"}});
+  learner->SetParams(Args{{"tree_method", "hist"}, {"device", "cuda"}});
   for (size_t i = 0; i < 4; ++i) {
     learner->UpdateOneIter(i, p_dmat);
   }
@@ -183,11 +183,7 @@ TEST(GBTree, ChooseTreeMethod) {
     }
     if (device.has_value()) {
       auto const& d = device.value();
-      if (std::isdigit(d.front()) || d.front() == '-') {
-        learner->SetParam("gpu_id", d);
-      } else {
-        learner->SetParam("device", d);
-      }
+      learner->SetParam("device", d);
     }
     learner->Configure();
     for (std::int32_t i = 0; i < 3; ++i) {
@@ -207,11 +203,7 @@ TEST(GBTree, ChooseTreeMethod) {
     }
     if (device.has_value()) {
       auto const& d = device.value();
-      if (std::isdigit(d.front()) || d.front() == '-') {
-        learner->SetParam("gpu_id", d);
-      } else {
-        learner->SetParam("device", d);
-      }
+      learner->SetParam("device", d);
     }
     learner->Configure();
     for (std::int32_t i = 0; i < 3; ++i) {
@@ -226,52 +218,35 @@ TEST(GBTree, ChooseTreeMethod) {
     return updater;
   };
 
-  // |        | hist    | gpu_hist | exact | NA  |
-  // |--------+---------+----------+-------+-----|
-  // | CUDA:0 | GPU     | GPU (w)  | Err   | GPU |
-  // | CPU    | CPU     | GPU (w)  | CPU   | CPU |
-  // |--------+---------+----------+-------+-----|
-  // | -1     | CPU     | GPU (w)  | CPU   | CPU |
-  // | 0      | GPU     | GPU (w)  | Err   | GPU |
-  // |--------+---------+----------+-------+-----|
-  // | NA     | CPU     | GPU (w)  | CPU   | CPU |
+  // |        | hist    | approx | exact | NA  |
+  // |--------+---------+--------+-------+-----|
+  // | CUDA:0 | GPU     | GPU    | Err   | GPU |
+  // | CPU    | CPU     | GPU    | CPU   | CPU |
+  // |--------+---------+--------+-------+-----|
+  // | NA     | CPU     | CPU    | CPU   | CPU |
   //
-  // - (w): warning
   // - CPU: Run on CPU.
   // - GPU: Run on CUDA.
   // - Err: Not feasible.
   // - NA:  Parameter is not specified.
-
-  // When GPU hist is specified with a CPU context, we should emit an error. However, it's
-  // quite difficult to detect whether the CPU context is being used because it's the
-  // default or because it's specified by the user.
-
   std::map<std::pair<std::optional<std::string>, std::optional<std::string>>, std::string>
       expectation{
           // hist
-          {{"hist", "-1"}, "grow_quantile_histmaker"},
-          {{"hist", "0"}, "grow_gpu_hist"},
           {{"hist", "cpu"}, "grow_quantile_histmaker"},
           {{"hist", "cuda"}, "grow_gpu_hist"},
           {{"hist", "cuda:0"}, "grow_gpu_hist"},
           {{"hist", std::nullopt}, "grow_quantile_histmaker"},
-          // gpu_hist
-          {{"gpu_hist", "-1"}, "grow_gpu_hist"},
-          {{"gpu_hist", "0"}, "grow_gpu_hist"},
-          {{"gpu_hist", "cpu"}, "grow_gpu_hist"},
-          {{"gpu_hist", "cuda"}, "grow_gpu_hist"},
-          {{"gpu_hist", "cuda:0"}, "grow_gpu_hist"},
-          {{"gpu_hist", std::nullopt}, "grow_gpu_hist"},
+          // approx
+          {{"approx", "cpu"}, "grow_histmaker"},
+          {{"approx", "cuda"}, "grow_gpu_approx"},
+          {{"approx", "cuda:0"}, "grow_gpu_approx"},
+          {{"approx", std::nullopt}, "grow_histmaker"},
           // exact
-          {{"exact", "-1"}, "grow_colmaker,prune"},
-          {{"exact", "0"}, "err"},
           {{"exact", "cpu"}, "grow_colmaker,prune"},
           {{"exact", "cuda"}, "err"},
           {{"exact", "cuda:0"}, "err"},
           {{"exact", std::nullopt}, "grow_colmaker,prune"},
           // NA
-          {{std::nullopt, "-1"}, "grow_quantile_histmaker"},
-          {{std::nullopt, "0"}, "grow_gpu_hist"},  // default to hist
           {{std::nullopt, "cpu"}, "grow_quantile_histmaker"},
           {{std::nullopt, "cuda"}, "grow_gpu_hist"},
           {{std::nullopt, "cuda:0"}, "grow_gpu_hist"},
@@ -426,9 +401,9 @@ class Dart : public testing::TestWithParam<char const*> {
     HostDeviceVector<float>* inplace_predts;
     std::shared_ptr<data::DMatrixProxy> x{new data::DMatrixProxy{}};
     if (ctx.IsCUDA()) {
-      x->SetCUDAArray(array_str.c_str());
+      x->SetCudaArray(array_str.c_str());
     } else {
-      x->SetArrayData(array_str.c_str());
+      x->SetArray(array_str.c_str());
     }
     learner->InplacePredict(x, PredictionType::kValue, std::numeric_limits<float>::quiet_NaN(),
                             &inplace_predts, 0, 0);
@@ -463,7 +438,7 @@ INSTANTIATE_TEST_SUITE_P(PredictorTypes, Dart, testing::Values("CPU"));
 
 std::pair<Json, Json> TestModelSlice(std::string booster) {
   size_t constexpr kRows = 1000, kCols = 100, kForest = 2, kClasses = 3;
-  auto m = RandomDataGenerator{kRows, kCols, 0}.GenerateDMatrix(true, false, kClasses);
+  auto m = RandomDataGenerator{kRows, kCols, 0}.Classes(kClasses).GenerateDMatrix(true);
 
   int32_t kIters = 10;
   std::unique_ptr<Learner> learner {
@@ -592,7 +567,7 @@ TEST(Dart, Slice) {
 
 TEST(GBTree, FeatureScore) {
   size_t n_samples = 1000, n_features = 10, n_classes = 4;
-  auto m = RandomDataGenerator{n_samples, n_features, 0.5}.GenerateDMatrix(true, false, n_classes);
+  auto m = RandomDataGenerator{n_samples, n_features, 0.5}.Classes(n_classes).GenerateDMatrix(true);
 
   std::unique_ptr<Learner> learner{ Learner::Create({m}) };
   learner->SetParam("num_class", std::to_string(n_classes));
@@ -629,7 +604,7 @@ TEST(GBTree, FeatureScore) {
 
 TEST(GBTree, PredictRange) {
   size_t n_samples = 1000, n_features = 10, n_classes = 4;
-  auto m = RandomDataGenerator{n_samples, n_features, 0.5}.GenerateDMatrix(true, false, n_classes);
+  auto m = RandomDataGenerator{n_samples, n_features, 0.5}.Classes(n_classes).GenerateDMatrix(true);
 
   std::unique_ptr<Learner> learner{Learner::Create({m})};
   learner->SetParam("num_class", std::to_string(n_classes));
@@ -642,7 +617,7 @@ TEST(GBTree, PredictRange) {
   ASSERT_THROW(learner->Predict(m, false, &out_predt, 0, 3), dmlc::Error);
 
   auto m_1 =
-      RandomDataGenerator{n_samples, n_features, 0.5}.GenerateDMatrix(true, false, n_classes);
+      RandomDataGenerator{n_samples, n_features, 0.5}.Classes(n_classes).GenerateDMatrix(true);
   HostDeviceVector<float> out_predt_full;
   learner->Predict(m_1, false, &out_predt_full, 0, 0);
   ASSERT_TRUE(std::equal(out_predt.HostVector().begin(), out_predt.HostVector().end(),
@@ -653,7 +628,7 @@ TEST(GBTree, PredictRange) {
     HostDeviceVector<float> raw_storage;
     auto raw = RandomDataGenerator{n_samples, n_features, 0.5}.GenerateArrayInterface(&raw_storage);
     std::shared_ptr<data::DMatrixProxy> x{new data::DMatrixProxy{}};
-    x->SetArrayData(raw.data());
+    x->SetArray(raw.data());
 
     HostDeviceVector<float>* out_predt;
     learner->InplacePredict(x, PredictionType::kValue, std::numeric_limits<float>::quiet_NaN(),
@@ -714,8 +689,8 @@ TEST(GBTree, InplacePredictionError) {
     if (ctx->IsCPU()) {
       p_fmat = rng.GenerateQuantileDMatrix(true);
     } else {
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-      p_fmat = rng.GenerateDeviceDMatrix(true);
+#if defined(XGBOOST_USE_CUDA)
+      p_fmat = rng.Device(ctx->Device()).GenerateQuantileDMatrix(true);
 #else
       CHECK(p_fmat);
 #endif  // defined(XGBOOST_USE_CUDA)

@@ -1,11 +1,12 @@
 /**
- * Copyright 2023 by XGBoost Contributors
+ * Copyright 2023-2025, XGBoost Contributors
  */
 #ifndef XGBOOST_TREE_IO_UTILS_H_
 #define XGBOOST_TREE_IO_UTILS_H_
-#include <string>          // for string
-#include <type_traits>     // for enable_if_t, is_same, conditional_t
-#include <vector>          // for vector
+#include <limits>       // for numeric_limits
+#include <string>       // for string
+#include <type_traits>  // for enable_if_t, is_same_v, conditional_t
+#include <vector>       // for vector
 
 #include "xgboost/json.h"  // for Json
 
@@ -23,26 +24,24 @@ using IndexArrayT = std::conditional_t<feature_is_64, I64ArrayT<typed>, I32Array
 
 // typed array, not boolean
 template <typename JT, typename T>
-std::enable_if_t<!std::is_same<T, Json>::value && !std::is_same<JT, Boolean>::value, T> GetElem(
+std::enable_if_t<!std::is_same_v<T, Json> && !std::is_same_v<JT, Boolean>, T> GetElem(
     std::vector<T> const& arr, size_t i) {
   return arr[i];
 }
 // typed array boolean
 template <typename JT, typename T>
-std::enable_if_t<!std::is_same<T, Json>::value && std::is_same<T, uint8_t>::value &&
-                     std::is_same<JT, Boolean>::value,
-                 bool>
+std::enable_if_t<
+    !std::is_same_v<T, Json> && std::is_same_v<T, uint8_t> && std::is_same_v<JT, Boolean>, bool>
 GetElem(std::vector<T> const& arr, size_t i) {
   return arr[i] == 1;
 }
 // json array
 template <typename JT, typename T>
-std::enable_if_t<
-    std::is_same<T, Json>::value,
-    std::conditional_t<std::is_same<JT, Integer>::value, int64_t,
-                       std::conditional_t<std::is_same<Boolean, JT>::value, bool, float>>>
+std::enable_if_t<std::is_same_v<T, Json>,
+                 std::conditional_t<std::is_same_v<JT, Integer>, int64_t,
+                                    std::conditional_t<std::is_same_v<Boolean, JT>, bool, float>>>
 GetElem(std::vector<T> const& arr, size_t i) {
-  if (std::is_same<JT, Boolean>::value && !IsA<Boolean>(arr[i])) {
+  if (std::is_same_v<JT, Boolean> && !IsA<Boolean>(arr[i])) {
     return get<Integer const>(arr[i]) == 1;
   }
   return get<JT const>(arr[i]);
@@ -61,5 +60,7 @@ inline std::string const kParent{"parents"};
 inline std::string const kLeft{"left_children"};
 inline std::string const kRight{"right_children"};
 }  // namespace tree_field
+
+constexpr float DftBadValue() { return std::numeric_limits<float>::denorm_min(); }
 }  // namespace xgboost
 #endif  // XGBOOST_TREE_IO_UTILS_H_

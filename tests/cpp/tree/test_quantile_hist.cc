@@ -5,7 +5,6 @@
 #include <xgboost/host_device_vector.h>
 #include <xgboost/tree_updater.h>
 
-#include <algorithm>
 #include <cstddef>  // for size_t
 #include <string>
 #include <vector>
@@ -63,26 +62,29 @@ void TestPartitioner(bst_target_t n_targets) {
       auto ptr = gmat.cut.Ptrs()[split_ind + 1];
       float split_value = gmat.cut.Values().at(ptr / 2);
       RegTree tree{n_targets, n_features};
-      if constexpr (std::is_same<ExpandEntry, CPUExpandEntry>::value) {
+      if constexpr (std::is_same_v<ExpandEntry, CPUExpandEntry>) {
         GetSplit(&tree, split_value, &candidates);
       } else {
         GetMultiSplitForTest(&tree, split_value, &candidates);
       }
-      auto left_nidx = tree.LeftChild(RegTree::kRoot);
       partitioner.UpdatePosition<false, true>(&ctx, gmat, column_indices, candidates, &tree);
-
-      auto elem = partitioner[left_nidx];
-      ASSERT_LT(elem.Size(), n_samples);
-      ASSERT_GT(elem.Size(), 1);
-      for (auto it = elem.begin; it != elem.end; ++it) {
-        auto value = gmat.cut.Values().at(gmat.index[*it]);
-        ASSERT_LE(value, split_value);
+      {
+        auto left_nidx = tree.LeftChild(RegTree::kRoot);
+        auto const& elem = partitioner[left_nidx];
+        ASSERT_LT(elem.Size(), n_samples);
+        ASSERT_GT(elem.Size(), 1);
+        for (auto& it : elem) {
+          auto value = gmat.cut.Values().at(gmat.index[it]);
+          ASSERT_LE(value, split_value);
+        }
       }
-      auto right_nidx = tree.RightChild(RegTree::kRoot);
-      elem = partitioner[right_nidx];
-      for (auto it = elem.begin; it != elem.end; ++it) {
-        auto value = gmat.cut.Values().at(gmat.index[*it]);
-        ASSERT_GT(value, split_value);
+      {
+        auto right_nidx = tree.RightChild(RegTree::kRoot);
+        auto const& elem = partitioner[right_nidx];
+        for (auto& it : elem) {
+          auto value = gmat.cut.Values().at(gmat.index[it]);
+          ASSERT_GT(value, split_value);
+        }
       }
     }
   }
@@ -117,7 +119,7 @@ void VerifyColumnSplitPartitioner(bst_target_t n_targets, size_t n_samples,
     {
       RegTree tree{n_targets, n_features};
       CommonRowPartitioner partitioner{&ctx, n_samples, base_rowid, true};
-      if constexpr (std::is_same<ExpandEntry, CPUExpandEntry>::value) {
+      if constexpr (std::is_same_v<ExpandEntry, CPUExpandEntry>) {
         GetSplit(&tree, min_value, &candidates);
       } else {
         GetMultiSplitForTest(&tree, min_value, &candidates);
@@ -130,7 +132,7 @@ void VerifyColumnSplitPartitioner(bst_target_t n_targets, size_t n_samples,
     {
       RegTree tree{n_targets, n_features};
       CommonRowPartitioner partitioner{&ctx, n_samples, base_rowid, true};
-      if constexpr (std::is_same<ExpandEntry, CPUExpandEntry>::value) {
+      if constexpr (std::is_same_v<ExpandEntry, CPUExpandEntry>) {
         GetSplit(&tree, mid_value, &candidates);
       } else {
         GetMultiSplitForTest(&tree, mid_value, &candidates);
@@ -138,21 +140,24 @@ void VerifyColumnSplitPartitioner(bst_target_t n_targets, size_t n_samples,
       auto left_nidx = tree.LeftChild(RegTree::kRoot);
       partitioner.UpdatePosition<false, true>(&ctx, gmat, column_indices, candidates, &tree);
 
-      auto elem = partitioner[left_nidx];
-      ASSERT_LT(elem.Size(), n_samples);
-      ASSERT_GT(elem.Size(), 1);
-      auto expected_elem = expected_mid_partitioner[left_nidx];
-      ASSERT_EQ(elem.Size(), expected_elem.Size());
-      for (auto it = elem.begin, eit = expected_elem.begin; it != elem.end; ++it, ++eit) {
-        ASSERT_EQ(*it, *eit);
+      {
+        auto const& elem = partitioner[left_nidx];
+        ASSERT_LT(elem.Size(), n_samples);
+        ASSERT_GT(elem.Size(), 1);
+        auto const& expected_elem = expected_mid_partitioner[left_nidx];
+        ASSERT_EQ(elem.Size(), expected_elem.Size());
+        for (auto it = elem.begin(), eit = expected_elem.begin(); it != elem.end(); ++it, ++eit) {
+          ASSERT_EQ(*it, *eit);
+        }
       }
-
-      auto right_nidx = tree.RightChild(RegTree::kRoot);
-      elem = partitioner[right_nidx];
-      expected_elem = expected_mid_partitioner[right_nidx];
-      ASSERT_EQ(elem.Size(), expected_elem.Size());
-      for (auto it = elem.begin, eit = expected_elem.begin; it != elem.end; ++it, ++eit) {
-        ASSERT_EQ(*it, *eit);
+      {
+        auto right_nidx = tree.RightChild(RegTree::kRoot);
+        auto const& elem = partitioner[right_nidx];
+        auto const& expected_elem = expected_mid_partitioner[right_nidx];
+        ASSERT_EQ(elem.Size(), expected_elem.Size());
+        for (auto it = elem.begin(), eit = expected_elem.begin(); it != elem.end(); ++it, ++eit) {
+          ASSERT_EQ(*it, *eit);
+        }
       }
     }
   }
@@ -182,7 +187,7 @@ void TestColumnSplitPartitioner(bst_target_t n_targets) {
     auto ptr = gmat.cut.Ptrs()[split_ind + 1];
     mid_value = gmat.cut.Values().at(ptr / 2);
     RegTree tree{n_targets, n_features};
-    if constexpr (std::is_same<ExpandEntry, CPUExpandEntry>::value) {
+    if constexpr (std::is_same_v<ExpandEntry, CPUExpandEntry>) {
       GetSplit(&tree, mid_value, &candidates);
     } else {
       GetMultiSplitForTest(&tree, mid_value, &candidates);
@@ -198,12 +203,12 @@ void TestColumnSplitPartitioner(bst_target_t n_targets) {
 }
 }  // anonymous namespace
 
-TEST(QuantileHist, PartitionerColSplit) { TestColumnSplitPartitioner<CPUExpandEntry>(1); }
+TEST(QuantileHist, PartitionerColumnSplit) { TestColumnSplitPartitioner<CPUExpandEntry>(1); }
 
-TEST(QuantileHist, MultiPartitionerColSplit) { TestColumnSplitPartitioner<MultiExpandEntry>(3); }
+TEST(QuantileHist, MultiPartitionerColumnSplit) { TestColumnSplitPartitioner<MultiExpandEntry>(3); }
 
 namespace {
-class TestHistColSplit : public ::testing::TestWithParam<std::tuple<bst_target_t, bool, float>> {
+class TestHistColumnSplit : public ::testing::TestWithParam<std::tuple<bst_target_t, bool, float>> {
  public:
   void Run() {
     auto [n_targets, categorical, sparsity] = GetParam();
@@ -212,9 +217,9 @@ class TestHistColSplit : public ::testing::TestWithParam<std::tuple<bst_target_t
 };
 }  // anonymous namespace
 
-TEST_P(TestHistColSplit, Basic) { this->Run(); }
+TEST_P(TestHistColumnSplit, Basic) { this->Run(); }
 
-INSTANTIATE_TEST_SUITE_P(ColumnSplit, TestHistColSplit, ::testing::ValuesIn([]() {
+INSTANTIATE_TEST_SUITE_P(ColumnSplit, TestHistColumnSplit, ::testing::ValuesIn([]() {
                            std::vector<std::tuple<bst_target_t, bool, float>> params;
                            for (auto categorical : {true, false}) {
                              for (auto sparsity : {0.0f, 0.6f}) {

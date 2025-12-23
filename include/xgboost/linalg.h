@@ -15,8 +15,8 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cinttypes>  // for int32_t
-#include <cstddef>    // for size_t
+#include <cstddef>  // for size_t
+#include <cstdint>  // for int32_t
 #include <limits>
 #include <string>
 #include <tuple>  // for make_tuple
@@ -43,9 +43,9 @@ namespace detail {
 struct ArrayInterfaceHandler {
   template <typename T>
   static constexpr char TypeChar() {
-    return (std::is_floating_point<T>::value
+    return (std::is_floating_point_v<T>
                 ? 'f'
-                : (std::is_integral<T>::value ? (std::is_signed<T>::value ? 'i' : 'u') : '\0'));
+                : (std::is_integral_v<T> ? (std::is_signed_v<T> ? 'i' : 'u') : '\0'));
   }
 };
 
@@ -93,7 +93,7 @@ struct RangeTag {
  */
 template <typename T>
 constexpr int32_t CalcSliceDim() {
-  return std::is_same<T, IntTag>::value ? 0 : 1;
+  return std::is_same_v<T, IntTag> ? 0 : 1;
 }
 
 template <typename T, typename... S>
@@ -114,7 +114,7 @@ template <typename S>
 using RemoveCRType = std::remove_const_t<std::remove_reference_t<S>>;
 
 template <typename S>
-using IndexToTag = std::conditional_t<std::is_integral<RemoveCRType<S>>::value, IntTag, S>;
+using IndexToTag = std::conditional_t<std::is_integral_v<RemoveCRType<S>>, IntTag, S>;
 
 template <int32_t n, typename Fn>
 LINALG_HD constexpr auto UnrollLoop(Fn fn) {
@@ -159,7 +159,7 @@ inline LINALG_HD int Popc(uint64_t v) {
 
 template <std::size_t D, typename Head>
 LINALG_HD void IndexToArr(std::size_t (&arr)[D], Head head) {
-  static_assert(std::is_integral<std::remove_reference_t<Head>>::value, "Invalid index type.");
+  static_assert(std::is_integral_v<std::remove_reference_t<Head>>, "Invalid index type.");
   arr[D - 1] = head;
 }
 
@@ -169,7 +169,7 @@ LINALG_HD void IndexToArr(std::size_t (&arr)[D], Head head) {
 template <std::size_t D, typename Head, typename... Rest>
 LINALG_HD void IndexToArr(std::size_t (&arr)[D], Head head, Rest &&...index) {
   static_assert(sizeof...(Rest) < D, "Index overflow.");
-  static_assert(std::is_integral<std::remove_reference_t<Head>>::value, "Invalid index type.");
+  static_assert(std::is_integral_v<std::remove_reference_t<Head>>, "Invalid index type.");
   arr[D - sizeof...(Rest) - 1] = head;
   IndexToArr(arr, std::forward<Rest>(index)...);
 }
@@ -193,7 +193,7 @@ constexpr auto ArrToTuple(T (&arr)[N]) {
 template <typename I, std::int32_t D>
 LINALG_HD auto UnravelImpl(I idx, common::Span<size_t const, D> shape) {
   std::size_t index[D]{0};
-  static_assert(std::is_signed<decltype(D)>::value,
+  static_assert(std::is_signed_v<decltype(D)>,
                 "Don't change the type without changing the for loop.");
   auto const sptr = shape.data();
   for (int32_t dim = D; --dim > 0;) {
@@ -223,23 +223,6 @@ void ReshapeImpl(size_t (&out_shape)[D], I &&s, S &&...rest) {
   static_assert(dim < D);
   out_shape[dim] = s;
   ReshapeImpl<dim + 1>(out_shape, std::forward<S>(rest)...);
-}
-
-template <typename Fn, typename Tup, size_t... I>
-LINALG_HD decltype(auto) constexpr Apply(Fn &&f, Tup &&t, std::index_sequence<I...>) {
-  return f(std::get<I>(t)...);
-}
-
-/**
- * C++ 17 style apply.
- *
- * \param f function to apply
- * \param t tuple of arguments
- */
-template <typename Fn, typename Tup>
-LINALG_HD decltype(auto) constexpr Apply(Fn &&f, Tup &&t) {
-  constexpr auto kSize = std::tuple_size<Tup>::value;
-  return Apply(std::forward<Fn>(f), std::forward<Tup>(t), std::make_index_sequence<kSize>{});
 }
 
 /**
@@ -379,7 +362,7 @@ class TensorView {
    * \brief Slice dimension for Index tag.
    */
   template <size_t old_dim, size_t new_dim, int32_t D, typename Index, typename... S>
-  LINALG_HD std::enable_if_t<std::is_integral<Index>::value, size_t> MakeSliceDim(
+  LINALG_HD std::enable_if_t<std::is_integral_v<Index>, size_t> MakeSliceDim(
       size_t new_shape[D], size_t new_stride[D], Index i, S &&...slices) const {
     static_assert(old_dim < kDim);
     auto offset = stride_[old_dim] * i;
@@ -547,7 +530,7 @@ class TensorView {
    */
   [[nodiscard]] LINALG_HD bool CContiguous() const {
     StrideT stride;
-    static_assert(std::is_same<decltype(stride), decltype(stride_)>::value);
+    static_assert(std::is_same_v<decltype(stride), decltype(stride_)>);
     // It's contiguous if the stride can be calculated from shape.
     detail::CalcStride(shape_, stride);
     return common::Span<size_t const, kDim>{stride_} == common::Span<size_t const, kDim>{stride};
@@ -557,7 +540,7 @@ class TensorView {
    */
   [[nodiscard]] LINALG_HD bool FContiguous() const {
     StrideT stride;
-    static_assert(std::is_same<decltype(stride), decltype(stride_)>::value);
+    static_assert(std::is_same_v<decltype(stride), decltype(stride_)>);
     // It's contiguous if the stride can be calculated from shape.
     detail::CalcStride<kDim, true>(shape_, stride);
     return common::Span<size_t const, kDim>{stride_} == common::Span<size_t const, kDim>{stride};
@@ -608,13 +591,13 @@ auto MakeTensorView(Context const *ctx, Order order, common::Span<T, ext> data, 
 
 template <typename T, typename... S>
 auto MakeTensorView(Context const *ctx, HostDeviceVector<T> *data, S &&...shape) {
-  auto span = ctx->IsCUDA() ? data->DeviceSpan() : data->HostSpan();
+  auto span = ctx->IsCPU() ? data->HostSpan() : data->DeviceSpan();
   return MakeTensorView(ctx->Device(), span, std::forward<S>(shape)...);
 }
 
 template <typename T, typename... S>
 auto MakeTensorView(Context const *ctx, HostDeviceVector<T> const *data, S &&...shape) {
-  auto span = ctx->IsCUDA() ? data->ConstDeviceSpan() : data->ConstHostSpan();
+  auto span = ctx->IsCPU() ? data->ConstHostSpan() : data->ConstDeviceSpan();
   return MakeTensorView(ctx->Device(), span, std::forward<S>(shape)...);
 }
 
@@ -664,8 +647,8 @@ auto MakeVec(T *ptr, size_t s, DeviceOrd device = DeviceOrd::CPU()) {
 
 template <typename T>
 auto MakeVec(HostDeviceVector<T> *data) {
-  return MakeVec(data->Device().IsCPU() ? data->HostPointer() : data->DevicePointer(), data->Size(),
-                 data->Device());
+  return MakeVec(data->Device().IsCPU() ? data->HostPointer() : data->DevicePointer(),
+                 data->Size(), data->Device());
 }
 
 template <typename T>
@@ -776,7 +759,7 @@ class Tensor {
     for (auto i = D; i < kDim; ++i) {
       shape_[i] = 1;
     }
-    if (device.IsCUDA()) {
+    if (!device.IsCPU()) {
       data_.SetDevice(device);
       data_.ConstDevicePointer();  // Pull to device;
     }
@@ -805,11 +788,11 @@ class Tensor {
       shape_[i] = 1;
     }
     auto size = detail::CalcSize(shape_);
-    if (device.IsCUDA()) {
+    if (!device.IsCPU()) {
       data_.SetDevice(device);
     }
     data_.Resize(size);
-    if (device.IsCUDA()) {
+    if (!device.IsCPU()) {
       data_.DevicePointer();  // Pull to device
     }
   }
@@ -855,22 +838,22 @@ class Tensor {
    * @brief Get a @ref TensorView for this tensor.
    */
   auto View(DeviceOrd device) {
-    if (device.IsCUDA()) {
-      data_.SetDevice(device);
-      auto span = data_.DeviceSpan();
+    if (device.IsCPU()) {
+      auto span = data_.HostSpan();
       return TensorView<T, kDim>{span, shape_, device, order_};
     } else {
-      auto span = data_.HostSpan();
+      data_.SetDevice(device);
+      auto span = data_.DeviceSpan();
       return TensorView<T, kDim>{span, shape_, device, order_};
     }
   }
   auto View(DeviceOrd device) const {
-    if (device.IsCUDA()) {
-      data_.SetDevice(device);
-      auto span = data_.ConstDeviceSpan();
+    if (device.IsCPU()) {
+      auto span = data_.ConstHostSpan();
       return TensorView<T const, kDim>{span, shape_, device, order_};
     } else {
-      auto span = data_.ConstHostSpan();
+      data_.SetDevice(device);
+      auto span = data_.ConstDeviceSpan();
       return TensorView<T const, kDim>{span, shape_, device, order_};
     }
   }

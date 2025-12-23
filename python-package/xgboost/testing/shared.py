@@ -52,6 +52,7 @@ def validate_data_initialization(
 
 # pylint: disable=too-many-arguments,too-many-locals
 def get_feature_weights(
+    *,
     X: ArrayLike,
     y: ArrayLike,
     fw: np.ndarray,
@@ -62,9 +63,13 @@ def get_feature_weights(
     """Get feature weights using the demo parser."""
     with tempfile.TemporaryDirectory() as tmpdir:
         colsample_bynode = 0.5
-        reg = model(tree_method=tree_method, colsample_bynode=colsample_bynode)
+        reg = model(
+            tree_method=tree_method,
+            colsample_bynode=colsample_bynode,
+            feature_weights=fw,
+        )
 
-        reg.fit(X, y, feature_weights=fw)
+        reg.fit(X, y)
         model_path = os.path.join(tmpdir, "model.json")
         reg.save_model(model_path)
         with open(model_path, "r", encoding="utf-8") as fd:

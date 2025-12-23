@@ -1,5 +1,5 @@
 /**
- * Copyright 2015-2024, XGBoost Contributors
+ * Copyright 2015-2025, XGBoost Contributors
  * \file base.h
  * \brief Defines configuration macros and basic types for xgboost.
  */
@@ -7,6 +7,8 @@
 #define XGBOOST_BASE_H_
 
 #include <dmlc/omp.h>  // for omp_uint, omp_ulong
+// Put the windefs here to guard as many files as possible.
+#include <xgboost/windefs.h>
 
 #include <cstdint>  // for int32_t, uint64_t, int16_t
 #include <ostream>  // for ostream
@@ -70,6 +72,14 @@
 #define XGBOOST_DEV_INLINE
 #endif  // defined(__CUDA__) || defined(__CUDACC__) || defined(__HIPCC__)
 
+
+// restrict
+#if defined(_MSC_VER)
+#define XGBOOST_RESTRICT __restrict
+#else
+#define XGBOOST_RESTRICT __restrict__
+#endif
+
 // These check are for Makefile.
 #if !defined(XGBOOST_MM_PREFETCH_PRESENT) && !defined(XGBOOST_BUILTIN_PREFETCH_PRESENT)
 /* default logic for software pre-fetching */
@@ -103,9 +113,13 @@ using bst_bin_t = std::int32_t;  // NOLINT
  * @brief Type for data row index (sample).
  */
 using bst_idx_t = std::uint64_t;  // NOLINT
-/*! \brief Type for tree node index. */
+/**
+ * \brief Type for tree node index.
+ */
 using bst_node_t = std::int32_t;      // NOLINT
-/*! \brief Type for ranking group index. */
+/**
+ * @brief Type for ranking group index.
+ */
 using bst_group_t = std::uint32_t;  // NOLINT
 /**
  * @brief Type for indexing into output targets.
@@ -116,7 +130,7 @@ using bst_target_t = std::uint32_t;  // NOLINT
  */
 using bst_layer_t = std::int32_t;  // NOLINT
 /**
- * \brief Type for indexing trees.
+ * @brief Type for indexing trees.
  */
 using bst_tree_t = std::int32_t;  // NOLINT
 /**

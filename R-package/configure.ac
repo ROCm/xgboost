@@ -2,7 +2,7 @@
 
 AC_PREREQ(2.69)
 
-AC_INIT([xgboost],[2.1.3],[],[xgboost],[])
+AC_INIT([xgboost],[3.1.1],[],[xgboost],[])
 
 : ${R_HOME=`R RHOME`}
 if test -z "${R_HOME}"; then
@@ -22,20 +22,25 @@ CPPFLAGS=`"${R_HOME}/bin/R" CMD config CPPFLAGS`
 LDFLAGS=`"${R_HOME}/bin/R" CMD config LDFLAGS`
 AC_LANG(C++)
 
-### Check whether backtrace() is part of libc or the external lib libexecinfo
-AC_MSG_CHECKING([Backtrace lib])
-AC_MSG_RESULT([])
-AC_CHECK_LIB([execinfo], [backtrace], [BACKTRACE_LIB=-lexecinfo], [BACKTRACE_LIB=''])
+DMLC_DEFS=""
 
-### Endian detection
+AC_MSG_NOTICE([Checking if/where backtrace is available])
+AC_CHECK_LIB([execinfo], [backtrace], [BACKTRACE_LIB=-lexecinfo], [BACKTRACE_LIB=''])
+AS_IF([test -z "${BACKTRACE_LIB}"],
+      dnl backtrace() might be unavailable (e.g., in musl libc)
+      [AC_CHECK_FUNC(backtrace, [], [DMLC_DEFS="$DMLC_DEFS -DDMLC_LOG_STACK_TRACE=0"])])
+
+AC_MSG_NOTICE([Checking whether fopen64 is available])
+AC_CHECK_FUNC(fopen64, [], [DMLC_DEFS="$DMLC_DEFS -DDMLC_USE_FOPEN64=0"])
+
+AC_MSG_NOTICE([Endian detection])
 AC_ARG_VAR(USE_LITTLE_ENDIAN, "Whether to build with little endian (checks at compile time if unset)")
 AS_IF([test -z "${USE_LITTLE_ENDIAN+x}"], [
   AC_MSG_NOTICE([Checking system endianness as USE_LITTLE_ENDIAN is unset])
-  AC_MSG_CHECKING([system endianness])
   AC_C_BIGENDIAN(
-    [AC_MSG_RESULT([big endian])
+    [AC_MSG_RESULT([using big endian])
      ENDIAN_FLAG="-DDMLC_CMAKE_LITTLE_ENDIAN=0"],
-    [AC_MSG_RESULT([little endian])
+    [AC_MSG_RESULT([using little endian])
      ENDIAN_FLAG="-DDMLC_CMAKE_LITTLE_ENDIAN=1"],
     [AC_MSG_RESULT([unknown])
      AC_MSG_ERROR([Could not determine endianness. Please set USE_LITTLE_ENDIAN])]
@@ -44,6 +49,36 @@ AS_IF([test -z "${USE_LITTLE_ENDIAN+x}"], [
   AC_MSG_NOTICE([Forcing endianness to: ${USE_LITTLE_ENDIAN}])
   ENDIAN_FLAG="-DDMLC_CMAKE_LITTLE_ENDIAN=${USE_LITTLE_ENDIAN}"
 ])
+
+AC_MSG_NOTICE([Checking for prefetch builtin])
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM(
+    [],
+    [__builtin_prefetch]
+  )],
+  [XGBOOST_BUILTIN_PREFETCH_PRESENT="-DXGBOOST_BUILTIN_PREFETCH_PRESENT=1"],
+  [XGBOOST_BUILTIN_PREFETCH_PRESENT=""]
+)
+if [[ "$XGBOOST_BUILTIN_PREFETCH_PRESENT" = "" ]]; then
+  echo "Has __builtin_prefetch"
+else
+  echo "Doesn't have __builtin_prefetch"
+fi
+
+AC_MSG_NOTICE([Checking for mm_prefetch])
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM(
+    [#include <xmmintrin.h>],
+    [_mm_prefetch]
+  )],
+  [XGBOOST_MM_PREFETCH_PRESENT="-DXGBOOST_MM_PREFETCH_PRESENT=1"],
+  [XGBOOST_MM_PREFETCH_PRESENT=""]
+)
+if [[ "$XGBOOST_MM_PREFETCH_PRESENT" = "" ]]; then
+  echo "Has _mm_prefetch"
+else
+  echo "Doesn't have _mm_prefetch"
+fi
 
 OPENMP_CXXFLAGS=""
 
@@ -73,7 +108,7 @@ then
     OPENMP_LIB=''
     echo '*****************************************************************************************'
     echo '         OpenMP is unavailable on this Mac OSX system. Training speed may be suboptimal.'
-    echo '         To use all CPU cores for training jobs, you should install OpenMP by running\n'
+    echo '         To use all CPU cores for training jobs, you should install OpenMP by running'
     echo '             brew install libomp'
     echo '*****************************************************************************************'
   fi
@@ -82,7 +117,10 @@ fi
 AC_SUBST(OPENMP_CXXFLAGS)
 AC_SUBST(OPENMP_LIB)
 AC_SUBST(ENDIAN_FLAG)
+AC_SUBST(DMLC_DEFS)
 AC_SUBST(BACKTRACE_LIB)
+AC_SUBST(XGBOOST_BUILTIN_PREFETCH_PRESENT)
+AC_SUBST(XGBOOST_MM_PREFETCH_PRESENT)
 AC_CONFIG_FILES([src/Makevars])
 AC_CONFIG_HEADERS([config.h])
 AC_OUTPUT

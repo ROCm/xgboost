@@ -9,7 +9,6 @@
 #include <limits>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "allreduce.h"
 #include "broadcast.h"
@@ -135,6 +134,15 @@ std::enable_if_t<std::is_trivially_copy_assignable_v<T>, T> GlobalMax(Context co
   return value;
 }
 
+template <typename T, std::int32_t kDim>
+[[nodiscard]] Result GlobalSum(Context const* ctx, bool is_column_split,
+                               linalg::TensorView<T, kDim> values) {
+  if (!is_column_split) {
+    return collective::Allreduce(ctx, values, collective::Op::kSum);
+  }
+  return Success();
+}
+
 /**
  * @brief Find the global sum of the given values across all workers.
  *
@@ -149,10 +157,21 @@ std::enable_if_t<std::is_trivially_copy_assignable_v<T>, T> GlobalMax(Context co
 template <typename T, std::int32_t kDim>
 [[nodiscard]] Result GlobalSum(Context const* ctx, MetaInfo const& info,
                                linalg::TensorView<T, kDim> values) {
-  if (info.IsRowSplit()) {
-    return collective::Allreduce(ctx, values, collective::Op::kSum);
+  return GlobalSum(ctx, info.IsColumnSplit(), values);
+}
+
+template <typename T>
+[[nodiscard]] Result GlobalSum(Context const* ctx, MetaInfo const& info,
+                               linalg::VectorView<T> values, double* sum_weight) {
+  if (info.IsColumnSplit()) {
+    return Success();
   }
-  return Success();
+  auto status = Success() << [&] {
+    return Allreduce(ctx, sum_weight, collective::Op::kSum);
+  } << [&] {
+    return Allreduce(ctx, values, collective::Op::kSum);
+  };
+  return status;
 }
 
 /**

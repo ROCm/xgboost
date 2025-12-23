@@ -3,18 +3,18 @@
  */
 #include <thrust/sort.h>
 
-#include <cstdint>                     // std::int32_t
-
+#include <cstdint>      // std::int32_t
 #if defined(XGBOOST_USE_CUDA)
-#include <cub/cub.cuh>                 // NOLINT
-#elif defined(XGBOOST_USE_HIP)
-#include <hipcub/hipcub.hpp>           // NOLINT
+#include <cub/cub.cuh>  // NOLINT
+//#elif defined(XGBOOST_USE_HIP)
+//#include <cub/cub.hip.h>  // NOLINT
 #endif
 
 #include "../collective/aggregator.h"
 #include "../common/cuda_context.cuh"  // CUDAContext
 #include "../common/device_helpers.cuh"
 #include "../common/stats.cuh"
+#include "../tree/sample_position.h"  // for SamplePosition
 #include "adaptive.h"
 #include "xgboost/context.h"
 
@@ -36,10 +36,12 @@ void EncodeTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
   // sort row index according to node index
   thrust::stable_sort_by_key(cuctx->TP(), sorted_position.begin(),
                              sorted_position.begin() + n_samples, p_ridx->begin());
-  size_t beg_pos =
-      thrust::find_if(cuctx->CTP(), sorted_position.cbegin(), sorted_position.cend(),
-                      [] XGBOOST_DEVICE(bst_node_t nidx) { return nidx >= 0; }) -
-      sorted_position.cbegin();
+  // Find the first one that's not sampled (nidx not been negated).
+  size_t beg_pos = thrust::find_if(cuctx->CTP(), sorted_position.cbegin(), sorted_position.cend(),
+                                   [] XGBOOST_DEVICE(bst_node_t nidx) {
+                                     return tree::SamplePosition::IsValid(nidx);
+                                   }) -
+                   sorted_position.cbegin();
   if (beg_pos == sorted_position.size()) {
     auto& leaf = p_nidx->HostVector();
     tree.WalkTree([&](bst_node_t nidx) {

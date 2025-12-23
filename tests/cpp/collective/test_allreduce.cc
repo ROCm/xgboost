@@ -24,7 +24,7 @@ class AllreduceWorker : public WorkerForTest {
           rhs[i] += lhs[i];
         }
       });
-      ASSERT_TRUE(rc.OK());
+      SafeColl(rc);
       ASSERT_EQ(std::accumulate(data.cbegin(), data.cend(), 0.0), 0.0);
     }
     {
@@ -34,7 +34,7 @@ class AllreduceWorker : public WorkerForTest {
           rhs[i] += lhs[i];
         }
       });
-      ASSERT_TRUE(rc.OK());
+      SafeColl(rc);
       ASSERT_EQ(data[0], static_cast<double>(comm_.World()));
     }
   }
@@ -49,7 +49,7 @@ class AllreduceWorker : public WorkerForTest {
         rhs[i] += lhs[i];
       }
     });
-    ASSERT_TRUE(rc.OK());
+    SafeColl(rc);
     for (auto v : data) {
       ASSERT_EQ(v, comm_.World());
     }
@@ -62,7 +62,7 @@ class AllreduceWorker : public WorkerForTest {
         rhs[i] += lhs[i];
       }
     });
-    ASSERT_TRUE(rc.OK());
+    SafeColl(rc);
     for (std::size_t i = 0; i < data.size(); ++i) {
       auto v = data[i];
       ASSERT_EQ(v, 1.5 * static_cast<double>(comm_.World())) << i;
@@ -114,11 +114,14 @@ TEST_F(AllreduceTest, BitOr) {
 
 TEST_F(AllreduceTest, Restricted) {
   std::int32_t n_workers = std::min(3u, std::thread::hardware_concurrency());
-  TestDistributed(n_workers, [=](std::string host, std::int32_t port, std::chrono::seconds timeout,
-                                 std::int32_t r) {
-    AllreduceWorker worker{host, port, timeout, n_workers, r};
-    worker.Restricted();
-  });
+  auto timeout = std::chrono::seconds{4};
+  TestDistributed(
+      n_workers,
+      [=](std::string host, std::int32_t port, std::chrono::seconds timeout, std::int32_t r) {
+        AllreduceWorker worker{host, port, timeout, n_workers, r};
+        worker.Restricted();
+      },
+      timeout);
 }
 
 TEST(AllreduceGlobal, Basic) {

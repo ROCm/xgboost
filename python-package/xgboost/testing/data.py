@@ -1,7 +1,11 @@
-# pylint: disable=invalid-name
+# pylint: disable=invalid-name, too-many-lines
 """Utilities for data generation."""
+import gc
+import multiprocessing
 import os
+import string
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -12,6 +16,8 @@ from typing import (
     List,
     NamedTuple,
     Optional,
+    Sequence,
+    Set,
     Tuple,
     Type,
     Union,
@@ -24,11 +30,13 @@ from numpy import typing as npt
 from numpy.random import Generator as RNG
 from scipy import sparse
 
-import xgboost
-from xgboost.data import pandas_pyarrow_mapper
+from ..core import DataIter, DMatrix, QuantileDMatrix
+from ..data import is_pd_cat_dtype, pandas_pyarrow_mapper
+from ..sklearn import ArrayLike, XGBRanker
+from ..training import train as train_fn
 
 if TYPE_CHECKING:
-    from ..compat import DataFrame as DataFrameT
+    from pandas import DataFrame as DataFrameT
 else:
     DataFrameT = Any
 
@@ -38,9 +46,9 @@ memory = joblib.Memory("./cachedir", verbose=0)
 
 def np_dtypes(
     n_samples: int, n_features: int
-) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
+) -> Generator[Union[Tuple[np.ndarray, np.ndarray], Tuple[list, list]], None, None]:
     """Enumerate all supported dtypes from numpy."""
-    import pandas as pd
+    pd = pytest.importorskip("pandas")
 
     rng = np.random.RandomState(1994)
     # Integer and float.
@@ -84,12 +92,12 @@ def np_dtypes(
     orig = rng.binomial(1, 0.5, size=n_samples * n_features).reshape(
         n_samples, n_features
     )
-    for dtype in [np.bool_, bool]:
-        X = np.array(orig, dtype=dtype)
+    for dtype1 in [np.bool_, bool]:
+        X = np.array(orig, dtype=dtype1)
         yield orig, X
 
-    for dtype in [np.bool_, bool]:
-        X = np.array(orig, dtype=dtype)
+    for dtype2 in [np.bool_, bool]:
+        X = np.array(orig, dtype=dtype2)
         df_orig = pd.DataFrame(orig)
         df = pd.DataFrame(X)
         yield df_orig, df
@@ -97,7 +105,7 @@ def np_dtypes(
 
 def pd_dtypes() -> Generator:
     """Enumerate all supported pandas extension types."""
-    import pandas as pd
+    pd = pytest.importorskip("pandas")
 
     # Integer
     dtypes = [
@@ -142,9 +150,11 @@ def pd_dtypes() -> Generator:
 
     # Categorical
     orig = orig.astype("category")
+    for c in orig.columns:
+        orig[c] = orig[c].cat.rename_categories(int)
     for Null in (np.nan, None, pd.NA):
         df = pd.DataFrame(
-            {"f0": [1.0, 2.0, Null, 3.0], "f1": [3.0, 2.0, Null, 1.0]},
+            {"f0": [1, 2, Null, 3], "f1": [3, 2, Null, 1]},
             dtype=pd.CategoricalDtype(),
         )
         yield orig, df
@@ -160,8 +170,8 @@ def pd_dtypes() -> Generator:
 
 def pd_arrow_dtypes() -> Generator:
     """Pandas DataFrame with pyarrow backed type."""
-    import pandas as pd
-    import pyarrow as pa  # pylint: disable=import-error
+    pd = pytest.importorskip("pandas")
+    pa = pytest.importorskip("pyarrow")
 
     # Integer
     dtypes = pandas_pyarrow_mapper
@@ -223,18 +233,66 @@ def check_inf(rng: RNG) -> None:
     X[5, 2] = np.inf
 
     with pytest.raises(ValueError, match="Input data contains `inf`"):
-        xgboost.QuantileDMatrix(X, y)
+        QuantileDMatrix(X, y)
 
     with pytest.raises(ValueError, match="Input data contains `inf`"):
-        xgboost.DMatrix(X, y)
+        DMatrix(X, y)
 
 
 @memory.cache
 def get_california_housing() -> Tuple[np.ndarray, np.ndarray]:
-    """Fetch the California housing dataset from sklearn."""
-    datasets = pytest.importorskip("sklearn.datasets")
-    data = datasets.fetch_california_housing()
-    return data.data, data.target
+    """Synthesize a dataset similar to the sklearn California housing dataset.
+
+    The real one can be obtained via:
+
+    .. code-block::
+
+        import sklearn.datasets
+
+        X, y = sklearn.datasets.fetch_california_housing(return_X_y=True)
+
+    """
+    n_samples = 20640
+    rng = np.random.default_rng(2025)
+
+    pd = pytest.importorskip("pandas")
+
+    def mixture_2comp(
+        means: List[float], sigmas: List[float], weights: List[float]
+    ) -> np.ndarray:
+        l0 = rng.normal(
+            size=(int(n_samples * weights[0])), loc=means[0], scale=sigmas[0]
+        )
+        l1 = rng.normal(size=(n_samples - l0.shape[0]), loc=means[1], scale=sigmas[1])
+        return np.concatenate([l0, l1], axis=0)
+
+    def norm(mean: float, std: float) -> np.ndarray:
+        return rng.normal(loc=mean, scale=std, size=(n_samples,))
+
+    df = pd.DataFrame(
+        {
+            "Longitude": mixture_2comp(
+                [-118.0703597, -121.85682825],
+                [0.7897320650373969, 0.7248398629412008],
+                [0.60402556, 0.39597444],
+            ),
+            "Latitude": mixture_2comp(
+                [37.84266317, 33.86030848],
+                [1.0643911549736087, 0.5049274656834589],
+                [0.44485062, 0.55514938],
+            ),
+            "MedInc": norm(mean=3.8706710029069766, std=1.8997756945748738),
+            "HouseAge": norm(mean=28.639486434108527, std=12.585252725724606),
+            "AveRooms": norm(mean=5.428999742190376, std=2.474113202333516),
+            "AveBedrms": norm(mean=1.096675149606208, std=0.47389937625774475),
+            "Population": norm(mean=1425.4767441860465, std=1132.434687757615),
+            "AveOccup": norm(mean=3.0706551594363742, std=10.385797959128219),
+            "MedHouseVal": norm(mean=2.068558169089147, std=1.1539282040412253),
+        }
+    )
+    X = df[df.columns.difference(["MedHouseVal"])].to_numpy()
+    y = df["MedHouseVal"].to_numpy()
+    return X, y
 
 
 @memory.cache
@@ -286,8 +344,10 @@ def get_ames_housing() -> Tuple[DataFrameT, np.ndarray]:
     Number of categorical features: 10
     Number of numerical features: 10
     """
-    pytest.importorskip("pandas")
-    import pandas as pd
+    if TYPE_CHECKING:
+        import pandas as pd
+    else:
+        pd = pytest.importorskip("pandas")
 
     rng = np.random.default_rng(1994)
     n_samples = 1460
@@ -521,9 +581,9 @@ def make_batches(  # pylint: disable=too-many-arguments,too-many-locals
     y = []
     w = []
     if use_cupy:
-        import cupy  # pylint: disable=import-error
+        import cupy
 
-        rng = cupy.random.RandomState(random_state)
+        rng = cupy.random.RandomState(np.uint64(random_state))
     else:
         rng = np.random.RandomState(random_state)
     for i in range(n_batches):
@@ -564,7 +624,7 @@ class RelDataCV(NamedTuple):
         return self.max_rel == 1
 
 
-class PBM:  # pylint: disable=too-few-public-methods
+class PBM:
     """Simulate click data with position bias model. There are other models available in
     `ULTRA <https://github.com/ULTR-Community/ULTRA.git>`_ like the cascading model.
 
@@ -648,7 +708,7 @@ def init_rank_score(
     # random sample
     rng = np.random.default_rng(1994)
     n_samples = int(X.shape[0] * sample_rate)
-    index = np.arange(0, X.shape[0], dtype=np.uint64)
+    index: npt.NDArray = np.arange(0, X.shape[0], dtype=np.uint64)
     rng.shuffle(index)
     index = index[:n_samples]
 
@@ -662,7 +722,7 @@ def init_rank_score(
     y_train = y_train[sorted_idx]
     qid_train = qid_train[sorted_idx]
 
-    ltr = xgboost.XGBRanker(objective="rank:ndcg", tree_method="hist")
+    ltr = XGBRanker(objective="rank:ndcg", tree_method="hist")
     ltr.fit(X_train, y_train, qid=qid_train)
 
     # Use the original order of the data.
@@ -797,9 +857,7 @@ def sort_ltr_samples(
     return data
 
 
-def run_base_margin_info(
-    DType: Callable, DMatrixT: Type[xgboost.DMatrix], device: str
-) -> None:
+def run_base_margin_info(DType: Callable, DMatrixT: Type[DMatrix], device: str) -> None:
     """Run tests for base margin."""
     rng = np.random.default_rng()
     X = DType(rng.normal(0, 1.0, size=100).astype(np.float32).reshape(50, 2))
@@ -812,7 +870,7 @@ def run_base_margin_info(
     Xy = DMatrixT(X, y, base_margin=base_margin)
     # Error at train, caused by check in predictor.
     with pytest.raises(ValueError, match=r".*base_margin.*"):
-        xgboost.train({"tree_method": "hist", "device": device}, Xy)
+        train_fn({"tree_method": "hist", "device": device}, Xy)
 
     if not hasattr(X, "iloc"):
         # column major matrix
@@ -843,3 +901,262 @@ def run_base_margin_info(
         base_margin = X.reshape(2, 5, 2, 5)
         with pytest.raises(ValueError, match=r".*base_margin.*"):
             Xy.set_base_margin(base_margin)
+
+
+# pylint: disable=too-many-locals
+@memory.cache
+def make_sparse_regression(
+    n_samples: int, n_features: int, sparsity: float, as_dense: bool
+) -> Tuple[Union[sparse.csr_matrix], np.ndarray]:
+    """Make sparse matrix.
+
+    Parameters
+    ----------
+
+    as_dense:
+
+      Return the matrix as np.ndarray with missing values filled by NaN
+
+    """
+    if not hasattr(np.random, "default_rng"):
+        rng = np.random.RandomState(1994)
+        X = sparse.random(
+            m=n_samples,
+            n=n_features,
+            density=1.0 - sparsity,
+            random_state=rng,
+            format="csr",
+        )
+        y = rng.normal(loc=0.0, scale=1.0, size=n_samples)
+        return X, y
+
+    # Use multi-thread to speed up the generation, convenient if you use this function
+    # for benchmarking.
+    n_threads = min(multiprocessing.cpu_count(), n_features)
+
+    def random_csc(t_id: int) -> sparse.csc_matrix:
+        rng = np.random.default_rng(1994 * t_id)
+        thread_size = n_features // n_threads
+        if t_id == n_threads - 1:
+            n_features_tloc = n_features - t_id * thread_size
+        else:
+            n_features_tloc = thread_size
+
+        X = sparse.random(
+            m=n_samples,
+            n=n_features_tloc,
+            density=1.0 - sparsity,
+            random_state=rng,
+        ).tocsc()
+        y = np.zeros((n_samples, 1))
+
+        for i in range(X.shape[1]):
+            size = X.indptr[i + 1] - X.indptr[i]
+            if size != 0:
+                y += X[:, i].toarray() * rng.random((n_samples, 1)) * 0.2
+
+        return X, y
+
+    futures = []
+    with ThreadPoolExecutor(max_workers=n_threads) as executor:
+        for i in range(n_threads):
+            futures.append(executor.submit(random_csc, i))
+
+    X_results = []
+    y_results = []
+    for f in futures:
+        X, y = f.result()
+        X_results.append(X)
+        y_results.append(y)
+
+    assert len(y_results) == n_threads
+
+    csr: sparse.csr_matrix = sparse.hstack(X_results, format="csr")
+    y = np.asarray(y_results)
+    y = y.reshape((y.shape[0], y.shape[1])).T
+    y = np.sum(y, axis=1)
+
+    assert csr.shape[0] == n_samples
+    assert csr.shape[1] == n_features
+    assert y.shape[0] == n_samples
+
+    if as_dense:
+        arr = csr.toarray()
+        assert arr.shape[0] == n_samples
+        assert arr.shape[1] == n_features
+        arr[arr == 0] = np.nan
+        return arr, y
+
+    return csr, y
+
+
+def unique_random_strings(n_strings: int, seed: int) -> List[str]:
+    """Generate n unique strings."""
+    name_len = 8  # hardcoded, should be more than enough
+    unique_strings: Set[str] = set()
+    rng = np.random.default_rng(seed)
+
+    while len(unique_strings) < n_strings:
+        random_str = "".join(
+            rng.choice(list(string.ascii_letters), size=name_len, replace=True)
+        )
+        unique_strings.add(random_str)
+
+    return list(unique_strings)
+
+
+# pylint: disable=too-many-arguments,too-many-locals,too-many-branches
+def make_categorical(
+    n_samples: int,
+    n_features: int,
+    n_categories: int,
+    *,
+    onehot: bool,
+    sparsity: float = 0.0,
+    cat_ratio: float = 1.0,
+    shuffle: bool = False,
+    random_state: int = 1994,
+    cat_dtype: np.typing.DTypeLike = np.int64,
+    device: str = "cpu",
+) -> Tuple[ArrayLike, np.ndarray]:
+    """Generate categorical features for test.
+
+    Parameters
+    ----------
+    n_categories:
+        Number of categories for categorical features.
+    onehot:
+        Should we apply one-hot encoding to the data?
+    sparsity:
+        The ratio of the amount of missing values over the number of all entries.
+    cat_ratio:
+        The ratio of features that are categorical.
+    shuffle:
+        Whether we should shuffle the columns.
+    cat_dtype :
+        The dtype for categorical features, might be string or numeric.
+
+    Returns
+    -------
+    X, y
+    """
+    pd = pytest.importorskip("pandas")
+
+    # Use different rngs for column and rows. We can change the `n_samples` without
+    # changing the column type.
+    rng = np.random.RandomState(random_state)
+    row_rng = np.random.RandomState(random_state + 1)
+
+    df = pd.DataFrame()
+    for i in range(n_features):
+        choice = rng.binomial(1, cat_ratio, size=1)[0]
+        if choice == 1:
+            if np.issubdtype(cat_dtype, np.str_):
+                # we rely on using the feature index as the seed to generate the same
+                # categories for multiple calls to `make_categorical`.
+                categories = np.array(unique_random_strings(n_categories, i))
+                c = row_rng.choice(categories, size=n_samples, replace=True)
+            else:
+                categories = np.arange(0, n_categories)
+                c = row_rng.randint(low=0, high=n_categories, size=n_samples)
+
+            df[str(i)] = pd.Series(c, dtype="category")
+            df[str(i)] = df[str(i)].cat.set_categories(categories)
+        else:
+            num = row_rng.randint(low=0, high=n_categories, size=n_samples)
+            df[str(i)] = pd.Series(num, dtype=num.dtype)
+
+    label = np.zeros(shape=(n_samples,))
+    for col in df.columns:
+        if isinstance(df[col].dtype, pd.CategoricalDtype):
+            label += df[col].cat.codes
+        else:
+            label += df[col]
+    label += 1
+
+    if sparsity > 0.0:
+        for i in range(n_features):
+            index = row_rng.randint(
+                low=0, high=n_samples - 1, size=int(n_samples * sparsity)
+            )
+            df.iloc[index, i] = np.nan
+            if is_pd_cat_dtype(df.dtypes.iloc[i]):
+                assert n_categories == np.unique(df.dtypes.iloc[i].categories).size
+
+    assert df.shape[1] == n_features
+    if onehot:
+        df = pd.get_dummies(df)
+
+    if shuffle:
+        columns = list(df.columns)
+        row_rng.shuffle(columns)
+        df = df[columns]
+
+    if device != "cpu":
+        assert device in ["cuda", "gpu"]
+        import cudf
+        import cupy
+
+        df = cudf.from_pandas(df)
+        label = cupy.array(label)
+    return df, label
+
+
+class IteratorForTest(DataIter):
+    """Iterator for testing streaming DMatrix. (external memory, quantile)"""
+
+    def __init__(  # pylint: disable=too-many-arguments
+        self,
+        X: Sequence,
+        y: Sequence,
+        w: Optional[Sequence],
+        *,
+        cache: Optional[str],
+        on_host: bool = False,
+        min_cache_page_bytes: Optional[int] = None,
+    ) -> None:
+        assert len(X) == len(y)
+        self.X = X
+        self.y = y
+        self.w = w
+        self.it = 0
+        super().__init__(
+            cache_prefix=cache,
+            on_host=on_host,
+            min_cache_page_bytes=min_cache_page_bytes,
+        )
+
+    def next(self, input_data: Callable) -> bool:
+        if self.it == len(self.X):
+            return False
+
+        with pytest.raises(TypeError, match="Keyword argument"):
+            input_data(self.X[self.it], self.y[self.it], None)
+
+        # Use copy to make sure the iterator doesn't hold a reference to the data.
+        input_data(
+            data=self.X[self.it].copy(),
+            label=self.y[self.it].copy(),
+            weight=self.w[self.it].copy() if self.w else None,
+        )
+        gc.collect()  # clear up the copy, see if XGBoost access freed memory.
+        self.it += 1
+        return True
+
+    def reset(self) -> None:
+        self.it = 0
+
+    def as_arrays(
+        self,
+    ) -> Tuple[Union[np.ndarray, sparse.csr_matrix], ArrayLike, Optional[ArrayLike]]:
+        """Return concatenated arrays."""
+        if isinstance(self.X[0], sparse.csr_matrix):
+            X = sparse.vstack(self.X, format="csr")
+        else:
+            X = np.concatenate(self.X, axis=0)
+        y = np.concatenate(self.y, axis=0)
+        if self.w:
+            w = np.concatenate(self.w, axis=0)
+        else:
+            w = None
+        return X, y, w

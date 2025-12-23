@@ -1,5 +1,5 @@
 /**
- * Copyright 2019-2024, XGBoost Contributors
+ * Copyright 2019-2025, XGBoost Contributors
  */
 #include <gtest/gtest.h>
 
@@ -8,13 +8,13 @@
 #include <numeric>  // for iota
 
 #include "../../../src/common/io.h"
-#include "../filesystem.h"  // dmlc::TemporaryDirectory
+#include "../filesystem.h"  // TemporaryDirectory
 #include "../helpers.h"
 
 namespace xgboost::common {
 TEST(MemoryFixSizeBuffer, Seek) {
-  size_t constexpr kSize { 64 };
-  std::vector<int32_t> memory( kSize );
+  size_t constexpr kSize{64};
+  std::vector<int32_t> memory(kSize);
   MemoryFixSizeBuffer buf(memory.data(), memory.size());
   buf.Seek(MemoryFixSizeBuffer::kSeekEnd);
   size_t end = buf.Tell();
@@ -22,13 +22,13 @@ TEST(MemoryFixSizeBuffer, Seek) {
 }
 
 TEST(IO, FileExtension) {
-  std::string filename {u8"model.json"};
+  std::string filename{u8"model.json"};
   auto ext = FileExtension(filename);
   ASSERT_EQ(ext, u8"json");
 }
 
 TEST(IO, FixedSizeStream) {
-  std::string buffer {"This is the content of stream"};
+  std::string buffer{"This is the content of stream"};
   {
     MemoryFixSizeBuffer stream(static_cast<void *>(&buffer[0]), buffer.size());
     PeekableInStream peekable(&stream);
@@ -45,7 +45,7 @@ TEST(IO, FixedSizeStream) {
       huge_buffer += buffer;
     }
 
-    MemoryFixSizeBuffer stream(static_cast<void*>(&huge_buffer[0]), huge_buffer.size());
+    MemoryFixSizeBuffer stream(static_cast<void *>(&huge_buffer[0]), huge_buffer.size());
     PeekableInStream peekable(&stream);
     FixedSizeStream fixed(&peekable);
 
@@ -58,8 +58,8 @@ TEST(IO, FixedSizeStream) {
 TEST(IO, LoadSequentialFile) {
   EXPECT_THROW(LoadSequentialFile("non-exist"), dmlc::Error);
 
-  dmlc::TemporaryDirectory tempdir;
-  std::ofstream fout(tempdir.path + "test_file");
+  common::TemporaryDirectory tempdir;
+  std::ofstream fout(tempdir.Path() / "test_file");
   std::string content;
 
   // Generate a JSON file.
@@ -77,7 +77,7 @@ TEST(IO, LoadSequentialFile) {
   std::vector<char> str;
   Json::Dump(out, &str);
 
-  std::string tmpfile = tempdir.path + "/model.json";
+  std::string tmpfile = tempdir.Str() + "/model.json";
   {
     std::unique_ptr<dmlc::Stream> fo(dmlc::Stream::Create(tmpfile.c_str(), "w"));
     fo->Write(str.data(), str.size());
@@ -136,8 +136,8 @@ TEST(IO, Resource) {
 
   {
     // test mmap
-    dmlc::TemporaryDirectory tmpdir;
-    auto path = tmpdir.path + "/testfile";
+    common::TemporaryDirectory tmpdir;
+    auto path = tmpdir.Str() + "/testfile";
 
     std::ofstream fout(path, std::ios::binary);
     double val{1.0};
@@ -145,79 +145,93 @@ TEST(IO, Resource) {
     fout << 1.0 << std::endl;
     fout.close();
 
-    auto resource = std::shared_ptr<MmapResource>{
-      new MmapResource{path, 0, sizeof(double)}};
+    auto resource = std::shared_ptr<MmapResource>{new MmapResource{path, 0, sizeof(double)}};
     ASSERT_EQ(resource->Size(), sizeof(double));
     ASSERT_EQ(resource->Type(), ResourceHandler::kMmap);
     ASSERT_EQ(resource->DataAs<double>()[0], val);
   }
 }
 
-TEST(IO, PrivateMmapStream) {
-  dmlc::TemporaryDirectory tempdir;
-  auto path = tempdir.path + "/testfile";
+class TestFileStream : public ::testing::Test {
+ public:
+  template <typename TestStreamT>
+  void Run() {
+    common::TemporaryDirectory tempdir;
+    auto path = tempdir.Str() + "/testfile";
 
-  // The page size on Linux is usually set to 4096, while the allocation granularity on
-  // the Windows machine where this test is writted is 65536. We span the test to cover
-  // all of them.
-  std::size_t n_batches{64};
-  std::size_t multiplier{2048};
+    // The page size on Linux is usually set to 4096, while the allocation granularity on
+    // the Windows machine where this test is writted is 65536. We span the test to cover
+    // all of them.
+    std::size_t n_batches{64};
+    std::size_t multiplier{2048};
 
-  std::vector<std::vector<std::int32_t>> batches;
-  std::vector<std::size_t> offset{0ul};
+    std::vector<std::vector<std::int32_t>> batches;
+    std::vector<std::size_t> offset{0ul};
 
-  using T = std::int32_t;
+    using T = std::int32_t;
 
-  {
-    std::unique_ptr<dmlc::Stream> fo{dmlc::Stream::Create(path.c_str(), "w")};
+    {
+      std::unique_ptr<dmlc::Stream> fo{dmlc::Stream::Create(path.c_str(), "w")};
+      for (std::size_t i = 0; i < n_batches; ++i) {
+        std::size_t size = (i + 1) * multiplier;
+        std::vector<T> data(size, 0);
+        std::iota(data.begin(), data.end(), i * i);
+
+        fo->Write(static_cast<std::uint64_t>(data.size()));
+        fo->Write(data.data(), data.size() * sizeof(T));
+
+        std::size_t bytes = sizeof(std::uint64_t) + data.size() * sizeof(T);
+        offset.push_back(bytes);
+
+        batches.emplace_back(std::move(data));
+      }
+    }
+
+    // Turn size info offset
+    std::partial_sum(offset.begin(), offset.end(), offset.begin());
+
+    // Test read
     for (std::size_t i = 0; i < n_batches; ++i) {
-      std::size_t size = (i + 1) * multiplier;
-      std::vector<T> data(size, 0);
-      std::iota(data.begin(), data.end(), i * i);
+      std::size_t off = offset[i];
+      std::size_t n = offset.at(i + 1) - offset[i];
+      auto fi{std::make_unique<TestStreamT>(path, off, n)};
+      std::vector<T> data;
 
-      fo->Write(static_cast<std::uint64_t>(data.size()));
-      fo->Write(data.data(), data.size() * sizeof(T));
+      std::uint64_t size{0};
+      ASSERT_TRUE(fi->Read(&size));
+      ASSERT_EQ(fi->Tell(), sizeof(size));
+      data.resize(size);
 
-      std::size_t bytes = sizeof(std::uint64_t) + data.size() * sizeof(T);
-      offset.push_back(bytes);
+      ASSERT_EQ(fi->Read(data.data(), size * sizeof(T)), size * sizeof(T));
+      ASSERT_EQ(data, batches[i]);
+    }
 
-      batches.emplace_back(std::move(data));
+    // Test consume
+    for (std::size_t i = 0; i < n_batches; ++i) {
+      std::size_t off = offset[i];
+      std::size_t n = offset.at(i + 1) - offset[i];
+      std::unique_ptr<AlignedResourceReadStream> fi{std::make_unique<TestStreamT>(path, off, n)};
+      std::vector<T> data;
+
+      std::uint64_t size{0};
+      ASSERT_TRUE(fi->Consume(&size));
+      ASSERT_EQ(fi->Tell(), sizeof(size));
+      data.resize(size);
+
+      ASSERT_EQ(fi->Read(data.data(), size * sizeof(T)), sizeof(T) * size);
+      ASSERT_EQ(data, batches[i]);
     }
   }
+};
 
-  // Turn size info offset
-  std::partial_sum(offset.begin(), offset.end(), offset.begin());
+TEST_F(TestFileStream, PrivateMmapStream) { this->Run<PrivateMmapConstStream>(); }
 
-  // Test read
-  for (std::size_t i = 0; i < n_batches; ++i) {
-    std::size_t off = offset[i];
-    std::size_t n = offset.at(i + 1) - offset[i];
-    auto fi{std::make_unique<PrivateMmapConstStream>(path, off, n)};
-    std::vector<T> data;
+TEST_F(TestFileStream, MemBufFileReadStream) { this->Run<MemBufFileReadStream>(); }
 
-    std::uint64_t size{0};
-    ASSERT_TRUE(fi->Read(&size));
-    ASSERT_EQ(fi->Tell(), sizeof(size));
-    data.resize(size);
-
-    ASSERT_EQ(fi->Read(data.data(), size * sizeof(T)), size * sizeof(T));
-    ASSERT_EQ(data, batches[i]);
-  }
-
-  // Test consume
-  for (std::size_t i = 0; i < n_batches; ++i) {
-    std::size_t off = offset[i];
-    std::size_t n = offset.at(i + 1) - offset[i];
-    std::unique_ptr<AlignedResourceReadStream> fi{std::make_unique<PrivateMmapConstStream>(path, off, n)};
-    std::vector<T> data;
-
-    std::uint64_t size{0};
-    ASSERT_TRUE(fi->Consume(&size));
-    ASSERT_EQ(fi->Tell(), sizeof(size));
-    data.resize(size);
-
-    ASSERT_EQ(fi->Read(data.data(), size * sizeof(T)), sizeof(T) * size);
-    ASSERT_EQ(data, batches[i]);
-  }
+TEST(IO, CmdOutput) {
+  // Use a simple command that works in cmd.exe
+  std::string output = CmdOutput("echo HelloWorld");
+  ASSERT_EQ(output, R"(HelloWorld
+)");
 }
 }  // namespace xgboost::common

@@ -1,20 +1,20 @@
 /**
- * Copyright 2022-2024, XGBoost Contributors
+ * Copyright 2022-2025, XGBoost Contributors
  */
 #include "adaptive.h"
 
-#include <algorithm>                       // std::transform,std::find_if,std::copy,std::unique
-#include <cmath>                           // std::isnan
-#include <cstddef>                         // std::size_t
-#include <iterator>                        // std::distance
-#include <vector>                          // std::vector
+#include <algorithm>  // std::transform,std::find_if,std::copy,std::unique
+#include <cmath>      // std::isnan
+#include <cstddef>    // std::size_t
+#include <iterator>   // std::distance
+#include <vector>     // std::vector
 
 #include "../common/algorithm.h"           // ArgSort
-#include "../common/common.h"              // AssertGPUSupport
 #include "../common/numeric.h"             // RunLengthEncode
 #include "../common/stats.h"               // Quantile,WeightedQuantile
 #include "../common/threading_utils.h"     // ParallelFor
 #include "../common/transform_iterator.h"  // MakeIndexTransformIter
+#include "../tree/sample_position.h"       // for SamplePosition
 #include "xgboost/base.h"                  // bst_node_t
 #include "xgboost/context.h"               // Context
 #include "xgboost/data.h"                  // MetaInfo
@@ -22,6 +22,10 @@
 #include "xgboost/linalg.h"                // MakeTensorView
 #include "xgboost/span.h"                  // Span
 #include "xgboost/tree_model.h"            // RegTree
+
+#if !defined(XGBOOST_USE_CUDA)
+#include "../common/common.h"  // AssertGPUSupport
+#endif                         // !defined(XGBOOST_USE_CUDA)
 
 namespace xgboost::obj::detail {
 void EncodeTreeLeafHost(Context const* ctx, RegTree const& tree,
@@ -37,9 +41,10 @@ void EncodeTreeLeafHost(Context const* ctx, RegTree const& tree,
     sorted_pos[i] = position[ridx[i]];
   }
   // find the first non-sampled row
-  size_t begin_pos =
-      std::distance(sorted_pos.cbegin(), std::find_if(sorted_pos.cbegin(), sorted_pos.cend(),
-                                                      [](bst_node_t nidx) { return nidx >= 0; }));
+  size_t begin_pos = std::distance(
+      sorted_pos.cbegin(),
+      std::find_if(sorted_pos.cbegin(), sorted_pos.cend(),
+                   [](bst_node_t nidx) { return tree::SamplePosition::IsValid(nidx); }));
   CHECK_LE(begin_pos, sorted_pos.size());
 
   std::vector<bst_node_t> leaf;
@@ -99,10 +104,29 @@ void UpdateTreeLeafHost(Context const* ctx, std::vector<bst_node_t> const& posit
   auto h_predt = linalg::MakeTensorView(ctx, predt.ConstHostSpan(), info.num_row_,
                                         predt.Size() / info.num_row_);
 
+  // A heuristic to use parallel sort. If we use multiple threads here, the sorting is
+  // performed using a single thread as openmp cannot allocate new threads inside a
+  // parallel region.
+  std::int32_t n_threads;
+  if constexpr (kHasParallelStableSort) {
+    CHECK_GE(h_node_ptr.size(), 1);
+    auto it = common::MakeIndexTransformIter(
+        [&](std::size_t i) { return h_node_ptr[i + 1] - h_node_ptr[i]; });
+    n_threads = std::any_of(it, it + h_node_ptr.size() - 1,
+                            [](auto n) {
+                              constexpr std::size_t kNeedParallelSort = 1ul << 19;
+                              return n > kNeedParallelSort;
+                            })
+                    ? 1
+                    : ctx->Threads();
+  } else {
+    n_threads = ctx->Threads();
+  }
+
   collective::ApplyWithLabels(
       ctx, info, static_cast<void*>(quantiles.data()), quantiles.size() * sizeof(float), [&] {
         // loop over each leaf
-        common::ParallelFor(quantiles.size(), ctx->Threads(), [&](size_t k) {
+        common::ParallelFor(quantiles.size(), n_threads, [&](size_t k) {
           auto nidx = h_node_idx[k];
           CHECK(tree[nidx].IsLeaf());
           CHECK_LT(k + 1, h_node_ptr.size());

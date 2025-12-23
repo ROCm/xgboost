@@ -20,7 +20,6 @@ Contents
   get_started
   tutorials/index
   faq
-  XGBoost User Forum <https://discuss.xgboost.ai>
   GPU Support <gpu/index>
   parameter
   prediction
@@ -35,3 +34,4 @@ Contents
   C++ Interface <c++>
   CLI Interface <cli>
   contrib/index
+  changes/index

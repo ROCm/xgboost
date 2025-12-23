@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 
 import numpy
+import pytest
 
 import xgboost
 from xgboost import testing as tm
@@ -39,7 +40,8 @@ eval[test] = {data_path}
         else:
             exe = 'xgboost'
         exe = os.path.join(self.PROJECT_ROOT, exe)
-        assert os.path.exists(exe)
+        if not os.path.exists(exe):
+            pytest.skip("CLI executable not found.")
         return exe
 
     def test_cli_model(self):
@@ -175,7 +177,7 @@ eval[test] = {data_path}
         seed = 1994
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            model_out_cli = os.path.join(tmpdir, '0010.model')
+            model_out_cli = os.path.join(tmpdir, '0010.ubj')
             config_path = os.path.join(tmpdir, 'test_load_cli_model.conf')
 
             train_conf = self.template.format(data_path=data_path,

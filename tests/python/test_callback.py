@@ -1,32 +1,46 @@
-import json
 import os
 import tempfile
-from typing import Union
+from collections import namedtuple
+from typing import Tuple, Union
 
+import numpy as np
 import pytest
 
 import xgboost as xgb
 from xgboost import testing as tm
+from xgboost.testing.callbacks import (
+    run_eta_decay,
+    run_eta_decay_leaf_output,
+    tree_methods_objs,
+)
 
 # We use the dataset for tests.
 pytestmark = pytest.mark.skipif(**tm.no_sklearn())
 
 
+BreastCancer = namedtuple("BreastCancer", ["full", "tr", "va"])
+
+
+@pytest.fixture
+def breast_cancer() -> BreastCancer:
+    from sklearn.datasets import load_breast_cancer
+
+    X, y = load_breast_cancer(return_X_y=True)
+
+    split = int(X.shape[0] * 0.8)
+    return BreastCancer(
+        full=(X, y),
+        tr=(X[:split, ...], y[:split, ...]),
+        va=(X[split:, ...], y[split:, ...]),
+    )
+
+
+def eval_error_metric(predt: np.ndarray, dtrain: xgb.DMatrix) -> Tuple[str, np.float64]:
+    # No custom objective, recieve transformed output
+    return tm.eval_error_metric(predt, dtrain, rev_link=False)
+
+
 class TestCallbacks:
-    @classmethod
-    def setup_class(cls):
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
-        cls.X = X
-        cls.y = y
-
-        split = int(X.shape[0] * 0.8)
-        cls.X_train = X[:split, ...]
-        cls.y_train = y[:split, ...]
-        cls.X_valid = X[split:, ...]
-        cls.y_valid = y[split:, ...]
-
     def run_evaluation_monitor(
         self,
         D_train: xgb.DMatrix,
@@ -70,9 +84,9 @@ class TestCallbacks:
             output = out.getvalue().strip()
             check_output(output)
 
-    def test_evaluation_monitor(self):
-        D_train = xgb.DMatrix(self.X_train, self.y_train)
-        D_valid = xgb.DMatrix(self.X_valid, self.y_valid)
+    def test_evaluation_monitor(self, breast_cancer: BreastCancer) -> None:
+        D_train = xgb.DMatrix(breast_cancer.tr[0], breast_cancer.tr[1])
+        D_valid = xgb.DMatrix(breast_cancer.va[0], breast_cancer.va[1])
         evals_result = {}
         rounds = 10
         xgb.train(
@@ -91,9 +105,9 @@ class TestCallbacks:
         self.run_evaluation_monitor(D_train, D_valid, rounds, 4)
         self.run_evaluation_monitor(D_train, D_valid, rounds, rounds + 1)
 
-    def test_early_stopping(self):
-        D_train = xgb.DMatrix(self.X_train, self.y_train)
-        D_valid = xgb.DMatrix(self.X_valid, self.y_valid)
+    def test_early_stopping(self, breast_cancer: BreastCancer) -> None:
+        D_train = xgb.DMatrix(breast_cancer.tr[0], breast_cancer.tr[1])
+        D_valid = xgb.DMatrix(breast_cancer.va[0], breast_cancer.va[1])
         evals_result = {}
         rounds = 30
         early_stopping_rounds = 5
@@ -109,9 +123,9 @@ class TestCallbacks:
         dump = booster.get_dump(dump_format="json")
         assert len(dump) - booster.best_iteration == early_stopping_rounds + 1
 
-    def test_early_stopping_custom_eval(self):
-        D_train = xgb.DMatrix(self.X_train, self.y_train)
-        D_valid = xgb.DMatrix(self.X_valid, self.y_valid)
+    def test_early_stopping_custom_eval(self, breast_cancer: BreastCancer) -> None:
+        D_train = xgb.DMatrix(breast_cancer.tr[0], breast_cancer.tr[1])
+        D_valid = xgb.DMatrix(breast_cancer.va[0], breast_cancer.va[1])
         early_stopping_rounds = 5
         booster = xgb.train(
             {
@@ -121,7 +135,7 @@ class TestCallbacks:
             },
             D_train,
             evals=[(D_train, "Train"), (D_valid, "Valid")],
-            feval=tm.eval_error_metric,
+            custom_metric=eval_error_metric,
             num_boost_round=1000,
             early_stopping_rounds=early_stopping_rounds,
             verbose_eval=False,
@@ -129,9 +143,9 @@ class TestCallbacks:
         dump = booster.get_dump(dump_format="json")
         assert len(dump) - booster.best_iteration == early_stopping_rounds + 1
 
-    def test_early_stopping_customize(self):
-        D_train = xgb.DMatrix(self.X_train, self.y_train)
-        D_valid = xgb.DMatrix(self.X_valid, self.y_valid)
+    def test_early_stopping_customize(self, breast_cancer: BreastCancer) -> None:
+        D_train = xgb.DMatrix(breast_cancer.tr[0], breast_cancer.tr[1])
+        D_valid = xgb.DMatrix(breast_cancer.va[0], breast_cancer.va[1])
         early_stopping_rounds = 5
         early_stop = xgb.callback.EarlyStopping(
             rounds=early_stopping_rounds, metric_name="CustomErr", data_name="Train"
@@ -145,7 +159,7 @@ class TestCallbacks:
             },
             D_train,
             evals=[(D_train, "Train"), (D_valid, "Valid")],
-            feval=tm.eval_error_metric,
+            custom_metric=eval_error_metric,
             num_boost_round=1000,
             callbacks=[early_stop],
             verbose_eval=False,
@@ -170,7 +184,8 @@ class TestCallbacks:
             },
             D_train,
             evals=[(D_train, "Train"), (D_valid, "Valid")],
-            feval=tm.eval_error_metric,
+            # No custom objective, transformed output
+            custom_metric=eval_error_metric,
             num_boost_round=rounds,
             callbacks=[early_stop],
             verbose_eval=False,
@@ -179,10 +194,8 @@ class TestCallbacks:
         assert booster.best_iteration == 0
         assert booster.num_boosted_rounds() == 1
 
-    def test_early_stopping_skl(self):
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
+    def test_early_stopping_skl(self, breast_cancer: BreastCancer) -> None:
+        X, y = breast_cancer.full
         early_stopping_rounds = 5
         cls = xgb.XGBClassifier(
             early_stopping_rounds=early_stopping_rounds, eval_metric="error"
@@ -192,10 +205,8 @@ class TestCallbacks:
         dump = booster.get_dump(dump_format="json")
         assert len(dump) - booster.best_iteration == early_stopping_rounds + 1
 
-    def test_early_stopping_custom_eval_skl(self):
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
+    def test_early_stopping_custom_eval_skl(self, breast_cancer: BreastCancer) -> None:
+        X, y = breast_cancer.full
         early_stopping_rounds = 5
         early_stop = xgb.callback.EarlyStopping(rounds=early_stopping_rounds)
         cls = xgb.XGBClassifier(
@@ -206,10 +217,8 @@ class TestCallbacks:
         dump = booster.get_dump(dump_format="json")
         assert len(dump) - booster.best_iteration == early_stopping_rounds + 1
 
-    def test_early_stopping_save_best_model(self):
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
+    def test_early_stopping_save_best_model(self, breast_cancer: BreastCancer) -> None:
+        X, y = breast_cancer.full
         n_estimators = 100
         early_stopping_rounds = 5
         early_stop = xgb.callback.EarlyStopping(
@@ -248,10 +257,8 @@ class TestCallbacks:
             callbacks=[early_stop],
         ).fit(X, y, eval_set=[(X, y)])
 
-    def test_early_stopping_continuation(self):
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
+    def test_early_stopping_continuation(self, breast_cancer: BreastCancer) -> None:
+        X, y = breast_cancer.full
 
         early_stopping_rounds = 5
         early_stop = xgb.callback.EarlyStopping(
@@ -283,184 +290,34 @@ class TestCallbacks:
                 == booster.best_iteration + early_stopping_rounds + 1
             )
 
-    def run_eta_decay(self, tree_method):
-        """Test learning rate scheduler, used by both CPU and GPU tests."""
-        scheduler = xgb.callback.LearningRateScheduler
+    def test_early_stopping_multiple_metrics(self):
+        from sklearn.datasets import make_classification
 
-        dtrain, dtest = tm.load_agaricus(__file__)
+        X, y = make_classification(random_state=1994)
+        # AUC approaches 1.0 real quick.
+        clf = xgb.XGBClassifier(eval_metric=["logloss", "auc"], early_stopping_rounds=2)
+        clf.fit(X, y, eval_set=[(X, y)])
+        assert clf.best_iteration < 8
+        assert clf.evals_result()["validation_0"]["auc"][-1] > 0.99
 
-        watchlist = [(dtest, "eval"), (dtrain, "train")]
-        num_round = 4
+        clf = xgb.XGBClassifier(eval_metric=["auc", "logloss"], early_stopping_rounds=2)
+        clf.fit(X, y, eval_set=[(X, y)])
 
-        # learning_rates as a list
-        # init eta with 0 to check whether learning_rates work
-        param = {
-            "max_depth": 2,
-            "eta": 0,
-            "objective": "binary:logistic",
-            "eval_metric": "error",
-            "tree_method": tree_method,
-        }
-        evals_result = {}
-        bst = xgb.train(
-            param,
-            dtrain,
-            num_round,
-            evals=watchlist,
-            callbacks=[scheduler([0.8, 0.7, 0.6, 0.5])],
-            evals_result=evals_result,
-        )
-        eval_errors_0 = list(map(float, evals_result["eval"]["error"]))
-        assert isinstance(bst, xgb.core.Booster)
-        # validation error should decrease, if eta > 0
-        assert eval_errors_0[0] > eval_errors_0[-1]
+        assert clf.best_iteration > 50
+        assert clf.evals_result()["validation_0"]["auc"][-1] > 0.99
 
-        # init learning_rate with 0 to check whether learning_rates work
-        param = {
-            "max_depth": 2,
-            "learning_rate": 0,
-            "objective": "binary:logistic",
-            "eval_metric": "error",
-            "tree_method": tree_method,
-        }
-        evals_result = {}
-
-        bst = xgb.train(
-            param,
-            dtrain,
-            num_round,
-            evals=watchlist,
-            callbacks=[scheduler([0.8, 0.7, 0.6, 0.5])],
-            evals_result=evals_result,
-        )
-        eval_errors_1 = list(map(float, evals_result["eval"]["error"]))
-        assert isinstance(bst, xgb.core.Booster)
-        # validation error should decrease, if learning_rate > 0
-        assert eval_errors_1[0] > eval_errors_1[-1]
-
-        # check if learning_rates override default value of eta/learning_rate
-        param = {
-            "max_depth": 2,
-            "objective": "binary:logistic",
-            "eval_metric": "error",
-            "tree_method": tree_method,
-        }
-        evals_result = {}
-        bst = xgb.train(
-            param,
-            dtrain,
-            num_round,
-            evals=watchlist,
-            callbacks=[scheduler([0, 0, 0, 0])],
-            evals_result=evals_result,
-        )
-        eval_errors_2 = list(map(float, evals_result["eval"]["error"]))
-        assert isinstance(bst, xgb.core.Booster)
-        # validation error should not decrease, if eta/learning_rate = 0
-        assert eval_errors_2[0] == eval_errors_2[-1]
-
-        # learning_rates as a customized decay function
-        def eta_decay(ithround, num_boost_round=num_round):
-            return num_boost_round / (ithround + 1)
-
-        evals_result = {}
-        bst = xgb.train(
-            param,
-            dtrain,
-            num_round,
-            evals=watchlist,
-            callbacks=[scheduler(eta_decay)],
-            evals_result=evals_result,
-        )
-        eval_errors_3 = list(map(float, evals_result["eval"]["error"]))
-
-        assert isinstance(bst, xgb.core.Booster)
-
-        assert eval_errors_3[0] == eval_errors_2[0]
-
-        for i in range(1, len(eval_errors_0)):
-            assert eval_errors_3[i] != eval_errors_2[i]
-
-        xgb.cv(param, dtrain, num_round, callbacks=[scheduler(eta_decay)])
-
-    def run_eta_decay_leaf_output(self, tree_method: str, objective: str) -> None:
-        # check decay has effect on leaf output.
-        num_round = 4
-        scheduler = xgb.callback.LearningRateScheduler
-
-        dtrain, dtest = tm.load_agaricus(__file__)
-        watchlist = [(dtest, "eval"), (dtrain, "train")]
-
-        param = {
-            "max_depth": 2,
-            "objective": objective,
-            "eval_metric": "error",
-            "tree_method": tree_method,
-        }
-        if objective == "reg:quantileerror":
-            param["quantile_alpha"] = 0.3
-
-        def eta_decay_0(i):
-            return num_round / (i + 1)
-
-        bst0 = xgb.train(
-            param,
-            dtrain,
-            num_round,
-            evals=watchlist,
-            callbacks=[scheduler(eta_decay_0)],
-        )
-
-        def eta_decay_1(i: int) -> float:
-            if i > 1:
-                return 5.0
-            return num_round / (i + 1)
-
-        bst1 = xgb.train(
-            param,
-            dtrain,
-            num_round,
-            evals=watchlist,
-            callbacks=[scheduler(eta_decay_1)],
-        )
-        bst_json0 = bst0.save_raw(raw_format="json")
-        bst_json1 = bst1.save_raw(raw_format="json")
-
-        j0 = json.loads(bst_json0)
-        j1 = json.loads(bst_json1)
-
-        tree_2th_0 = j0["learner"]["gradient_booster"]["model"]["trees"][2]
-        tree_2th_1 = j1["learner"]["gradient_booster"]["model"]["trees"][2]
-        assert tree_2th_0["base_weights"] == tree_2th_1["base_weights"]
-        assert tree_2th_0["split_conditions"] == tree_2th_1["split_conditions"]
-
-        tree_3th_0 = j0["learner"]["gradient_booster"]["model"]["trees"][3]
-        tree_3th_1 = j1["learner"]["gradient_booster"]["model"]["trees"][3]
-        assert tree_3th_0["base_weights"] != tree_3th_1["base_weights"]
-        assert tree_3th_0["split_conditions"] != tree_3th_1["split_conditions"]
-
-    @pytest.mark.parametrize("tree_method", ["hist", "approx", "approx"])
+    @pytest.mark.parametrize("tree_method", ["hist", "approx", "exact"])
     def test_eta_decay(self, tree_method: str) -> None:
-        self.run_eta_decay(tree_method)
+        dtrain, dtest = tm.load_agaricus(__file__)
+        run_eta_decay(tree_method, dtrain, dtest, "cpu")
 
-    @pytest.mark.parametrize(
-        "tree_method,objective",
-        [
-            ("hist", "binary:logistic"),
-            ("hist", "reg:absoluteerror"),
-            ("hist", "reg:quantileerror"),
-            ("approx", "binary:logistic"),
-            ("approx", "reg:absoluteerror"),
-            ("approx", "reg:quantileerror"),
-        ],
-    )
+    @pytest.mark.parametrize("tree_method,objective", tree_methods_objs())
     def test_eta_decay_leaf_output(self, tree_method: str, objective: str) -> None:
-        self.run_eta_decay_leaf_output(tree_method, objective)
+        dtrain, dtest = tm.load_agaricus(__file__)
+        run_eta_decay_leaf_output(tree_method, objective, dtrain, dtest, "cpu")
 
-    def test_check_point(self) -> None:
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
+    def test_check_point(self, breast_cancer: BreastCancer) -> None:
+        X, y = breast_cancer.full
         m = xgb.DMatrix(X, y)
         with tempfile.TemporaryDirectory() as tmpdir:
             check_point = xgb.callback.TrainingCheckPoint(
@@ -509,10 +366,8 @@ class TestCallbacks:
             )
         assert len(callbacks) == 1
 
-    def test_attribute_error(self) -> None:
-        from sklearn.datasets import load_breast_cancer
-
-        X, y = load_breast_cancer(return_X_y=True)
+    def test_attribute_error(self, breast_cancer: BreastCancer) -> None:
+        X, y = breast_cancer.full
 
         clf = xgb.XGBClassifier(n_estimators=8)
         clf.fit(X, y, eval_set=[(X, y)])

@@ -4,7 +4,7 @@ XGBoost GPU Support
 
 This page contains information about GPU algorithms supported in XGBoost.
 
-.. note:: CUDA 11.0, Compute Capability 5.0 required (See `this list <https://en.wikipedia.org/wiki/CUDA#GPUs_supported>`_ to look up compute capability of your GPU card.)
+.. note:: CUDA 12.0, Compute Capability 5.0 required (See `this list <https://en.wikipedia.org/wiki/CUDA#GPUs_supported>`_ to look up compute capability of your GPU card.)
 
 *********************************************
 CUDA Accelerated Tree Construction Algorithms
@@ -43,12 +43,17 @@ XGBoost makes use of `GPUTreeShap <https://github.com/rapidsai/gputreeshap>`_ as
   shap_values = booster.predict(dtrain, pred_contribs=True)
   shap_interaction_values = model.predict(dtrain, pred_interactions=True)
 
-See :ref:`sphx_glr_python_gpu-examples_tree_shap.py` for a worked example.
+See :ref:`sphx_glr_python_examples_gpu_tree_shap.py` for a worked example.
 
 Multi-node Multi-GPU Training
 =============================
 
 XGBoost supports fully distributed GPU training using `Dask <https://dask.org/>`_, ``Spark`` and ``PySpark``. For getting started with Dask see our tutorial :doc:`/tutorials/dask` and worked examples :doc:`/python/dask-examples/index`, also Python documentation :ref:`dask_api` for complete reference. For usage with ``Spark`` using Scala see :doc:`/jvm/xgboost4j_spark_gpu_tutorial`. Lastly for distributed GPU training with ``PySpark``, see :doc:`/tutorials/spark_estimator`.
+
+RMM integration
+===============
+
+XGBoost provides optional support for RMM integration. See :doc:`/python/rmm-examples/index` for more info.
 
 
 Memory usage
@@ -61,7 +66,15 @@ The dataset itself is stored on device in a compressed ELLPACK format. The ELLPA
 
 Working memory is allocated inside the algorithm proportional to the number of rows to keep track of gradients, tree positions and other per row statistics. Memory is allocated for histogram bins proportional to the number of bins, number of features and nodes in the tree. For performance reasons we keep histograms in memory from previous nodes in the tree, when a certain threshold of memory usage is passed we stop doing this to conserve memory at some performance loss.
 
-If you are getting out-of-memory errors on a big dataset, try the or :py:class:`xgboost.QuantileDMatrix` or :doc:`external memory version </tutorials/external_memory>`. Note that when ``external memory`` is used for GPU hist, it's best to employ gradient based sampling as well. Last but not least, ``inplace_predict`` can be preferred over ``predict`` when data is already on GPU. Both ``QuantileDMatrix`` and ``inplace_predict`` are automatically enabled if you are using the scikit-learn interface.
+If you are getting out-of-memory errors on a big dataset, try the
+:py:class:`xgboost.QuantileDMatrix` first. If you have access to NVLink-C2C devices, see
+:doc:`external memory version </tutorials/external_memory>`. In addition,
+:py:meth:`~xgboost.Booster.inplace_predict` should be preferred over ``predict`` when data
+is already on GPU. Both :py:class:`xgboost.QuantileDMatrix` and
+:py:meth:`~xgboost.Booster.inplace_predict` are automatically enabled if you are using the
+scikit-learn interface. Last but not least, using :py:class:`~xgboost.QuantileDMatrix`
+with a data iterator as input is a great way to increase memory capacity, see
+:ref:`sphx_glr_python_examples_quantile_data_iterator.py`.
 
 
 CPU-GPU Interoperability
@@ -98,4 +111,4 @@ Many thanks to the following contributors (alphabetical order):
 * Sriram Chandramouli
 * Vinay Deshpande
 
-Please report bugs to the XGBoost issues list: https://github.com/dmlc/xgboost/issues.  For general questions please visit our user form: https://discuss.xgboost.ai/.
+Please report bugs to the XGBoost `issues list <https://github.com/dmlc/xgboost/issues>`__.

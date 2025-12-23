@@ -1,15 +1,14 @@
-/*!
- * Copyright 2015-2022 by Contributors
- * \file objective.cc
- * \brief Registry of all objective functions.
+/**
+ * Copyright 2015-2025, XGBoost Contributors
+ *
+ * @brief Registry of all objective functions.
  */
 #include <dmlc/registry.h>
 #include <xgboost/context.h>
 #include <xgboost/objective.h>
 
-#include <sstream>
-
-#include "xgboost/host_device_vector.h"
+#include <sstream>  // for stringstream
+#include <string>   // for string
 
 namespace dmlc {
 DMLC_REGISTRY_ENABLE(::xgboost::ObjFunctionReg);
@@ -19,9 +18,6 @@ namespace xgboost {
 // implement factory functions
 ObjFunction* ObjFunction::Create(const std::string& name, Context const* ctx) {
   std::string obj_name = name;
-  if (ctx->IsSycl()) {
-    obj_name = GetSyclImplementationName(obj_name);
-  }
   auto *e = ::dmlc::Registry< ::xgboost::ObjFunctionReg>::Get()->Find(obj_name);
   if (e == nullptr) {
     std::stringstream ss;
@@ -36,26 +32,10 @@ ObjFunction* ObjFunction::Create(const std::string& name, Context const* ctx) {
   return pobj;
 }
 
-/* If the objective function has sycl-specific implementation,
- * returns the specific implementation name.
- * Otherwise return the orginal name without modifications.
- */
-std::string ObjFunction::GetSyclImplementationName(const std::string& name) {
-  const std::string sycl_postfix = "_sycl";
-  auto *e = ::dmlc::Registry< ::xgboost::ObjFunctionReg>::Get()->Find(name + sycl_postfix);
-  if (e != nullptr) {
-    // Function has specific sycl implementation
-    return name + sycl_postfix;
-  } else {
-    // Function hasn't specific sycl implementation
-    return name;
-  }
-}
-
-void ObjFunction::InitEstimation(MetaInfo const&, linalg::Tensor<float, 1>* base_score) const {
+void ObjFunction::InitEstimation(MetaInfo const& info, linalg::Vector<float>* base_score) const {
   CHECK(base_score);
-  base_score->Reshape(1);
-  (*base_score)(0) = DefaultBaseScore();
+  auto n_targets = this->Targets(info);
+  *base_score = linalg::Constant(this->ctx_, DefaultBaseScore(), n_targets);
 }
 }  // namespace xgboost
 
