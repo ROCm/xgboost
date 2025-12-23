@@ -7,7 +7,12 @@
 #include <cstddef>  // for size_t
 #include <cstdint>
 
+#if defined(XGBOOST_USE_HIP)
+#include "device_helpers.hip.h"
+#elif defined(XGBOOST_USE_CUDA)
 #include "device_helpers.cuh"
+#endif
+
 #include "device_vector.cuh"  // for DeviceUVector
 #include "xgboost/data.h"
 #include "xgboost/host_device_vector.h"

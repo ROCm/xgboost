@@ -187,7 +187,7 @@ class Range {
 };
 
 inline void AssertGPUSupport() {
-#ifndef XGBOOST_USE_CUDA
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP) 
   LOG(FATAL) << "XGBoost version not compiled with GPU support.";
 #endif  // XGBOOST_USE_CUDA
 }

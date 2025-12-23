@@ -63,7 +63,7 @@ void ValidateLabel(Context const* ctx, MetaInfo const& info) {
                            [](float y) -> bool { return Loss::CheckLabel(y); });
       },
       [&] {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
         auto it = dh::MakeIndexTransformIter([=] XGBOOST_DEVICE(std::size_t i) -> float {
           auto [m, n] = linalg::UnravelIndex(i, label.Shape());
           return label(m, n);
@@ -100,7 +100,7 @@ void ProbToMarginImpl(Context const* ctx, linalg::Vector<float>* base_score, Fn&
   bool is_valid = ctx->DispatchDevice(
       [&] { return std::all_of(linalg::cbegin(intercept), linalg::cend(intercept), check); },
       [&] {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
         return common::AllOf(ctx->CUDACtx()->CTP(), linalg::tcbegin(intercept),
                              linalg::tcend(intercept), check);
 #else
