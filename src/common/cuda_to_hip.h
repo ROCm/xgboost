@@ -137,7 +137,16 @@ struct cudaMemLocation {
 #define CU_MEM_ACCESS_FLAGS_PROT_READWRITE	 				hipMemAccessFlagsProtReadWrite 
 #define CU_MEM_LOCATION_TYPE_HOST_NUMA						hipMemLocationTypeDevice
 #define CU_MEM_LOCATION_TYPE_DEVICE							hipMemLocationTypeDevice 
+#define CU_MEM_LOCATION_TYPE_HOST_NUMA						hipMemLocationTypeDevice
+#define CU_MEM_LOCATION_TYPE_DEVICE							hipMemLocationTypeDevice 
 
+// Driver API result codes
+#define CUDA_SUCCESS                                            hipSuccess
+
+// Memory allocation types
+#define CU_MEM_ALLOCATION_TYPE_PINNED                          hipMemAllocationTypePinned
+
+// Namespace aliases
 // Namespace aliases
 namespace hipcub {
 }
