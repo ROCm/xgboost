@@ -5,9 +5,12 @@
 
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda_runtime_api.h>
+#elif defined(XGBOOST_USE_HIP)
+#include "cuda_to_hip.h"
+#include <hip/hip_runtime.h>
+#endif
 
 #include <algorithm>  // for max
-#endif                // defined(XGBOOST_USE_CUDA)
 
 #include <cstddef>  // for size_t
 #include <cstdint>  // for int32_t
@@ -16,7 +19,7 @@
 #include "common.h"  // for safe_cuda
 
 namespace xgboost::curt {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 std::int32_t AllVisibleGPUs() {
   int n_visgpus = 0;
   try {
@@ -94,8 +97,10 @@ void GetDrVersionGlobal(std::int32_t* major, std::int32_t* minor) {
 
 [[nodiscard]] std::int32_t GetNumaId() {
   std::int32_t numa_id = -1;
+#if defined(XGBOOST_USE_CUDA)
   dh::safe_cuda(cudaDeviceGetAttribute(&numa_id, cudaDevAttrHostNumaId, curt::CurrentDevice()));
   numa_id = std::max(numa_id, 0);
+#endif
   return numa_id;
 }
 

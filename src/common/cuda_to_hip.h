@@ -13,6 +13,8 @@
 #define cudaPeekAtLastError                                 hipPeekAtLastError
 #define cudaGetErrorString                                  hipGetErrorString
 #define cudaErrorInvalidValue                               hipErrorInvalidValue
+#define cudaRuntimeGetVersion                               hipRuntimeGetVersion  
+#define cudaDriverGetVersion                                hipDriverGetVersion
 
 // Stream management
 #define cudaStream_t                                        hipStream_t
@@ -49,6 +51,9 @@
 #define cudaDevAttrMaxSharedMemoryPerBlock                  hipDeviceAttributeMaxSharedMemoryPerBlock
 #define cudaDevAttrMaxSharedMemoryPerBlockOptin             hipDeviceAttributeMaxSharedMemoryPerMultiprocessor
 #define cudaOccupancyMaxActiveBlocksPerMultiprocessor       hipOccupancyMaxActiveBlocksPerMultiprocessor
+#define cudaDevAttrPageableMemoryAccess                     hipDeviceAttributePageableMemoryAccess 
+#define cudaDevAttrPageableMemoryAccessUsesHostPageTables   hipDeviceAttributePageableMemoryAccessUsesHostPageTables
+#define cudaDevAttrHostNumaId								hipDeviceAttributeHostNumaId
 
 // Memory allocation
 #define cudaMalloc                                          hipMalloc
