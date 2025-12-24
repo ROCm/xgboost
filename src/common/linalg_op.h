@@ -15,7 +15,7 @@
 #include "xgboost/json.h"        // for Json
 #include "xgboost/linalg.h"
 
-#if !(defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)) && !defined(XGBOOST_USE_SYCL)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP) && !defined(XGBOOST_USE_SYCL)
 
 #include "common.h"           // for AssertGPUSupport
 #include "xgboost/context.h"  // for Context
@@ -69,7 +69,7 @@ void ElementWiseKernelHost(linalg::TensorView<T, D> t, std::int32_t n_threads, F
   }
 }
 
-#if !(defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)) && !defined(XGBOOST_USE_SYCL)
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)  && !defined(XGBOOST_USE_SYCL)
 template <typename T, int32_t D, typename Fn>
 void ElementWiseKernelDevice(linalg::TensorView<T, D>, Fn&&, void* = nullptr) {
   common::AssertGPUSupport();

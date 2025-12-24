@@ -49,7 +49,7 @@ void ValidateLabel(Context const* ctx, MetaInfo const& info, std::int64_t n_clas
   auto valid = ctx->DispatchDevice(
       [&] { return std::all_of(linalg::cbegin(label), linalg::cend(label), check); },
       [&] {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
         return common::AllOf(ctx->CUDACtx()->CTP(), linalg::tcbegin(label), linalg::tcend(label),
                              check);
 #else

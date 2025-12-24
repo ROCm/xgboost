@@ -12,7 +12,7 @@
 #include "../common/cuda_rt_utils.h"  // for TotalMemory
 #include "../common/error_msg.h"      // for InconsistentMaxBin
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 #include "../common/cuda_dr_utils.h"  // for GetC2cLinkCountFromSmiGlobal
 
@@ -36,7 +36,7 @@ void CheckParam(BatchParam const& init, BatchParam const& param) {
     CHECK_LE(cache_host_ratio, 1.0f) << error::CacheHostRatioInvalid();
   }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
   auto n_d_bytes = curt::TotalMemory();
 
   using xgboost::cuda_impl::CachePageRatio;

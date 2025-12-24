@@ -75,7 +75,7 @@ std::shared_ptr<DMatrix> CreateDMatrixFromProxy(Context const *ctx,
   std::shared_ptr<DMatrix> p_fmat{nullptr};
 
   if (proxy->Ctx()->IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     p_fmat = cuda_impl::CreateDMatrixFromProxy(ctx, proxy, missing);
 #else
     common::AssertGPUSupport();
@@ -99,7 +99,7 @@ std::shared_ptr<DMatrix> CreateDMatrixFromProxy(Context const *ctx,
 
 [[nodiscard]] bool BatchCatsIsRef(DMatrixProxy const *proxy) {
   if (proxy->Device().IsCUDA()) {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
     return cuda_impl::BatchCatsIsRef(proxy);
 #else
     common::AssertGPUSupport();
