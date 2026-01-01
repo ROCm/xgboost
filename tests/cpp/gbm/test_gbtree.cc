@@ -689,7 +689,7 @@ TEST(GBTree, InplacePredictionError) {
     if (ctx->IsCPU()) {
       p_fmat = rng.GenerateQuantileDMatrix(true);
     } else {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
       p_fmat = rng.Device(ctx->Device()).GenerateQuantileDMatrix(true);
 #else
       CHECK(p_fmat);
