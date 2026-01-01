@@ -382,19 +382,6 @@ void GPUHistEvaluator::LaunchEvaluateSplits(
   dh::TemporaryArray<DeviceSplitCandidate> feature_best_splits(
       combined_num_features, DeviceSplitCandidate());
 
-  // chck warp size
-#if defined(XGBOOST_USE_HIP)
-  int WARP_SIZE = 0;
-  if (warp_size_hip_xgb <= 0) {
-    dh::safe_cuda(hipDeviceGetAttribute(&warp_size_hip_xgb, hipDeviceAttributeWarpSize, 0));
-    if (warp_size_hip_xgb <= 0) {
-      printf("failed to detect wavefront size...\n");
-      exit(-1);
-    }
-  }
-  WARP_SIZE = warp_size_hip_xgb;
-#endif
-
   // One block for each feature
 #if defined(XGBOOST_USE_HIP)
 uint32_t constexpr kBlockThreads = 64;  // AMD wavefront size
