@@ -171,11 +171,9 @@ inline size_t MaxSharedMemory(int device_idx) {
 
 inline size_t MaxSharedMemoryOptin(int device_idx) {
   int max_shared_memory = 0;
-#if 0 /* CUDA Only */
   dh::safe_cuda(hipDeviceGetAttribute
-                (&max_shared_memory, hipDeviceAttributeSharedMemPerBlockOptin,
+                (&max_shared_memory, hipDeviceAttributeMaxSharedMemoryPerBlock,
                  device_idx));
-#endif
   return static_cast<std::size_t>(max_shared_memory);
 }
 
@@ -1198,3 +1196,4 @@ class LDGIterator {
   }
 };
 }  // namespace dh
+
