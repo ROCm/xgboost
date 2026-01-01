@@ -17,6 +17,9 @@
 #include <GPUTreeShap/gpu_treeshap.h>
 #include "../../common/device_helpers.hip.h"
 int warp_size_hip_xgb = 0;
+constexpr unsigned long long kFullMask = 0xffffffffffffffffULL;  // 64-bit wavefront
+#else
+constexpr unsigned int kFullMask = 0xffffffff;  // 32-bit warp
 #endif
 
 namespace xgboost::tree {
@@ -109,13 +112,8 @@ class EvaluateSplitAgent {
     }
     local_sum = SumReduceT(temp_storage->sum_reduce).Sum(local_sum);  // NOLINT
     // Broadcast result from thread 0
-#if defined(XGBOOST_USE_CUDA)
-    return {__shfl_sync(0xffffffff, local_sum.GetQuantisedGrad(), 0),
-            __shfl_sync(0xffffffff, local_sum.GetQuantisedHess(), 0)};
-#elif defined(XGBOOST_USE_HIP)
-    return {__shfl(local_sum.GetQuantisedGrad(), 0),
-            __shfl(local_sum.GetQuantisedHess(), 0)};
-#endif
+    return {__shfl_sync(kFullMask, local_sum.GetQuantisedGrad(), 0),
+            __shfl_sync(kFullMask, local_sum.GetQuantisedHess(), 0)};
   }
 
   // Load using efficient 128 vector load instruction
@@ -147,11 +145,7 @@ class EvaluateSplitAgent {
 
       // This reduce result is only valid in thread 0
       // broadcast to the rest of the warp
-#if defined(XGBOOST_USE_CUDA)
-      auto best_thread = __shfl_sync(0xffffffff, best.key, 0);
-#elif defined(XGBOOST_USE_HIP)
-      auto best_thread = __shfl(best.key, 0);
-#endif
+      auto best_thread = __shfl_sync(kFullMask, best.key, 0);
 
       // Best thread updates the split
       if (threadIdx.x == best_thread) {
@@ -186,11 +180,7 @@ class EvaluateSplitAgent {
       auto best = MaxReduceT(temp_storage->max_reduce).Reduce({(unsigned int)threadIdx.x, gain}, cub::ArgMax());
       // This reduce result is only valid in thread 0
       // broadcast to the rest of the warp
-#if defined(XGBOOST_USE_CUDA)
-      auto best_thread = __shfl_sync(0xffffffff, best.key, 0);
-#elif defined(XGBOOST_USE_HIP)
-      auto best_thread = __shfl(best.key, 0);
-#endif
+      auto best_thread = __shfl_sync(kFullMask, best.key, 0);
 
       // Best thread updates the split
       if (threadIdx.x == best_thread) {
@@ -222,11 +212,7 @@ class EvaluateSplitAgent {
     auto best = MaxReduceT(temp_storage->max_reduce).Reduce({(unsigned int)threadIdx.x, gain}, cub::ArgMax());
     // This reduce result is only valid in thread 0
     // broadcast to the rest of the warp
-#if defined(XGBOOST_USE_CUDA)
-    auto best_thread = __shfl_sync(0xffffffff, best.key, 0);
-#elif defined(XGBOOST_USE_HIP)
-    auto best_thread = __shfl(best.key, 0);
-#endif
+    auto best_thread = __shfl_sync(kFullMask, best.key, 0);
 
     // Best thread updates the split
     if (threadIdx.x == best_thread) {
@@ -410,7 +396,11 @@ void GPUHistEvaluator::LaunchEvaluateSplits(
 #endif
 
   // One block for each feature
-  uint32_t constexpr kBlockThreads = 32;
+#if defined(XGBOOST_USE_HIP)
+uint32_t constexpr kBlockThreads = 64;  // AMD wavefront size
+#else
+uint32_t constexpr kBlockThreads = 32;  // NVIDIA warp size  
+#endif
   dh::LaunchKernel{static_cast<uint32_t>(combined_num_features), kBlockThreads, 0,  // NOLINT
                    ctx->CUDACtx()->Stream()}(
       EvaluateSplitsKernel<kBlockThreads>, max_active_features, d_inputs, shared_inputs,
