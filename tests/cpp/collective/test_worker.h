@@ -217,6 +217,7 @@ class BaseMGPUTest : public ::testing::Test {
   auto DoTest([[maybe_unused]] Fn&& fn, bool is_federated,
               [[maybe_unused]] bool emulate_if_single = false) const {
     auto n_gpus = curt::AllVisibleGPUs();
+  	LOG(INFO) << "Num of GPUS: " << n_gpus;
     if (is_federated) {
 #if defined(XGBOOST_USE_FEDERATED)
       if (n_gpus == 1 && emulate_if_single) {
@@ -229,7 +230,7 @@ class BaseMGPUTest : public ::testing::Test {
       GTEST_SKIP_("Not compiled with federated learning.");
 #endif  // defined(XGBOOST_USE_FEDERATED)
     } else {
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
       TestDistributedGlobal(n_gpus, fn);
 #else
       GTEST_SKIP_("Not compiled with NCCL.");
