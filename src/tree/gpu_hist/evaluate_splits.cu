@@ -18,6 +18,12 @@
 #include "../../common/device_helpers.hip.h"
 int warp_size_hip_xgb = 0;
 constexpr unsigned long long kFullMask = 0xffffffffffffffffULL;  // 64-bit wavefront
+
+#if HIP_VERSION_MAJOR < 7
+using hip_warp_primitives::__syncwarp;
+using hip_warp_primitives::__shfl_sync;
+using hip_warp_primitives::__ballot_sync;
+#endif
 #else
 constexpr unsigned int kFullMask = 0xffffffff;  // 32-bit warp
 #endif

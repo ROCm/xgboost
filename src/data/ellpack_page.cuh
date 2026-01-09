@@ -16,6 +16,10 @@
 #include "ellpack_page.h"
 #include "xgboost/data.h"
 
+#if defined(XGBOOST_USE_HIP)
+#include <variant>  // for variant, visit
+#endif
+
 namespace xgboost {
 /**
  * @brief Struct for accessing and manipulating an ELLPACK matrix on the device.
