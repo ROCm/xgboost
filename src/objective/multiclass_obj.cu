@@ -234,3 +234,4 @@ XGBOOST_REGISTER_OBJECTIVE(SoftprobMultiClass, "multi:softprob")
     .describe("Softmax for multi-class classification, output probability distribution.")
     .set_body([]() { return new SoftmaxMultiClassObj(true); });
 }  // namespace xgboost::obj
+
