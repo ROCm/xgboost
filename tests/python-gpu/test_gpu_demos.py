@@ -28,7 +28,7 @@ def test_categorical_demo():
     cmd = ["python", script]
     subprocess.check_call(cmd)
 
-
+@pytest.mark.skipif(**tm.is_rocm_64())
 @pytest.mark.skipif(**tm.no_rmm())
 @pytest.mark.skipif(**tm.no_cupy())
 def test_external_memory_demo():
@@ -36,7 +36,7 @@ def test_external_memory_demo():
     cmd = ["python", script, "--device=cuda"]
     subprocess.check_call(cmd)
 
-
+@pytest.mark.skipif(**tm.is_rocm_64())
 @pytest.mark.skipif(**tm.no_rmm())
 @pytest.mark.skipif(**tm.no_cupy())
 @pytest.mark.mgpu
