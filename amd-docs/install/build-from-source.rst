@@ -83,17 +83,28 @@ Build from source
 
    .. tab-set::
 
+      .. tab-item:: ROCm 7.1.1
+
+         .. code-block:: shell
+
+            pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging \
+              numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
+            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.1.1/simple/
+
       .. tab-item:: ROCm 7.0.2
 
          .. code-block:: shell
 
-            pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging pip install numba==0.60 pip install pandas==2.2.3 pip install pyarrow==19.0 pip install typing-extensions>=4.0.0 pip install amd-cupy --index-url=https://pypi.amd.com/rocm-7.0.2/simple/ pip install amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.2/simple/
+            pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging \
+              numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
+            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.2/simple/
 
       .. tab-item:: ROCm 6.4.4
 
          .. code-block:: shell
 
-            pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging pip install amd-cupy amd-hipdf --extra-index-url=https://pypi.amd.com/simple/
+            pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging
+            pip install amd-cupy amd-hipdf --extra-index-url=https://pypi.amd.com/simple/
 
 8. Run the Python examples.
 

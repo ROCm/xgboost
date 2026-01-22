@@ -6,23 +6,20 @@
 ROCm XGBoost documentation
 **************************
 
-XGBoost on ROCm brings GPU‑accelerated gradient boosting to AMD hardware so you
-can build scalable, high‑performance machine learning applications for
-financial risk modeling and other data‑intensive tasks.
+XGBoost on ROCm provides GPU‑accelerated gradient boosting on AMD hardware,
+enabling scalable, high‑performance machine learning for financial risk
+modeling and data‑intensive workloads. This implementation utilizes optimized
+kernels, enhanced memory management, and multi‑GPU scaling to accelerate
+performance compared to CPU‑only baselines.
 
-XGBoost is well‑suited for financial applications due to its level‑wise tree
-growth (for balanced, accurate models), strong L1 and L2 regularization against
-noisy or outlier‑heavy data, and built‑in handling of missing values. Its
-tunable hyperparameters achieve precision in high‑stakes tasks such as loan
-default prediction, while interpretability tools, such as feature importance,
-help maintain regulatory compliance. GPU acceleration can provide 3–10x
-performance gains on large, feature‑rich datasets by parallelizing split
-computations; however, memory demand increases with very deep trees.
-
-ROCm enablement fully accelerates XGBoost on AMD GPUs using optimized kernels,
-enhanced memory management, and seamless multi‑GPU scaling, delivering
-substantial performance gains over CPU‑only baselines on typical financial
-workloads.
+XGBoost excels in financial applications by using level-wise tree growth to
+generate balanced, accurate models. It ensures robustness against noisy data
+and outliers through strong L1 and L2 regularization and automatically manages
+missing values. Tunable hyperparameters provide the high precision required for
+tasks like loan default prediction, while interpretability tools such as
+feature importance aid in regulatory compliance. While GPU acceleration speeds
+up processing on large datasets by parallelizing split computations, memory
+requirements increase with tree depth.
 
 XGBoost is part of the `ROCm-Finance toolkit
 <https://rocm.docs.amd.com/projects/rocm-finance/en/latest/>`__.

@@ -28,6 +28,13 @@ Install the ROCm-enabled XGBoost library from the AMD-hosted PyPI repository.
 
 .. tab-set::
 
+   .. tab-item:: ROCm 7.1.1
+      :sync: rocm7
+
+      .. code-block:: shell
+
+         pip install amd_xgboost --extra-index-url=https://pypi.amd.com/rocm-7.1.1/simple
+
    .. tab-item:: ROCm 7.0.2
       :sync: rocm7
 
