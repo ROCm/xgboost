@@ -15,11 +15,11 @@ Before proceeding, ensure that you have installed a supported ROCm version,
 operating system, and Python version that are compatible with the ROCm-Finance
 libraries. Verify that your system includes an AMD GPU fully supported by ROCm
 Finance. For guidance, see `ROCm-Finance installation prerequisites
-<https://rocm.docs.amd.com/projects/rocm-finance-internal/en/latest/install/prerequisites.html>`__.
+<https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/prerequisites.html>`__.
 
 For a consistent and streamlined setup experience, it's recommended to use
 a ROCm development environment Docker container. See
-`Install ROCm Finance <https://rocm.docs.amd.com/projects/rocm-finance-internal/en/latest/install/install.html>`__ for instructions.
+`Install ROCm Finance <https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/install.html>`__ for instructions.
 
 Install using pip
 =================
