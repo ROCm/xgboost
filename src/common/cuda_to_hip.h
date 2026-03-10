@@ -55,6 +55,9 @@
 #define cudaDevAttrPageableMemoryAccessUsesHostPageTables   hipDeviceAttributePageableMemoryAccessUsesHostPageTables
 #define cudaDevAttrHostNumaId								hipDeviceAttributeHostNumaId
 
+#define cudaDevAttrMemoryPoolsSupported    hipDeviceAttributeMemoryPoolsSupported
+#define cudaDeviceProp    hipDeviceProp_t
+
 // Memory allocation
 #define cudaMalloc                                          hipMalloc
 #define cudaMallocHost                                      hipMallocHost
