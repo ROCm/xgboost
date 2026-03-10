@@ -163,6 +163,7 @@ struct EllpackAccessorImpl {
     return this->null_value_ & ((Ind() << NullShift()) - Ind());
   }
   [[nodiscard]] XGBOOST_HOST_DEV_INLINE bst_idx_t NumBins() const { return gidx_fvalue_map.size(); }
+  [[nodiscard]] XGBOOST_HOST_DEV_INLINE bst_idx_t NumRows() const { return n_rows; }
   [[nodiscard]] XGBOOST_HOST_DEV_INLINE size_t NumFeatures() const { return min_fvalue.size(); }
 };
 
@@ -248,14 +249,6 @@ class EllpackPageImpl {
    * @returns The number of elements copied.
    */
   bst_idx_t Copy(Context const* ctx, EllpackPageImpl const* page, bst_idx_t offset);
-  /**
-   * @brief Compact the given ELLPACK page into the current page.
-   *
-   * @param ctx The GPU context.
-   * @param page The ELLPACK page to compact from.
-   * @param row_indexes Row indexes for the compacted page.
-   */
-  void Compact(Context const* ctx, EllpackPageImpl const* page, common::Span<size_t> row_indexes);
 
   /** @return Number of instances in the page. */
   [[nodiscard]] bst_idx_t Size() const;

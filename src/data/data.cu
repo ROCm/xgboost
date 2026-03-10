@@ -56,12 +56,11 @@ void CopyTensorInfoImpl(CUDAContext const* ctx, Json arr_interface, linalg::Tens
   }
   p_out->Reshape(array.shape);
   auto t = p_out->View(ptr_device);
-  linalg::ElementWiseTransformDevice(
-      t,
+  linalg::cuda_impl::TransformIdxKernel(
+      ctx, t,
       [=] __device__(size_t i, T) {
         return std::apply(TypedIndex<T, D>{array}, linalg::UnravelIndex<D>(i, array.shape));
-      },
-      ctx->Stream());
+      });
 }
 
 void CopyGroupInfoImpl(ArrayInterface<1> column, std::vector<bst_group_t>* out) {

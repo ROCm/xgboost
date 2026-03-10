@@ -7,6 +7,8 @@
 #include <vector>   // for vector
 
 #include "../common/cuda_rt_utils.h"
+#include "../common/device_helpers.cuh"  // for DefaultStream, CUDAEvent, CurrentDevice (HIP)
+#include "../common/cuda_stream.h"          // for Event
 #include "../common/io.h"                   // for AlignedResourceReadStream, AlignedFileWriteStream
 #include "../common/ref_resource_view.cuh"  // for MakeFixedVecWithCudaMalloc
 #include "../common/ref_resource_view.h"    // for ReadVec, WriteVec
@@ -40,7 +42,8 @@ template <typename T>
   }
 
   *vec = common::MakeFixedVecWithCudaMalloc<T>(n);
-  dh::safe_cuda(cudaMemcpyAsync(vec->data(), ptr, n_bytes, cudaMemcpyDefault, dh::DefaultStream()));
+  dh::safe_cuda(
+      cudaMemcpyAsync(vec->data(), ptr, n_bytes, cudaMemcpyDefault, dh::DefaultStream()));
   return true;
 }
 }  // namespace
@@ -85,7 +88,7 @@ template <typename T>
   bytes += fo->Write(impl->is_dense);
   bytes += fo->Write(impl->info.row_stride);
   std::vector<common::CompressedByteT> h_gidx_buffer;
-  Context ctx = Context{}.MakeCUDA(curt::CurrentDevice());
+  Context ctx = Context{}.MakeCUDA(dh::CurrentDevice());
   // write data into the h_gidx_buffer
   [[maybe_unused]] auto h_accessor = impl->GetHostEllpack(&ctx, &h_gidx_buffer);
   bytes += common::WriteVec(fo, h_gidx_buffer);
@@ -102,7 +105,7 @@ template <typename T>
   auto* impl = page->Impl();
   CHECK(this->cuts_->cut_values_.DeviceCanRead());
 
-  auto ctx = Context{}.MakeCUDA(curt::CurrentDevice());
+  auto ctx = Context{}.MakeCUDA(dh::CurrentDevice());
 
   auto dispatch = [&] {
     fi->Read(&ctx, page, this->param_.prefetch_copy || !this->has_hmm_ats_);

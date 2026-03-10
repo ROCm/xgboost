@@ -1,10 +1,10 @@
 /**
- * Copyright 2021-2023, XGBoost Contributors
+ * Copyright 2021-2025, XGBoost Contributors
  */
 #include <cstdint>  // for int64_t
 
-#include "../common/common.h"
-#include "../common/device_helpers.cuh"  // for DefaultStream, CUDAEvent
+#include "../common/cuda_stream.h"  // for Event, StreamRef, DefaultStream
+#include "../common/device_helpers.cuh"  // for CUDAEvent, CUDAStreamView, DefaultStream (HIP)
 #include "array_interface.h"
 #include "xgboost/logging.h"
 
@@ -29,9 +29,15 @@ void ArrayInterfaceHandler::SyncCudaStream(std::int64_t stream) {
     case 2:
       // default per-thread stream
     default: {
+#if defined(XGBOOST_USE_HIP)
       dh::CUDAEvent e;
       e.Record(dh::CUDAStreamView{reinterpret_cast<cudaStream_t>(stream)});
       dh::DefaultStream().Wait(e);
+#else
+      curt::Event e;
+      e.Record(curt::StreamRef{reinterpret_cast<cudaStream_t>(stream)});
+      curt::DefaultStream().Wait(e);
+#endif
     }
   }
 }

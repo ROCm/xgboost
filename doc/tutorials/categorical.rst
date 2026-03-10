@@ -2,6 +2,12 @@
 Categorical Data
 ################
 
+**Contents**
+
+.. contents::
+  :backlinks: none
+  :local:
+
 Since version 1.5, XGBoost has support for categorical data.  For numerical data, the
 split condition is defined as :math:`value < threshold`, while for categorical data the
 split is defined depending on whether partitioning or onehot encoding is used. For
@@ -140,7 +146,7 @@ Auto-recoding (Data Consistency)
 
 .. versionchanged:: 3.1
 
-  Starting with XGBoost 3.1, the *Python* interface can perform automatic re-coding for
+  Starting with XGBoost 3.1, the **Python** interface can perform automatic re-coding for
   new inputs.
 
 XGBoost accepts parameters to indicate which feature is considered categorical, either
@@ -158,11 +164,11 @@ the input and hence cannot store it in the model. The mapping usually happens in
 users' data engineering pipeline. To ensure the correct result from XGBoost, users need to
 keep the pipeline for transforming data consistent across training and testing data.
 
-Starting with 3.1, the *Python* interface can remember the encoding and perform recoding
+Starting with 3.1, the **Python** interface can remember the encoding and perform recoding
 during inference and training continuation when the input is a dataframe (`pandas`,
 `cuDF`, `polars`, `pyarrow`, `modin`). The feature support focuses on basic usage. It has
-some restrictions on the types of inputs that can be accepted. First, category names
-must have one of the following types:
+some restrictions on the types of inputs that can be accepted. First, category names must
+have one of the following types:
 
 - string
 - integer, from 8-bit to 64-bit, both signed and unsigned are supported.
@@ -224,9 +230,31 @@ of using the native interface:
 No extra step is required for using the scikit-learn interface as long as the inputs are
 dataframes. During training continuation, XGBoost will either extract the categories from
 the previous model or use the categories from the new training dataset if the input model
-doesn't have the information.
+doesn't have the information. As a side note, users can inspect the content of the
+categories by exporting it to arrow arrays. This interface is still experimental:
 
-For R, the auto-recoding is not yet supported as of 3.1. To provide an example:
+.. code-block:: python
+
+  categories = booster.get_categories(export_to_arrow=True)
+  print(categories.to_arrow())
+
+
+In addition to the notes above, there's a `blog post
+<https://developer.nvidia.com/blog/training-xgboost-models-with-gpu-accelerated-polars-dataframes/>`__
+about using XGBoost with Polars for categorical features with various examples.
+
+The re-coder handles missing categories at inference time. However, if there's a new
+category during inference that's unseen during training (missing during training), a
+re-coder doesn't help as it doesn't know what would be a valid code. There are various
+heuristics for handling unseen categories during inference. The best and simplest approach
+is to re-train the model since a new category represents a new type of data. The type of a
+categorical feature is defined by the set of discrete values. If the set is changed, then
+the type is considered to be different. In addition, one might add an "unknown" category
+during training and synthesize some samples with this category as missing values. Lastly,
+you might consider the new category similar to an existing one based on your domain
+knowledge, and map to that category during ETL.
+
+For **R**, the auto-recoding is not yet supported as of 3.1. To provide an example:
 
 .. code-block:: R
 

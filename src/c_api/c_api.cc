@@ -41,6 +41,7 @@
 #include "xgboost/global_config.h"       // for GlobalConfiguration, GlobalConfigThreadLocal...
 #include "xgboost/host_device_vector.h"  // for HostDeviceVector
 #include "xgboost/json.h"                // for Json, get, Integer, IsA, Boolean, String
+#include "xgboost/gradient.h"            // for GradientContainer
 #include "xgboost/learner.h"             // for Learner, PredictionType
 #include "xgboost/logging.h"             // for LOG_FATAL, LogMessageFatal, CHECK, LogCheck_EQ
 #include "xgboost/predictor.h"           // for PredictionCacheEntry
@@ -900,10 +901,16 @@ XGB_DLL int XGDMatrixGetFloatInfo(const DMatrixHandle handle,
   API_BEGIN();
   CHECK_HANDLE();
   xgboost_CHECK_C_ARG_PTR(field);
-  const MetaInfo& info = static_cast<std::shared_ptr<DMatrix>*>(handle)->get()->Info();
   xgboost_CHECK_C_ARG_PTR(out_len);
   xgboost_CHECK_C_ARG_PTR(out_dptr);
-  info.GetInfo(field, out_len, DataType::kFloat32, reinterpret_cast<void const**>(out_dptr));
+  auto p_m = CastDMatrixHandle(handle);
+  Context ctx = p_m->Ctx() ? p_m->Ctx()->MakeCPU() : Context{};
+  auto ref = p_m->Info().GetInfo(&ctx, StringView{field});
+   if (ref.dtype != DataType::kFloat32) {
+     LOG(FATAL) << "XGDMatrixGetFloatInfo: expected kFloat32, got dtype " << static_cast<int>(ref.dtype);
+   }
+  *out_len = ref.Size();
+  *out_dptr = reinterpret_cast<float const*>(ref.data);
   API_END();
 }
 
@@ -914,10 +921,16 @@ XGB_DLL int XGDMatrixGetUIntInfo(const DMatrixHandle handle,
   API_BEGIN();
   CHECK_HANDLE();
   xgboost_CHECK_C_ARG_PTR(field);
-  const MetaInfo& info = static_cast<std::shared_ptr<DMatrix>*>(handle)->get()->Info();
   xgboost_CHECK_C_ARG_PTR(out_len);
   xgboost_CHECK_C_ARG_PTR(out_dptr);
-  info.GetInfo(field, out_len, DataType::kUInt32, reinterpret_cast<void const**>(out_dptr));
+  auto p_m = CastDMatrixHandle(handle);
+  Context ctx = p_m->Ctx() ? p_m->Ctx()->MakeCPU() : Context{};
+     auto ref = p_m->Info().GetInfo(&ctx, StringView{field});
+   if (ref.dtype != DataType::kUInt32) {
+     LOG(FATAL) << "XGDMatrixGetUIntInfo: expected kUInt32, got dtype " << static_cast<int>(ref.dtype);
+   }
+  *out_len = ref.Size();
+  *out_dptr = reinterpret_cast<unsigned const*>(ref.data);
   API_END();
 }
 
@@ -1251,7 +1264,9 @@ XGB_DLL int XGBoosterTrainOneIter(BoosterHandle handle, DMatrixHandle dtrain, in
   } else {
     CopyGradientFromCUDAArrays(ctx, i_grad, i_hess, &gpair);
   }
-  learner->BoostOneIter(iter, p_fmat, &gpair);
+  GradientContainer container;
+  container.gpair = std::move(gpair);
+  learner->BoostOneIter(iter, p_fmat, &container);
   API_END();
 }
 

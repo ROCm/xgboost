@@ -1,6 +1,7 @@
 /**
  * Copyright 2024-2025, XGBoost Contributors
  */
+#include "cuda_stream.h"       // for DefaultStream
 #include "device_helpers.cuh"  // for CurrentDevice
 #include "resource.cuh"
 #include "xgboost/string_view.h"  // for StringView
@@ -12,7 +13,11 @@ CudaMmapResource::CudaMmapResource(StringView path, std::size_t offset, std::siz
               [](MMAPFile* handle) {
                 // Don't close the mmap while CUDA kernel is running.
                 if (handle) {
+#if defined(XGBOOST_USE_HIP)
                   dh::DefaultStream().Sync();
+#else
+                  curt::DefaultStream().Sync();
+#endif
                 }
                 detail::CloseMmap(handle);
               }},
@@ -30,9 +35,17 @@ CudaMmapResource::CudaMmapResource(StringView path, std::size_t offset, std::siz
   dh::safe_cuda(cudaMemAdvise(ptr.data(), ptr.size(), cudaMemAdviseSetPreferredLocation, loc));
   dh::safe_cuda(cudaMemAdvise(ptr.data(), ptr.size(), cudaMemAdviseSetAccessedBy, loc));
 #if (CUDA_VERSION / 1000) >= 13
+#if defined(XGBOOST_USE_HIP)
   dh::safe_cuda(cudaMemPrefetchAsync(ptr.data(), ptr.size(), loc, 0, dh::DefaultStream()));
 #else
+  dh::safe_cuda(cudaMemPrefetchAsync(ptr.data(), ptr.size(), loc, 0, curt::DefaultStream()));
+#endif
+#else
+#if defined(XGBOOST_USE_HIP)
   dh::safe_cuda(cudaMemPrefetchAsync(ptr.data(), ptr.size(), device, dh::DefaultStream()));
+#else
+  dh::safe_cuda(cudaMemPrefetchAsync(ptr.data(), ptr.size(), device, curt::DefaultStream()));
+#endif
 #endif  // (CUDA_VERSION / 1000) >= 13
 }
 

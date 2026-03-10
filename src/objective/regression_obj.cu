@@ -784,9 +784,9 @@ class MeanAbsoluteError : public ObjFunction {
 
   void UpdateTreeLeaf(HostDeviceVector<bst_node_t> const& position, MetaInfo const& info,
                       float learning_rate, HostDeviceVector<float> const& prediction,
-                      std::int32_t group_idx, RegTree* p_tree) const override {
-    ::xgboost::obj::UpdateTreeLeaf(ctx_, position, group_idx, info, learning_rate, prediction, 0.5,
-                                   p_tree);
+                      bst_target_t group_idx, RegTree* p_tree) const override {
+    ::xgboost::obj::UpdateTreeLeaf(ctx_, position, group_idx, info, learning_rate, prediction,
+                                   std::vector<float>{0.5f}, p_tree);
   }
 
   [[nodiscard]] const char* DefaultEvalMetric() const override { return "mae"; }

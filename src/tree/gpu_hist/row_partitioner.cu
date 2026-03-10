@@ -1,5 +1,5 @@
 /**
- * Copyright 2017-2024, XGBoost contributors
+ * Copyright 2017-2025, XGBoost contributors
  */
 #include <thrust/sequence.h>  // for sequence
 
@@ -13,7 +13,6 @@ namespace xgboost::tree {
 void RowPartitioner::Reset(Context const* ctx, bst_idx_t n_samples, bst_idx_t base_rowid) {
   ridx_segments_.clear();
   ridx_.resize(n_samples);
-  ridx_tmp_.resize(n_samples);
   tmp_.clear();
   n_nodes_ = 1;  // Root
 
@@ -45,4 +44,15 @@ std::vector<RowPartitioner::RowIndexT> RowPartitioner::GetRowsHost(bst_node_t ni
   dh::CopyDeviceSpanToVector(&rows, span);
   return rows;
 }
+
+std::vector<LeafInfo> RowPartitioner::GetLeaves() const {
+  std::vector<LeafInfo> out;
+  for (bst_node_t nidx = 0; nidx < static_cast<bst_node_t>(ridx_segments_.size()); ++nidx) {
+    if (ridx_segments_[nidx].left_child == -1) {
+      out.push_back(LeafInfo{nidx, ridx_segments_[nidx]});
+    }
+  }
+  return out;
+}
+
 };  // namespace xgboost::tree

@@ -11,6 +11,7 @@
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda/functional>  // for proclaim_return_type
 #endif
+#include <memory>           // for unique_ptr
 #include <vector>           // for vector
 
 #include "../../common/cuda_context.cuh"    // for CUDAContext
@@ -230,6 +231,12 @@ struct NodePositionInfo {
   __device__ bool IsLeaf() { return left_child == -1; }
 };
 
+/** @brief Leaf node descriptor for gradient sum: node index and segment. */
+struct LeafInfo {
+  bst_node_t nidx{0};
+  NodePositionInfo node;
+};
+
 XGBOOST_DEV_INLINE int GetPositionFromSegments(std::size_t idx,
                                                const NodePositionInfo* d_node_info) {
   int position = 0;
@@ -324,6 +331,11 @@ class RowPartitioner {
   std::size_t Size() const { return this->GetRows().size(); }
 
   [[nodiscard]] bst_node_t GetNumNodes() const { return n_nodes_; }
+
+  /**
+   * \brief Returns leaf node descriptors (nidx + segment) for gradient sum.
+   */
+  std::vector<LeafInfo> GetLeaves() const;
 
   /**
    * \brief Convenience method for testing
@@ -448,4 +460,46 @@ class RowPartitioner {
         base_ridx, d_ridx, d_out_position, op);
   }
 };
+
+/** \brief Container of RowPartitioner for external memory (one per batch). */
+class RowPartitionerBatches {
+  std::vector<std::unique_ptr<RowPartitioner>> partitioners_;
+
+ public:
+  void Reset(Context const* ctx, std::vector<bst_idx_t> const& batch_ptr) {
+    CHECK_GE(batch_ptr.size(), 2u);
+    auto n_batches = batch_ptr.size() - 1;
+    partitioners_.resize(n_batches);
+    for (std::size_t k = 0; k < n_batches; ++k) {
+      if (!partitioners_[k]) {
+        partitioners_[k] = std::make_unique<RowPartitioner>();
+      }
+      partitioners_[k]->Reset(ctx, batch_ptr[k + 1] - batch_ptr[k], batch_ptr[k]);
+    }
+  }
+
+  std::size_t Size() const { return partitioners_.size(); }
+  bool Empty() const { return partitioners_.empty(); }
+
+  RowPartitioner* At(std::size_t k) { return partitioners_.at(k).get(); }
+  RowPartitioner const* At(std::size_t k) const { return partitioners_.at(k).get(); }
+
+  RowPartitioner* Front() { return partitioners_.front().get(); }
+  RowPartitioner const* Front() const { return partitioners_.front().get(); }
+
+  auto begin() { return partitioners_.begin(); }
+  auto end() { return partitioners_.end(); }
+  auto begin() const { return partitioners_.begin(); }
+  auto end() const { return partitioners_.end(); }
+
+  template <typename UpdatePositionOpT, typename OpDataT>
+  void UpdatePositionBatch(Context const* ctx, std::size_t k,
+                           std::vector<bst_node_t> const& nidx,
+                           std::vector<bst_node_t> const& left_nidx,
+                           std::vector<bst_node_t> const& right_nidx,
+                           std::vector<OpDataT> const& op_data, UpdatePositionOpT op) {
+    partitioners_.at(k)->UpdatePositionBatch(ctx, nidx, left_nidx, right_nidx, op_data, op);
+  }
+};
+
 };  // namespace xgboost::tree

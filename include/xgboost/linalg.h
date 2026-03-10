@@ -276,6 +276,7 @@ enum Order : std::uint8_t {
 template <typename T, int32_t kDim>
 class TensorView {
  public:
+  using SizeType = std::size_t;  // NOLINT
   using ShapeT = std::size_t[kDim];
   using StrideT = ShapeT;
 
@@ -655,6 +656,12 @@ template <typename T>
 auto MakeVec(HostDeviceVector<T> const *data) {
   return MakeVec(data->Device().IsCPU() ? data->ConstHostPointer() : data->ConstDevicePointer(),
                  data->Size(), data->Device());
+}
+
+/** \brief Create a vector view from a span. */
+template <typename T>
+auto MakeVec(DeviceOrd device, common::Span<T> span) {
+  return MakeVec(span.data(), span.size(), device);
 }
 
 /**

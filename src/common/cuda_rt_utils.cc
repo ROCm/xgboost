@@ -27,7 +27,7 @@ std::int32_t AllVisibleGPUs() {
     // cudaGetDeviceCount will fail.
     dh::safe_cuda(cudaGetDeviceCount(&n_visgpus));
   } catch (const dmlc::Error&) {
-    cudaGetLastError();  // reset error.
+    (void)cudaGetLastError();  // reset error.
     return 0;
   }
   return n_visgpus;
@@ -104,6 +104,21 @@ void GetDrVersionGlobal(std::int32_t* major, std::int32_t* minor) {
   return numa_id;
 }
 
+void MemcpyAsync(void* dst, const void* src, std::size_t count, StreamRef stream) {
+#if defined(XGBOOST_USE_CUDA)
+  dh::safe_cuda(cudaMemcpyAsync(dst, src, count, cudaMemcpyDefault, stream));
+#elif defined(XGBOOST_USE_HIP)
+  (void)stream;  // HIP StreamRef is empty; use default stream
+  dh::safe_cuda(hipMemcpyAsync(dst, src, count, hipMemcpyDefault, nullptr));
+#endif
+}
+
+[[nodiscard]] std::int32_t GetMpCnt(std::int32_t device) {
+  std::int32_t n = 0;
+  dh::safe_cuda(cudaDeviceGetAttribute(&n, cudaDevAttrMultiProcessorCount, device));
+  return n;
+}
+
 #else
 std::int32_t AllVisibleGPUs() { return 0; }
 
@@ -129,6 +144,12 @@ void SetDevice(std::int32_t device) {
 }
 
 [[nodiscard]] std::int32_t GetNumaId() {
+  common::AssertGPUSupport();
+  return 0;
+}
+
+[[nodiscard]] std::int32_t GetMpCnt(std::int32_t device) {
+  (void)device;
   common::AssertGPUSupport();
   return 0;
 }

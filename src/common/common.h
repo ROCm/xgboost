@@ -1,5 +1,5 @@
 /**
- * Copyright 2015-2025, XGBoost Contributors
+ * Copyright 2015-2026, XGBoost Contributors
  * \file common.h
  * \brief Common utilities
  */
@@ -113,6 +113,11 @@ inline std::string EscapeU8(std::string const &str) {
 }
 
 template <typename T>
+XGBOOST_DEVICE T Min(T a, T b) {
+  return a > b ? b : a;
+}
+
+template <typename T>
 XGBOOST_DEVICE T Max(T a, T b) {
   return a < b ? b : a;
 }
@@ -139,24 +144,20 @@ class Range {
       return *this;
     }
     XGBOOST_DEVICE Iterator operator++(int) {
-      Iterator res {*this};
+      Iterator res{*this};
       i_ += step_;
       return res;
     }
 
-    XGBOOST_DEVICE bool operator==(const Iterator &other) const {
-      return i_ >= other.i_;
-    }
-    XGBOOST_DEVICE bool operator!=(const Iterator &other) const {
-      return i_ < other.i_;
-    }
+    XGBOOST_DEVICE bool operator==(const Iterator &other) const { return i_ >= other.i_; }
+    XGBOOST_DEVICE bool operator!=(const Iterator &other) const { return i_ < other.i_; }
 
     XGBOOST_DEVICE void Step(DifferenceType s) { step_ = s; }
 
    protected:
     XGBOOST_DEVICE explicit Iterator(DifferenceType start) : i_(start) {}
-    XGBOOST_DEVICE explicit Iterator(DifferenceType start, DifferenceType step) :
-        i_{start}, step_{step} {}
+    XGBOOST_DEVICE explicit Iterator(DifferenceType start, DifferenceType step)
+        : i_{start}, step_{step} {}
 
    private:
     int64_t i_;
@@ -166,18 +167,14 @@ class Range {
   XGBOOST_DEVICE Iterator begin() const { return begin_; }  // NOLINT
   XGBOOST_DEVICE Iterator end() const { return end_; }      // NOLINT
 
-  XGBOOST_DEVICE Range(DifferenceType begin, DifferenceType end)
-      : begin_(begin), end_(end) {}
-  XGBOOST_DEVICE Range(DifferenceType begin, DifferenceType end,
-                       DifferenceType step)
+  XGBOOST_DEVICE Range(DifferenceType begin, DifferenceType end) : begin_(begin), end_(end) {}
+  XGBOOST_DEVICE Range(DifferenceType begin, DifferenceType end, DifferenceType step)
       : begin_(begin, step), end_(end) {}
 
-  XGBOOST_DEVICE bool operator==(const Range& other) const {
+  XGBOOST_DEVICE bool operator==(const Range &other) const {
     return *begin_ == *other.begin_ && *end_ == *other.end_;
   }
-  XGBOOST_DEVICE bool operator!=(const Range& other) const {
-    return !(*this == other);
-  }
+  XGBOOST_DEVICE bool operator!=(const Range &other) const { return !(*this == other); }
 
   XGBOOST_DEVICE void Step(DifferenceType s) { begin_.Step(s); }
 
@@ -206,7 +203,7 @@ inline void AssertNCCLSupport() {
 
 inline void AssertSYCLSupport() {
 #ifndef XGBOOST_USE_SYCL
-    LOG(FATAL) << "XGBoost version not compiled with SYCL support.";
+  LOG(FATAL) << "XGBoost version not compiled with SYCL support.";
 #endif  // XGBOOST_USE_SYCL
 }
 

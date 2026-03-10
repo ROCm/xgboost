@@ -1,9 +1,7 @@
 /**
  * Copyright 2025, XGBoost Contributors
  */
-#include <thrust/for_each.h>                    // for for_each_n
-#include <thrust/iterator/counting_iterator.h>  // for make_counting_iterator
-#include <thrust/scan.h>                        // for inclusive_scan
+#include <thrust/scan.h>  // for inclusive_scan
 
 #include <cstddef>  // for size_t
 
@@ -15,11 +13,6 @@
 #include "xgboost/linalg.h"   // for VectorView
 
 namespace xgboost::linalg::cuda_impl {
-void VecScaMul(Context const* ctx, linalg::VectorView<float> x, double mul) {
-  thrust::for_each_n(ctx->CUDACtx()->CTP(), thrust::make_counting_iterator(0ul), x.Size(),
-                     [=] XGBOOST_DEVICE(std::size_t i) mutable { x(i) = x(i) * mul; });
-}
-
 void SmallHistogram(Context const* ctx, linalg::MatrixView<float const> indices,
                     common::OptionalWeights const& d_weights, linalg::VectorView<float> bins) {
   auto n_bins = bins.Size();
@@ -47,6 +40,13 @@ void SmallHistogram(Context const* ctx, linalg::MatrixView<float const> indices,
   // Sum weighted-label for each class to bins, counts_out is the segment ptr after inclusive_scan
   common::SegmentedSum(cuctx->Stream(), val_it, linalg::tbegin(bins), n_bins, counts_out.cbegin(),
                        counts_out.cbegin() + 1);
+}
+
+void VecScaMul(Context const* ctx, linalg::VectorView<float> x, double mul) {
+  auto s = ctx->CUDACtx()->Stream();
+  ElementWiseKernel(x, [=] XGBOOST_DEVICE(std::size_t i) mutable {
+    x(i) *= static_cast<float>(mul);
+  }, s);
 }
 }  // namespace xgboost::linalg::cuda_impl
 

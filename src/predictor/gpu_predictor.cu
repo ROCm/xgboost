@@ -389,7 +389,7 @@ class DeviceModel {
     size_t sum = 0;
     h_tree_segments.push_back(sum);
     for (auto tree_idx = tree_begin; tree_idx < tree_end; tree_idx++) {
-      sum += model.trees.at(tree_idx)->GetNodes().size();
+      sum += model.trees.at(tree_idx)->GetNodes(DeviceOrd::CPU()).size();
       h_tree_segments.push_back(sum);
     }
 
@@ -398,8 +398,8 @@ class DeviceModel {
     auto d_nodes = nodes.DevicePointer();
     auto d_stats = stats.DevicePointer();
     for (auto tree_idx = tree_begin; tree_idx < tree_end; tree_idx++) {
-      auto& src_nodes = model.trees.at(tree_idx)->GetNodes();
-      auto& src_stats = model.trees.at(tree_idx)->GetStats();
+      auto src_nodes = model.trees.at(tree_idx)->GetNodes(DeviceOrd::CPU());
+      auto src_stats = model.trees.at(tree_idx)->GetStats(DeviceOrd::CPU());
 
       dh::safe_cuda(cudaMemcpyAsync(
           d_nodes + h_tree_segments[tree_idx - tree_begin], src_nodes.data(),
@@ -409,16 +409,16 @@ class DeviceModel {
           sizeof(RTreeNodeStat) * src_stats.size(), cudaMemcpyDefault));
     }
 
-    tree_group = HostDeviceVector<int>(model.tree_info.size(), 0, device);
+    tree_group = HostDeviceVector<int>(model.tree_info.Size(), 0, device);
     auto& h_tree_group = tree_group.HostVector();
-    std::memcpy(h_tree_group.data(), model.tree_info.data(), sizeof(int) * model.tree_info.size());
+    std::memcpy(h_tree_group.data(), model.tree_info.ConstHostVector().data(), sizeof(int) * model.tree_info.Size());
 
     // Initialize categorical splits.
     split_types.SetDevice(device);
     std::vector<FeatureType>& h_split_types = split_types.HostVector();
     h_split_types.resize(h_tree_segments.back());
     for (auto tree_idx = tree_begin; tree_idx < tree_end; ++tree_idx) {
-      auto const& src_st = model.trees.at(tree_idx)->GetSplitTypes();
+      auto const& src_st = model.trees.at(tree_idx)->GetSplitTypes(DeviceOrd::CPU());
       std::copy(src_st.cbegin(), src_st.cend(),
                 h_split_types.begin() + h_tree_segments[tree_idx - tree_begin]);
     }
@@ -428,7 +428,7 @@ class DeviceModel {
     std::vector<uint32_t> &h_categories = categories.HostVector();
     std::vector<uint32_t> &h_split_cat_segments = categories_tree_segments.HostVector();
     for (auto tree_idx = tree_begin; tree_idx < tree_end; ++tree_idx) {
-      auto const& src_cats = model.trees.at(tree_idx)->GetSplitCategories();
+      auto const& src_cats = model.trees.at(tree_idx)->GetSplitCategories(DeviceOrd::CPU());
       size_t orig_size = h_categories.size();
       h_categories.resize(orig_size + src_cats.size());
       std::copy(src_cats.cbegin(), src_cats.cend(),

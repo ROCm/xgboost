@@ -77,6 +77,9 @@ constexpr bool BuildWithCUDACub() {
 #endif // defined(THRUST_IGNORE_CUB_VERSION_CHECK) && THRUST_IGNORE_CUB_VERSION_CHECK == 1
 }
 
+/** @brief Warp/wavefront size. MI300 (gfx942) uses 64-wide wavefronts. */
+constexpr int WarpThreads() { return 64; }
+
 namespace detail {
 template <size_t size>
 struct AtomicDispatcher;
