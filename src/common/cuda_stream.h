@@ -3,9 +3,12 @@
  */
 #pragma once
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 #include <cuda_runtime.h>
-#endif  // defined(XGBOOST_USE_CUDA)
+#elif defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime.h>
+#include "cuda_to_hip.h"
+#endif
 
 #include <memory>   // for unique_ptr
 #include <utility>  // for swap
@@ -13,7 +16,7 @@
 #include "common.h"
 
 namespace xgboost::curt {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 class StreamRef;
 
 class Event {
@@ -83,7 +86,13 @@ inline void Event::Record(StreamRef stream) {  // NOLINT
 
 // Changing this has effect on prediction return, where we need to pass the pointer to
 // third-party libraries like cuPy
-inline StreamRef DefaultStream() { return StreamRef{cudaStreamPerThread}; }
+inline StreamRef DefaultStream() {
+#if defined(XGBOOST_USE_HIP) && !defined(HIP_API_PER_THREAD_DEFAULT_STREAM)
+  return StreamRef{hipStreamLegacyWkRd};
+#else
+  return StreamRef{cudaStreamPerThread};
+#endif
+}
 
 class Stream {
   cudaStream_t stream_;
@@ -105,5 +114,5 @@ inline StreamRef DefaultStream() {
   common::AssertGPUSupport();
   return StreamRef{};
 }
-#endif
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 }  // namespace xgboost::curt
