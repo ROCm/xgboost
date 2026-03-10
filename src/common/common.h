@@ -186,7 +186,7 @@ class Range {
 inline void AssertGPUSupport() {
 #if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP) 
   LOG(FATAL) << "XGBoost version not compiled with GPU support.";
-#endif  // XGBOOST_USE_CUDA
+#endif  // XGBOOST_USE_CUDA && XGBOOST_USE_HIP
 }
 
 inline void AssertNvCompSupport() {
@@ -196,8 +196,8 @@ inline void AssertNvCompSupport() {
 }
 
 inline void AssertNCCLSupport() {
-#if !defined(XGBOOST_USE_NCCL)
-  LOG(FATAL) << "XGBoost version not compiled with NCCL support.";
+#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP) 
+  LOG(FATAL) << "XGBoost version not compiled with RCCL/NCCL support.";
 #endif  // !defined(XGBOOST_USE_NCCL)
 }
 
