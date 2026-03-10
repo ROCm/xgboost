@@ -289,7 +289,7 @@ class TensorView {
   common::Span<T> data_;
   T *ptr_{nullptr};  // pointer of data_ to avoid bound check.
 
-  size_t size_{0};
+  SizeType size_{0};
   DeviceOrd device_;
 
   // Unlike `Tensor`, the data_ can have arbitrary size since this is just a view.
@@ -302,7 +302,7 @@ class TensorView {
   }
 
   template <size_t old_dim, size_t new_dim, int32_t D, typename I>
-  LINALG_HD size_t MakeSliceDim(std::size_t new_shape[D], std::size_t new_stride[D],
+  LINALG_HD SizeType MakeSliceDim(std::size_t new_shape[D], std::size_t new_stride[D],
                                 detail::RangeTag<I> &&range) const {
     static_assert(new_dim < D);
     static_assert(old_dim < kDim);
@@ -317,7 +317,7 @@ class TensorView {
    * \brief Slice dimension for Range tag.
    */
   template <size_t old_dim, size_t new_dim, int32_t D, typename I, typename... S>
-  LINALG_HD size_t MakeSliceDim(size_t new_shape[D], size_t new_stride[D],
+  LINALG_HD SizeType MakeSliceDim(size_t new_shape[D], size_t new_stride[D],
                                 detail::RangeTag<I> &&range, S &&...slices) const {
     static_assert(new_dim < D);
     static_assert(old_dim < kDim);
@@ -332,7 +332,7 @@ class TensorView {
   }
 
   template <size_t old_dim, size_t new_dim, int32_t D>
-  LINALG_HD size_t MakeSliceDim(size_t new_shape[D], size_t new_stride[D], detail::AllTag) const {
+  LINALG_HD SizeType MakeSliceDim(size_t new_shape[D], size_t new_stride[D], detail::AllTag) const {
     static_assert(new_dim < D);
     static_assert(old_dim < kDim);
     new_stride[new_dim] = stride_[old_dim];
@@ -343,7 +343,7 @@ class TensorView {
    * \brief Slice dimension for All tag.
    */
   template <size_t old_dim, size_t new_dim, int32_t D, typename... S>
-  LINALG_HD size_t MakeSliceDim(size_t new_shape[D], size_t new_stride[D], detail::AllTag,
+  LINALG_HD SizeType MakeSliceDim(size_t new_shape[D], size_t new_stride[D], detail::AllTag,
                                 S &&...slices) const {
     static_assert(new_dim < D);
     static_assert(old_dim < kDim);
@@ -354,7 +354,7 @@ class TensorView {
   }
 
   template <size_t old_dim, size_t new_dim, int32_t D, typename Index>
-  LINALG_HD size_t MakeSliceDim(DMLC_ATTRIBUTE_UNUSED size_t new_shape[D],
+  LINALG_HD SizeType MakeSliceDim(DMLC_ATTRIBUTE_UNUSED size_t new_shape[D],
                                 DMLC_ATTRIBUTE_UNUSED size_t new_stride[D], Index i) const {
     static_assert(old_dim < kDim);
     return stride_[old_dim] * i;
@@ -363,7 +363,7 @@ class TensorView {
    * \brief Slice dimension for Index tag.
    */
   template <size_t old_dim, size_t new_dim, int32_t D, typename Index, typename... S>
-  LINALG_HD std::enable_if_t<std::is_integral_v<Index>, size_t> MakeSliceDim(
+  LINALG_HD std::enable_if_t<std::is_integral_v<Index>, SizeType> MakeSliceDim(
       size_t new_shape[D], size_t new_stride[D], Index i, S &&...slices) const {
     static_assert(old_dim < kDim);
     auto offset = stride_[old_dim] * i;
@@ -518,7 +518,7 @@ class TensorView {
   /**
    * @brief Number of items in the tensor.
    */
-  [[nodiscard]] LINALG_HD std::size_t Size() const { return size_; }
+  [[nodiscard]] LINALG_HD SizeType Size() const { return size_; }
   [[nodiscard]] bool Empty() const { return Size() == 0; }
   /**
    * \brief Whether this is a contiguous array, both C and F contiguous returns true.
@@ -662,6 +662,11 @@ auto MakeVec(HostDeviceVector<T> const *data) {
 template <typename T>
 auto MakeVec(DeviceOrd device, common::Span<T> span) {
   return MakeVec(span.data(), span.size(), device);
+}
+
+template <typename T>
+auto MakeVec(std::vector<T> const &v) {
+  return linalg::TensorView<T, 1>{{v.data(), v.size()}, {v.size()}, DeviceOrd::CPU()};
 }
 
 /**
@@ -964,6 +969,17 @@ auto Empty(Context const *ctx, Index &&...index) {
 }
 
 /**
+ * \brief Create an array with the same shape and dtype as the input.
+ */
+template <typename T, int32_t D>
+auto EmptyLike(Context const *ctx, Tensor<T, D> const &in) {
+  Tensor<T, D> t;
+  t.SetDevice(ctx->Device());
+  t.Reshape(in.Shape());
+  return t;
+}
+
+/**
  * \brief Create an array with value v.
  */
 template <typename T, typename... Index>
@@ -1000,6 +1016,16 @@ void Stack(Tensor<T, D> *l, Tensor<T, D> const &r) {
     data->Extend(*r.Data());
     shape[0] = l->Shape(0) + r.Shape(0);
   });
+}
+
+/**
+ * \brief Push an extra dim to the end.
+ */
+template <typename T>
+MatrixView<T> ExpandDim(VectorView<T> x) {
+  std::size_t shape[2]{x.Shape(0), 1};
+  std::size_t stride[2]{x.Stride(0), 1};
+  return MatrixView<T>{x.Values(), shape, stride, x.Device()};
 }
 }  // namespace xgboost::linalg
 
