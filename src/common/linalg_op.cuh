@@ -28,7 +28,7 @@ namespace cuda { namespace std { using namespace ::std; } }
 #include "xgboost/linalg.h"
 #include "linalg_op.h"  // for ElementWiseKernelHost    // for TensorView
 
-#if (CCCL_MAJOR_VERSION >= 3) || (CCCL_MAJOR_VERSION >= 2 && CCCL_MINOR_VERSION >= 8)
+#if defined(XGBOOST_USE_CUDA) && ((CCCL_MAJOR_VERSION >= 3) || (CCCL_MAJOR_VERSION >= 2 && CCCL_MINOR_VERSION >= 8))
 #define xgboost_CCCL_HAS_PROCLAIM_COPYABLE 1
 // CCCL 2.8.0 | CUDA 12.9
 #include <cuda/functional>  // for proclaim_copyable_arguments
@@ -73,27 +73,6 @@ void TransformIdxKernel(Context const* ctx, TensorView<T, D> t, Fn&& fn) {
         thrust::make_zip_iterator(thrust::make_counting_iterator(static_cast<std::size_t>(0)), ptr);
     using Tuple = typename cuda::std::iterator_traits<common::GetValueT<decltype(it)>>::value_type;
     thrust::transform(ctx->CUDACtx()->CTP(), it, it + t.Size(), ptr,
-                      [=] XGBOOST_DEVICE(Tuple const& tup) {
-                        return fn(thrust::get<0>(tup), thrust::get<1>(tup));
-                      });
-  } else {
-    dh::LaunchN(t.Size(), s, [=] __device__(size_t i) mutable {
-      T& v = std::apply(t, UnravelIndex(i, t.Shape()));
-      v = fn(i, v);
-    });
-  }
-}
-
-template <typename T, std::int32_t D, typename Fn>
-void TransformIdxKernel(CUDAContext const* ctx, TensorView<T, D> t, Fn&& fn) {
-  dh::safe_cuda(cudaSetDevice(t.Device().ordinal));
-  auto s = ctx->Stream();
-  if (t.Contiguous()) {
-    auto ptr = t.Values().data();
-    auto it =
-        thrust::make_zip_iterator(thrust::make_counting_iterator(static_cast<std::size_t>(0)), ptr);
-    using Tuple = typename cuda::std::iterator_traits<common::GetValueT<decltype(it)>>::value_type;
-    thrust::transform(ctx->CTP(), it, it + t.Size(), ptr,
                       [=] XGBOOST_DEVICE(Tuple const& tup) {
                         return fn(thrust::get<0>(tup), thrust::get<1>(tup));
                       });
