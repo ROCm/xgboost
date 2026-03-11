@@ -23,7 +23,8 @@
 #include <cub/util_device.cuh>     // for CurrentDevice
 #elif defined(XGBOOST_USE_HIP)
 #include "cuda_to_hip.h"
-#include "device_helpers.hip.h"
+#include <hipcub/hipcub.hpp>
+#include <hipcub/util_allocator.hpp>
 #endif
 
 #include <atomic>                  // for atomic, memory_order
@@ -33,8 +34,10 @@
 #include <memory>                  // for unique_ptr
 
 #include "common.h"                 // for safe_cuda, HumanMemUnit
-#include "cuda_dr_utils.h"          // for CuDriverApi
 #include "cuda_stream.h"            // for DefaultStream
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#include "cuda_dr_utils.h"          // for CuDriverApi (HIP uses cuda_to_hip mappings)
+#endif
 #include "xgboost/global_config.h"  // for GlobalConfigThreadLocalStore
 #include "xgboost/logging.h"
 #include "xgboost/span.h"  // for Span
@@ -55,7 +58,7 @@ T AtomicFetchMax(std::atomic<T> &atom, T val,  // NOLINT
   return expected;
 }
 
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 /** \brief Keeps track of global device memory allocations. Thread safe.*/
 class MemoryLogger {
   // Information for a single device
@@ -101,14 +104,24 @@ class MemoryLogger {
     if (!xgboost::ConsoleLogger::ShouldLog(xgboost::ConsoleLogger::LV::kDebug)) {
       return;
     }
+#if defined(XGBOOST_USE_CUDA)
     auto current_device = cub::CurrentDevice();
+#elif defined(XGBOOST_USE_HIP)
+    auto current_device = xgboost::curt::CurrentDevice();
+#endif  // CUDA vs HIP: current device for logging
     LOG(CONSOLE) << "======== Device " << current_device << " Memory Allocations: "
                  << " ========";
     LOG(CONSOLE) << "Peak memory usage: "
                  << xgboost::common::HumanMemUnit(stats_.peak_allocated_bytes);
   }
 };
-#endif
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+
+inline detail::MemoryLogger &GlobalMemoryLogger() {
+  static detail::MemoryLogger memory_logger;
+  return memory_logger;
+}
+
 
 void ThrowOOMError(std::string const &err, std::size_t bytes);
 
@@ -136,15 +149,26 @@ struct GrowOnlyPinnedMemoryImpl {
   }
 };
 
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 /**
- * @brief Use low-level virtual memory functions from CUDA driver API for grow-only memory
+ * @brief Use low-level virtual memory functions from CUDA/HIP driver API for grow-only memory
  *        allocation.
  *
  * @url https://developer.nvidia.com/blog/introducing-low-level-gpu-virtual-memory-management/
  *
  * Aside from the potential performance benefits, this is primarily implemented to prevent
  * deadlock in NCCL and XGBoost. The host NUMA version requires CTK12.5+ to be stable.
+ * HIP uses the ROCm virtual memory API (mapped via cuda_to_hip.h).
  */
+#if defined(XGBOOST_USE_HIP)
+// hipDeviceptr_t is void*; pointer arithmetic uses integer cast for portability.
+inline std::uintptr_t DevPtrToInt(CUdeviceptr p) {
+  return reinterpret_cast<std::uintptr_t>(p);
+}
+inline CUdeviceptr IntToDevPtr(std::uintptr_t u) {
+  return reinterpret_cast<CUdeviceptr>(u);
+}
+#endif  // defined(XGBOOST_USE_HIP)
 class GrowOnlyVirtualMemVec {
   static auto RoundUp(std::size_t new_sz, std::size_t chunk_sz) {
     return ((new_sz + chunk_sz - 1) / chunk_sz) * chunk_sz;
@@ -194,22 +218,12 @@ class GrowOnlyVirtualMemVec {
   // Always use bytes.
   std::size_t const granularity_;
 
-#if defined(XGBOOST_USE_HIP)
-  inline uintptr_t DevPtrToInt(CUdeviceptr p) {
-    return reinterpret_cast<uintptr_t>(p);
-  }
-
-  inline CUdeviceptr IntToDevPtr(uintptr_t addr) {
-    return reinterpret_cast<CUdeviceptr>(addr);
-  }
-#endif
-
   [[nodiscard]] std::size_t PhyCapacity() const;
   [[nodiscard]] CUdeviceptr DevPtr() const {
     if (this->va_ranges_.empty()) {
       return 0;
     }
-    return this->va_ranges_.front()->DevPtr();//CUdeviceptr in CUDA is unsigned long long (allows arithmetic)
+    return this->va_ranges_.front()->DevPtr();
   }
   void MapBlock(CUdeviceptr ptr, PhyHandle const &hdl) const {
     safe_cu(cu_.cuMemMap(ptr, hdl->size, 0, hdl->handle, 0));
@@ -243,12 +257,7 @@ class GrowOnlyVirtualMemVec {
                 cu_.cuMemRelease(hdl->handle);
               }
             }});
-
-#if defined(XGBOOST_USE_CUDA)
     auto ptr = this->DevPtr() + alloc_size;
-#elif defined(XGBOOST_USE_HIP)
-    auto ptr = IntToDevPtr(DevPtrToInt(this->DevPtr()) + alloc_size);
-#endif 
     this->MapBlock(ptr, this->handles_.back());
   }
 
@@ -272,18 +281,14 @@ class GrowOnlyVirtualMemVec {
   [[nodiscard]] std::size_t size() const { return this->PhyCapacity(); }           // NOLINT
   [[nodiscard]] std::size_t Capacity() const;
 };
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+
 }  // namespace detail
 
-#if defined(XGBOOST_USE_HIP)
-inline detail::MemoryLogger &GlobalMemoryLogger();  // Forward declaration, defined in device_helpers.hip.h
-#endif
-
-#if defined(XGBOOST_USE_CUDA)
 inline detail::MemoryLogger &GlobalMemoryLogger() {
   static detail::MemoryLogger memory_logger;
   return memory_logger;
 }
-#endif
 
 namespace detail {
 #if defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
@@ -307,8 +312,7 @@ using XGBBaseDeviceAllocator = ThrustAllocMrAdapter<T>;
 
 #else  // defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
 
-#if defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
-// HIP defines XGBBaseDeviceAllocator in device_helpers.hip.h; avoid redefinition
+#if defined(XGBOOST_USE_CUDA)
 /**
  * @brief Use CUDA async memory pool as an optional backing allocator.
  */
@@ -374,7 +378,9 @@ class XGBAsyncPoolAllocator : public thrust::device_malloc_allocator<T> {
 
 template <typename T>
 using XGBBaseDeviceAllocator = XGBAsyncPoolAllocator<T>;
-#endif  // XGBOOST_USE_CUDA
+#elif defined(XGBOOST_USE_HIP)
+template <typename T>
+using XGBBaseDeviceAllocator = thrust::device_malloc_allocator<T>;
 #endif  // defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
 
 #if defined(XGBOOST_USE_CUDA)
@@ -477,8 +483,106 @@ struct XGBCachingDeviceAllocatorImpl : public XGBBaseDeviceAllocator<T> {
  private:
   bool use_cub_allocator_;
 };
-#endif
 }  // namespace detail
+
+#elif defined(XGBOOST_USE_HIP)
+/**
+ * @brief Default memory allocator for HIP, uses hipMalloc/Free and logs allocations if verbose.
+ */
+template <class T>
+struct XGBDefaultDeviceAllocatorImpl : public XGBBaseDeviceAllocator<T> {
+  using SuperT = XGBBaseDeviceAllocator<T>;
+  using pointer = thrust::device_ptr<T>;  // NOLINT
+
+  template <typename U>
+  struct rebind  // NOLINT
+  {
+    using other = XGBDefaultDeviceAllocatorImpl<U>;  // NOLINT
+  };
+
+  pointer allocate(std::size_t n) {  // NOLINT
+    pointer ptr;
+    try {
+      ptr = SuperT::allocate(n);
+      dh::safe_cuda(hipGetLastError());
+    } catch (const std::exception &e) {
+      detail::ThrowOOMError(e.what(), n * sizeof(T));
+    }
+    GlobalMemoryLogger().RegisterAllocation(n * sizeof(T));
+    return ptr;
+  }
+
+  void deallocate(pointer ptr, std::size_t n) {  // NOLINT
+    GlobalMemoryLogger().RegisterDeallocation(n * sizeof(T));
+    SuperT::deallocate(ptr, n);
+  }
+
+  XGBDefaultDeviceAllocatorImpl() : SuperT{} {}
+};
+
+/**
+ * @brief Caching memory allocator for HIP, uses hipcub::CachingDeviceAllocator as a back-end.
+ *        Does not initialise memory on construction.
+ */
+template <class T>
+struct XGBCachingDeviceAllocatorImpl : public XGBBaseDeviceAllocator<T> {
+  using SuperT = XGBBaseDeviceAllocator<T>;
+  using pointer = thrust::device_ptr<T>;  // NOLINT
+  template <typename U>
+  struct rebind  // NOLINT
+  {
+    using other = XGBCachingDeviceAllocatorImpl<U>;  // NOLINT
+  };
+
+  static hipcub::CachingDeviceAllocator &GetGlobalCachingAllocator() {
+    thread_local std::unique_ptr<hipcub::CachingDeviceAllocator> allocator{
+        std::make_unique<hipcub::CachingDeviceAllocator>(2, 9, 29)};
+    return *allocator;
+  }
+
+  pointer allocate(std::size_t n) {  // NOLINT
+    pointer thrust_ptr;
+    if (use_cub_allocator_) {
+      T *raw_ptr{nullptr};
+      auto errc = GetGlobalCachingAllocator().DeviceAllocate(reinterpret_cast<void **>(&raw_ptr),
+                                                            n * sizeof(T));
+      if (errc != hipSuccess) {
+        detail::ThrowOOMError("Caching allocator", n * sizeof(T));
+      }
+      thrust_ptr = thrust::device_pointer_cast(raw_ptr);
+    } else {
+      try {
+        thrust_ptr = SuperT::allocate(n);
+        dh::safe_cuda(hipGetLastError());
+      } catch (const std::exception &e) {
+        detail::ThrowOOMError(e.what(), n * sizeof(T));
+      }
+    }
+    GlobalMemoryLogger().RegisterAllocation(n * sizeof(T));
+    return thrust_ptr;
+  }
+
+  void deallocate(pointer ptr, std::size_t n) {  // NOLINT
+    if (use_cub_allocator_) {
+      GetGlobalCachingAllocator().DeviceFree(thrust::raw_pointer_cast(ptr));
+    } else {
+      SuperT::deallocate(ptr, n);
+    }
+    GlobalMemoryLogger().RegisterDeallocation(n * sizeof(T));
+  }
+
+  XGBCachingDeviceAllocatorImpl()
+      : SuperT{},
+        use_cub_allocator_{!xgboost::GlobalConfigThreadLocalStore::Get()->use_rmm} {}
+
+  XGBOOST_DEVICE void construct(T *) {}  // NOLINT
+
+ private:
+  bool use_cub_allocator_;
+};
+}  // namespace detail
+
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
 // Declare xgboost allocators
 // Replacement of allocator with custom backend should occur here
@@ -551,11 +655,7 @@ class DeviceUVectorImpl {
                             }};
     CHECK(new_ptr.get());
 
-#if defined(XGBOOST_USE_HIP)
-    auto s = dh::DefaultStream();
-#else
     auto s = ::xgboost::curt::DefaultStream();
-#endif
     safe_cuda(cudaMemcpyAsync(new_ptr.get(), this->data(), SizeBytes<T>(this->size()),
                               cudaMemcpyDefault, s));
     this->size_ = n;
@@ -571,8 +671,8 @@ class DeviceUVectorImpl {
     this->resize(n);
     if (orig < n) {
 #if defined(XGBOOST_USE_HIP)
-      auto exec = thrust::hip::par_nosync.on(dh::DefaultStream());
-#else
+      auto exec = thrust::hip::par_nosync.on(::xgboost::curt::DefaultStream());
+#elif defined(XGBOOST_USE_CUDA)
       auto exec = thrust::cuda::par_nosync.on(::xgboost::curt::DefaultStream());
 #endif
       thrust::fill(exec, this->begin() + orig, this->end(), v);
