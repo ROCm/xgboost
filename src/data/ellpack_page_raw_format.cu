@@ -43,7 +43,7 @@ template <typename T>
 
   *vec = common::MakeFixedVecWithCudaMalloc<T>(n);
   dh::safe_cuda(
-      cudaMemcpyAsync(vec->data(), ptr, n_bytes, cudaMemcpyDefault, dh::DefaultStream()));
+      cudaMemcpyAsync(vec->data(), ptr, n_bytes, cudaMemcpyDefault, curt::DefaultStream()));
   return true;
 }
 }  // namespace
@@ -74,7 +74,7 @@ template <typename T>
 
   impl->SetCuts(this->cuts_);
 
-  dh::DefaultStream().Sync();
+  curt::DefaultStream().Sync();
   return true;
 }
 
@@ -88,14 +88,14 @@ template <typename T>
   bytes += fo->Write(impl->is_dense);
   bytes += fo->Write(impl->info.row_stride);
   std::vector<common::CompressedByteT> h_gidx_buffer;
-  Context ctx = Context{}.MakeCUDA(dh::CurrentDevice());
+  Context ctx = Context{}.MakeCUDA(curt::CurrentDevice());
   // write data into the h_gidx_buffer
   [[maybe_unused]] auto h_accessor = impl->GetHostEllpack(&ctx, &h_gidx_buffer);
   bytes += common::WriteVec(fo, h_gidx_buffer);
   bytes += fo->Write(impl->base_rowid);
   bytes += fo->Write(impl->NumSymbols());
 
-  dh::DefaultStream().Sync();
+  curt::DefaultStream().Sync();
   return bytes;
 }
 
@@ -105,7 +105,7 @@ template <typename T>
   auto* impl = page->Impl();
   CHECK(this->cuts_->cut_values_.DeviceCanRead());
 
-  auto ctx = Context{}.MakeCUDA(dh::CurrentDevice());
+  auto ctx = Context{}.MakeCUDA(curt::CurrentDevice());
 
   auto dispatch = [&] {
     fi->Read(&ctx, page, this->param_.prefetch_copy || !this->has_hmm_ats_);
@@ -113,7 +113,7 @@ template <typename T>
   };
 
   if (ConsoleLogger::GlobalVerbosity() == ConsoleLogger::LogVerbosity::kDebug) {
-    dh::CUDAEvent start{false}, stop{false};
+    curt::Event start{false}, stop{false};
     float milliseconds = 0;
     start.Record(ctx.CUDACtx()->Stream());
 
@@ -129,7 +129,7 @@ template <typename T>
     dispatch();
   }
 
-  dh::DefaultStream().Sync();
+  curt::DefaultStream().Sync();
 
   return true;
 }
@@ -139,7 +139,7 @@ template <typename T>
   xgboost_NVTX_FN_RANGE_C(3, 252, 198);
 
   bool new_page = fo->Write(page);
-  dh::DefaultStream().Sync();
+  curt::DefaultStream().Sync();
 
   if (new_page) {
     auto cache = fo->Share();
