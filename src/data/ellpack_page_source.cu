@@ -335,11 +335,7 @@ class EllpackHostCacheStreamImpl {
         auto out = out_impl->gidx_buffer.ToSpan().subspan(h_page->gidx_buffer.size_bytes(),
                                                           c_page->first.DecompressedBytes());
         dc::DecompressSnappy(stream, c_page->first, out, this->cache_->allow_decomp_fallback);
-#if defined(XGBOOST_USE_HIP)
-        dh::CUDAEvent e;
-#else
         curt::Event e;
-#endif
         e.Record(stream);
         ctx->CUDACtx()->Stream().Wait(e);
       }
