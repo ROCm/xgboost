@@ -288,8 +288,8 @@ class MultiTargetHistMaker {
       float right_sum = static_cast<float>(candidate.right_sum);
       float sum_hess = left_sum + right_sum;
       p_tree->ExpandNode(candidate.nidx, candidate.split.findex, candidate.split.fvalue,
-                         candidate.split.dir == kLeftDir, linalg::MakeVec(h_base_weight.data(), h_base_weight.size()),
-                         linalg::MakeVec(h_left_weight.data(), h_left_weight.size()), linalg::MakeVec(h_right_weight.data(), h_right_weight.size()), loss_chg,
+                         candidate.split.dir == kLeftDir, linalg::MakeVec(h_base_weight),
+                         linalg::MakeVec(h_left_weight), linalg::MakeVec(h_right_weight), loss_chg,
                          sum_hess, left_sum, right_sum);
     }
 
@@ -561,7 +561,7 @@ class MultiTargetHistMaker {
     auto d_gpair = this->split_gpair_.View(this->ctx_->Device());
 
     for (std::size_t k = 0; k < partitioners_.Size(); ++k) {
-      auto part = partitioners_.At(k);
+      auto& part = partitioners_.At(k);
       CHECK_EQ(part->GetNumNodes(), p_tree->NumNodes());
       auto base_rowid = batch_ptr_[k];
       auto n_samples = batch_ptr_.at(k + 1) - base_rowid;

@@ -546,7 +546,7 @@ struct GPUHistMakerDevice {
 
     if (!p_fmat->SingleColBlock()) {
       for (std::size_t k = 0; k < partitioners_.Size(); ++k) {
-        auto part = partitioners_.At(k);
+        auto& part = partitioners_.At(k);
         CHECK_EQ(part->GetNumNodes(), p_tree->NumNodes());
         auto base_ridx = batch_ptr_[k];
         auto n_samples = batch_ptr_.at(k + 1) - base_ridx;
