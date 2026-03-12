@@ -29,7 +29,7 @@
 // thrust 3.3 (CUDA only)
 #include <cuda/iterator>  // for make_tabulate_output_iterator
 #else
-// thrust 3.2/3.1
+// thrust 3.2/3.1 or HIP (use thrust iterator)
 #include <thrust/iterator/tabulate_output_iterator.h>  // for make_tabulate_output_iterator
 
 #endif  // THRUST_MINOR_VERSION >= 3
@@ -66,19 +66,7 @@ void LeafGradSum(Context const* ctx, std::vector<LeafInfo> const& h_leaves,
 
   for (bst_target_t t = 0, n_targets = grad.Shape(1); t < n_targets; ++t) {
     auto out_t = out_sum.Slice(linalg::All(), t);  // len == n_leaves
-    auto it =
-#if defined(XGBOOST_USE_HIP)
-        dh::MakeTransformIterator<GradientPairInt64>(
-            thrust::make_counting_iterator(0ul),
-            [=] XGBOOST_DEVICE(std::size_t i) {
-              auto nidx_in_set = dh::SegmentId(d_indptr, i);
-              auto k = i - d_indptr[nidx_in_set];
-              auto j = d_leaves[nidx_in_set].node.segment.begin + k;
-              auto g = grad(sorted_ridx[j], t);
-              return roundings[t].ToFixedPoint(g);
-            });
-#else
-        dh::MakeIndexTransformIter([=] XGBOOST_DEVICE(std::size_t i) {
+    auto it = dh::MakeIndexTransformIter([=] XGBOOST_DEVICE(std::size_t i) {
       auto nidx_in_set = dh::SegmentId(d_indptr, i);
       // Index within segment
       auto k = i - d_indptr[nidx_in_set];
@@ -88,7 +76,6 @@ void LeafGradSum(Context const* ctx, std::vector<LeafInfo> const& h_leaves,
       auto g = grad(sorted_ridx[j], t);
       return roundings[t].ToFixedPoint(g);
     });
-#endif
     // Use an output iterator to implement running sum. Old thrust versions either don't
     // have this iterator, or unusable with segmented sum.
 #if THRUST_MAJOR_VERSION >= 3
@@ -134,3 +121,4 @@ void LeafWeight(Context const* ctx, GPUTrainingParam const& param,
   });
 }
 }  // namespace xgboost::tree::cuda_impl
+
