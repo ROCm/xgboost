@@ -12,21 +12,30 @@
 #include <thrust/iterator/transform_iterator.h>  // for make_transform_iterator
 #include <thrust/sort.h>                         // for sort
 
-#include <cstddef>           // for size_t
-#include <cstdint>           // for int32_t, int8_t
+#include <cstddef>   // for size_t
+#include <cstdint>   // for int32_t, int8_t
+#include <sstream>   // for stringstream
+#include <utility>   // for pair, make_pair
 
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda/functional>   // for proclaim_return_type
 #include <cuda/std/utility>  // for make_pair, pair
-#include <cuda/std/variant>  // for get
+#include <cuda/std/variant>  // for get, visit
+#elif defined(XGBOOST_USE_HIP)
+#include <variant>  // for visit, get
 #endif
-
-#include <sstream>           // for stringstream
-#include <utility>
 
 #include "../common/device_helpers.cuh"
 #include "ordinal.h"
 #include "types.h"  // for Overloaded
+
+#if defined(XGBOOST_USE_CUDA)
+#define ENC_VISIT cuda::std::visit
+#define ENC_GET cuda::std::get
+#elif defined(XGBOOST_USE_HIP)
+#define ENC_VISIT std::visit
+#define ENC_GET std::get
+#endif
 
 namespace enc {
 namespace cuda_impl {
@@ -38,13 +47,8 @@ struct SegmentedSearchSortedStrOp {
 
   [[nodiscard]] __device__ std::int32_t operator()(std::int32_t i) const {
     using detail::SearchKey;
-  #if defined(XGBOOST_USE_CUDA) 
-    auto haystack = cuda::std::get<CatStrArrayView>(haystack_v.columns[f_idx]);
-    auto needles = cuda::std::get<CatStrArrayView>(needles_v.columns[f_idx]);
-  #elif defined(XGBOOST_USE_HIP)
-    auto haystack = std::get<CatStrArrayView>(haystack_v.columns[f_idx]);
-    auto needles = std::get<CatStrArrayView>(needles_v.columns[f_idx]);
-  #endif
+    auto haystack = ENC_GET<CatStrArrayView>(haystack_v.columns[f_idx]);
+    auto needles = ENC_GET<CatStrArrayView>(needles_v.columns[f_idx]);
 
     auto idx = i - needles_v.feature_segments[f_idx];  // index local to the feature
     auto begin = needles.offsets[idx];
@@ -96,13 +100,9 @@ struct SegmentedSearchSortedNumOp {
 
   [[nodiscard]] __device__ std::int32_t operator()(std::int32_t i) const {
     using detail::SearchKey;
-  #if defined(XGBOOST_USE_CUDA)
-    auto haystack = cuda::std::get<Span<T const>>(haystack_v.columns[f_idx]);
-    auto needles = cuda::std::get<Span<T const>>(needles_v.columns[f_idx]);
-  #elif defined(XGBOOST_USE_HIP)
-    auto haystack = std::get<Span<T const>>(haystack_v.columns[f_idx]);
-    auto needles = std::get<Span<T const>>(needles_v.columns[f_idx]);
-  #endif
+    auto haystack = ENC_GET<Span<T const>>(haystack_v.columns[f_idx]);
+    auto needles = ENC_GET<Span<T const>>(needles_v.columns[f_idx]);
+
     // Get the search key
     auto idx = i - needles_v.feature_segments[f_idx];  // index local to the feature
     auto needle = needles[idx];
@@ -138,13 +138,13 @@ struct DftThrustPolicy {
   using ThrustAllocator = thrust::device_allocator<T>;
 
   [[nodiscard]] auto ThrustPolicy() const {
-    #if defined(XGBOOST_USE_CUDA) 
+#if defined(XGBOOST_USE_CUDA)
     return thrust::cuda::par_nosync;
-    #elif defined(XGBOOST_USE_HIP)
+#elif defined(XGBOOST_USE_HIP)
     return thrust::hip::par_nosync;
-    #endif 
+#endif
   }
-  
+
   [[nodiscard]] auto Stream() const { return cudaStreamPerThread; }
 };
 }  // namespace cuda_impl
@@ -155,8 +155,6 @@ struct DftThrustPolicy {
  */
 using DftDevicePolicy = Policy<cuda_impl::DftThrustPolicy, detail::DftErrorHandler>;
 
-
-
 /**
  * @brief Sort the categories for the training set. Returns a list of sorted index.
  *
@@ -166,11 +164,9 @@ using DftDevicePolicy = Policy<cuda_impl::DftThrustPolicy, detail::DftErrorHandl
  * @param orig_enc   The encoding scheme of the training set.
  * @param sorted_idx The output sorted index.
  */
- #if defined(XGBOOST_USE_CUDA) // We need this only for CUDA implementation
-// IN HIP Builds, both DeviceColumnsView and HostColumnsView are the same
 template <typename ExecPolicy>
 inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
-               Span<std::int32_t> sorted_idx) {
+                     Span<std::int32_t> sorted_idx) {
   typename ExecPolicy::template ThrustAllocator<char> alloc;
 #if defined(XGBOOST_USE_CUDA)
   auto exec = thrust::cuda::par_nosync(alloc).on(policy.Stream());
@@ -188,56 +184,78 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
   // <fidx, sorted_idx>
 #if defined(XGBOOST_USE_CUDA)
   using Pair = cuda::std::pair<std::int32_t, std::int32_t>;
-  using ProclaimReturnType =  cuda::proclaim_return_type<Pair>;
   using MakePair = cuda::std::make_pair;
   using Visit = cuda::std::visit;
 #elif defined(XGBOOST_USE_HIP)
   using Pair = std::pair<std::int32_t, std::int32_t>;
   using MakePair = std::make_pair;
   using Visit = std::visit;
-  using ProclaimReturnType = Pair;
 #endif
 
   using Alloc = typename ExecPolicy::template ThrustAllocator<Pair>;
   thrust::device_vector<Pair, Alloc> keys(n_total_cats);
+#if defined(XGBOOST_USE_CUDA)
   auto key_it = thrust::make_transform_iterator(
       thrust::make_counting_iterator(0),
-      ProclaimReturnType([=] __device__(std::int32_t i) {
+      cuda::proclaim_return_type<Pair>([=] __device__(std::int32_t i) {
         auto seg = dh::SegmentId(orig_enc.feature_segments, i);
         auto idx = d_sorted_idx[i];
         return MakePair(static_cast<std::int32_t>(seg), idx);
       }));
+#elif defined(XGBOOST_USE_HIP)
+  auto key_it = thrust::make_transform_iterator(
+      thrust::make_counting_iterator(0),
+      [=] __device__(std::int32_t i) {
+        auto seg = dh::SegmentId(orig_enc.feature_segments, i);
+        auto idx = d_sorted_idx[i];
+        return MakePair(static_cast<std::int32_t>(seg), idx);
+      });
+#endif
   thrust::copy(exec, key_it, key_it + n_total_cats, keys.begin());
 
-  thrust::sort(exec, keys.begin(), keys.end(),
-               ProclaimReturnType<bool>([=] __device__(Pair const& l, Pair const& r) {
-                 if (l.first == r.first) {  // same feature
-                   auto const& col = orig_enc.columns[l.first];
-                   return Visit(
-                       Overloaded{[&l, &r](CatStrArrayView const& str) -> bool {
-                                    auto l_beg = str.offsets[l.second];
-                                    auto l_end = str.offsets[l.second + 1];
-                                    auto l_str = str.values.subspan(l_beg, l_end - l_beg);
+#if defined(XGBOOST_USE_CUDA)
+  auto sort_fn = cuda::proclaim_return_type<bool>([=] __device__(Pair const& l, Pair const& r) {
+#elif defined(XGBOOST_USE_HIP)
+  auto sort_fn = [=] __device__(Pair const& l, Pair const& r) {
+#endif
+    if (l.first == r.first) {  // same feature
+      auto const& col = orig_enc.columns[l.first];
+      return Visit(
+          Overloaded{[&l, &r](CatStrArrayView const& str) -> bool {
+                       auto l_beg = str.offsets[l.second];
+                       auto l_end = str.offsets[l.second + 1];
+                       auto l_str = str.values.subspan(l_beg, l_end - l_beg);
 
-                                    auto r_beg = str.offsets[r.second];
-                                    auto r_end = str.offsets[r.second + 1];
-                                    auto r_str = str.values.subspan(r_beg, r_end - r_beg);
-                                    return l_str < r_str;
-                                  },
-                                  [&](auto&& values) {
-                                    return values[l.second] < values[r.second];
-                                  }},
-                       col);
-                 }
-                 return l.first < r.first;
-               }));
+                       auto r_beg = str.offsets[r.second];
+                       auto r_end = str.offsets[r.second + 1];
+                       auto r_str = str.values.subspan(r_beg, r_end - r_beg);
+                       return l_str < r_str;
+                     },
+                     [&](auto&& values) {
+                       return values[l.second] < values[r.second];
+                     }},
+          col);
+    }
+    return l.first < r.first;
+#if defined(XGBOOST_USE_CUDA)
+  });
+#elif defined(XGBOOST_USE_HIP)
+  };
+#endif
+  thrust::sort(exec, keys.begin(), keys.end(), sort_fn);
 
   // Extract the sorted index out from sorted keys.
   auto s_keys = dh::ToSpan(keys);
+#if defined(XGBOOST_USE_CUDA)
   auto it = thrust::make_transform_iterator(
       thrust::make_counting_iterator(0),
-      ProclaimReturnType<decltype(Pair{}.second)>(
+      cuda::proclaim_return_type<decltype(Pair{}.second)>(
           [=] __device__(std::int32_t i) { return s_keys[i].second; }));
+#elif defined(XGBOOST_USE_HIP)
+  auto it = thrust::make_transform_iterator(
+      thrust::make_counting_iterator(0),
+      [=] __device__(std::int32_t i) { return s_keys[i].second; });
+#endif
   thrust::copy(exec, it, it + sorted_idx.size(), dh::tbegin(sorted_idx));
 }
 
@@ -256,10 +274,13 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
 template <typename ExecPolicy>
 void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
             Span<std::int32_t const> sorted_idx, DeviceColumnsView new_enc,
-            Span<std::int32_t> mapping)
-             {
+            Span<std::int32_t> mapping) {
   typename ExecPolicy::template ThrustAllocator<char> alloc;
+#if defined(XGBOOST_USE_CUDA)
   auto exec = thrust::cuda::par_nosync(alloc).on(policy.Stream());
+#elif defined(XGBOOST_USE_HIP)
+  auto exec = thrust::hip::par_nosync(alloc).on(policy.Stream());
+#endif
   detail::BasicChecks(policy, orig_enc, sorted_idx, new_enc, mapping);
   /**
    * Check consistency.
@@ -271,8 +292,8 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
         if (l_f.index() != r_f.index()) {
           return false;
         }
-        auto l_is_empty = cuda::std::visit([](auto&& arg) { return arg.empty(); }, l_f);
-        auto r_is_empty = cuda::std::visit([](auto&& arg) { return arg.empty(); }, r_f);
+        auto l_is_empty = ENC_VISIT([](auto&& arg) { return arg.empty(); }, l_f);
+        auto r_is_empty = ENC_VISIT([](auto&& arg) { return arg.empty(); }, r_f);
         return l_is_empty == r_is_empty;
       });
   bool valid = thrust::reduce(exec, check_it, check_it + new_enc.Size(), true,
@@ -294,18 +315,18 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
         auto f_idx = dh::SegmentId(new_enc.feature_segments, i);
         std::int32_t searched_idx{detail::NotFound()};
         auto const& col = orig_enc.columns[f_idx];
-        cuda::std::visit(Overloaded{[&](CatStrArrayView const&) {
-                                      auto op = cuda_impl::SegmentedSearchSortedStrOp{
-                                          orig_enc, sorted_idx, new_enc, f_idx};
-                                      searched_idx = op(i);
-                                    },
-                                    [&](auto&& values) {
-                                      using T = typename std::decay_t<decltype(values)>::value_type;
-                                      auto op = cuda_impl::SegmentedSearchSortedNumOp<T>{
-                                          orig_enc, sorted_idx, new_enc, f_idx};
-                                      searched_idx = op(i);
-                                    }},
-                         col);
+        ENC_VISIT(Overloaded{[&](CatStrArrayView const&) {
+                               auto op = cuda_impl::SegmentedSearchSortedStrOp{
+                                   orig_enc, sorted_idx, new_enc, f_idx};
+                               searched_idx = op(i);
+                             },
+                             [&](auto&& values) {
+                               using T = typename std::decay_t<decltype(values)>::value_type;
+                               auto op = cuda_impl::SegmentedSearchSortedNumOp<T>{
+                                   orig_enc, sorted_idx, new_enc, f_idx};
+                               searched_idx = op(i);
+                             }},
+                  col);
 
         auto f_sorted_idx = sorted_idx.subspan(
             orig_enc.feature_segments[f_idx],
@@ -344,7 +365,7 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
 
     std::stringstream name;
     auto const& col = h_columns[f_idx];
-    cuda::std::visit(
+    ENC_VISIT(
         Overloaded{[&](CatStrArrayView const& str) {
                      std::vector<CatCharT> values(str.values.size());
                      std::vector<std::int32_t> offsets(str.offsets.size());
@@ -369,6 +390,5 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
     detail::ReportMissing(policy, name.str(), f_idx);
   }
 }
-#endif 
 
 }  // namespace enc
