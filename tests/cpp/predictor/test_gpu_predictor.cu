@@ -275,7 +275,7 @@ TEST_F(MGPUPredictorTest, CategoricalPredictionLeafColumnSplit) {
 TEST(GPUPredictor, PredictLeafBasic) {
   size_t constexpr kRows = 5, kCols = 5;
   auto dmat = RandomDataGenerator(kRows, kCols, 0).Device(DeviceOrd::CUDA(0)).GenerateDMatrix();
-  auto lparam = MakeCUDACtx(0);
+  auto lparam = MakeCUDACtx(GPUIDX);
   std::unique_ptr<Predictor> gpu_predictor =
       std::unique_ptr<Predictor>(Predictor::Create("gpu_predictor", &lparam));
   gpu_predictor->Configure({});

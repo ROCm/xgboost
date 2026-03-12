@@ -483,7 +483,7 @@ void MakeLabels(DeviceOrd device, bst_idx_t n_samples, bst_target_t n_classes,
   if (device_.IsCPU()) {
     iter = std::make_unique<NumpyArrayIterForTest>(this->sparsity_, rows_, cols_, n_batches_);
   } else {
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
     iter = std::make_unique<CudaArrayIterForTest>(this->sparsity_, rows_, cols_, n_batches_);
 #else
     CHECK(iter);
@@ -537,9 +537,9 @@ void MakeLabels(DeviceOrd device, bst_idx_t n_samples, bst_target_t n_classes,
   if (device_.IsCPU()) {
     iter = std::make_unique<NumpyArrayIterForTest>(this->sparsity_, rows_, cols_, n_batches_);
   } else {
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
     iter = std::make_unique<CudaArrayIterForTest>(this->sparsity_, rows_, cols_, n_batches_);
-#endif  // defined(XGBOOST_USE_CUDA)  || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
   }
   CHECK(iter);
 
@@ -591,7 +591,7 @@ std::shared_ptr<DMatrix> RandomDataGenerator::GenerateQuantileDMatrix(bool with_
   return p_fmat;
 }
 
-#if !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
+#if !defined(XGBOOST_USE_CUDA)
 CudaArrayIterForTest::CudaArrayIterForTest(float sparsity, size_t rows, size_t cols, size_t batches)
     : ArrayIterForTest{sparsity, rows, cols, batches} {
   common::AssertGPUSupport();
@@ -760,7 +760,6 @@ class RMMAllocator {
       cuda_mr.push_back(std::make_unique<CUDAMemoryResource>());
       pool_mr.push_back(std::make_unique<PoolMemoryResource>(cuda_mr[i].get(), 0ul));
     }
-
     CHECK_EQ(cudaSetDevice(current_device), cudaSuccess);
   }
   ~RMMAllocator() = default;

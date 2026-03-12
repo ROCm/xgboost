@@ -328,7 +328,6 @@ def test_device_ordinal() -> None:
 
 
 @pytest.mark.skipif(**tm.no_cudf())
-@pytest.mark.skipif(**tm.is_rocm_64())
 def test_recoding() -> None:
     run_recoding("cuda")
 

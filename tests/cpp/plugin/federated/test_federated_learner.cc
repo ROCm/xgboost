@@ -81,7 +81,7 @@ TEST_P(VerticalFederatedLearnerTest, Hist) {
   this->Run("hist", "cpu", objective);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_P(VerticalFederatedLearnerTest, GPUApprox) {
   std::string objective = GetParam();
   this->Run("approx", "cuda:0", objective);

@@ -26,10 +26,8 @@ from xgboost.testing.ordinal import (
     run_validation,
 )
 
-pytestmark = [
-    pytest.mark.skipif(**tm.no_multiple(tm.no_arrow(), tm.no_cudf())),
-    pytest.mark.skipif(**tm.is_rocm_64()),
-]
+pytestmark = pytest.mark.skipif(**tm.no_multiple(tm.no_arrow(), tm.no_cudf()))
+
 
 def test_cat_container() -> None:
     run_cat_container("cuda")

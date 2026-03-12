@@ -195,7 +195,6 @@ class TestFromColumnar:
         _test_cudf_metainfo(xgb.QuantileDMatrix)
 
     @pytest.mark.skipif(**tm.no_cudf())
-    @pytest.mark.skipif(**tm.is_rocm_64())
     def test_cudf_categorical(self) -> None:
         n_features = 30
         _X, _y = tm.make_categorical(100, n_features, 17, onehot=False)

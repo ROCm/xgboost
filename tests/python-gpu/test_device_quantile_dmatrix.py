@@ -36,7 +36,7 @@ class TestQuantileDMatrix:
             cp.array(m.get_float_info("feature_weights")),
             feature_weights.astype(np.float32),
         )
-    @pytest.mark.skipif(**tm.is_rocm_64())
+
     def test_categorical_strings(self) -> None:
         check_categorical_strings("cuda")
 

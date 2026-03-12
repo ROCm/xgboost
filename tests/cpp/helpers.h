@@ -28,7 +28,7 @@
 #include "filesystem.h"  // for TemporaryDirectory
 #include "xgboost/linalg.h"
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 #define DeclareUnifiedTest(name) GPU ## name
 #else
 #define DeclareUnifiedTest(name) name
@@ -40,7 +40,7 @@
 #define GPUIDX (-1)
 #endif
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 #define DeclareUnifiedDistributedTest(name) MGPU ## name
 #else
 #define DeclareUnifiedDistributedTest(name) name

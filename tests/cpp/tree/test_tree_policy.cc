@@ -168,7 +168,7 @@ TEST_F(TestGrowPolicy, MultiHist) {
   this->TestCombination(&ctx, n_targets, "hist");
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_F(TestGrowPolicy, GpuHist) {
   auto ctx = MakeCUDACtx(0);
   bst_target_t n_targets = 1;
@@ -195,5 +195,5 @@ TEST_F(TestGrowPolicy, GpuApprox) {
 
   this->TestCombination(&ctx, n_targets, "approx");
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 }  // namespace xgboost

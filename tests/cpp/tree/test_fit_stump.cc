@@ -41,13 +41,13 @@ TEST(InitEstimation, FitStump) {
   TestFitStump(&ctx);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST(InitEstimation, GPUFitStump) {
   Context ctx;
   ctx.UpdateAllowUnknown(Args{{"device", "cuda"}});
   TestFitStump(&ctx);
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 
 TEST(InitEstimation, FitStumpColumnSplit) {
   Context ctx;

@@ -614,7 +614,7 @@ def test_with_asyncio(local_cuda_client: Client) -> None:
 
 
 @pytest.mark.skipif(
-    condition=not xgb.build_info()["USE_DLOPEN_NCCL"] and not xgb.build_info()["USE_DLOPEN_RCCL"],
+    condition=not xgb.build_info()["USE_DLOPEN_NCCL"],
     reason="Not compiled with dlopen.",
 )
 def test_invalid_nccl(local_cuda_client: Client) -> None:
@@ -635,7 +635,7 @@ def test_invalid_nccl(local_cuda_client: Client) -> None:
 
 
 @pytest.mark.skipif(
-    condition=not xgb.build_info()["USE_DLOPEN_NCCL"] and not xgb.build_info()["USE_DLOPEN_RCCL"],
+    condition=not xgb.build_info()["USE_DLOPEN_NCCL"],
     reason="Not compiled with dlopen.",
 )
 @pytest.mark.parametrize("tree_method", ["hist", "approx"])

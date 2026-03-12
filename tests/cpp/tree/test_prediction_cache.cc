@@ -21,7 +21,7 @@ TEST_F(TestPredictionCache, MultiHist) {
   this->RunTest(&ctx, "grow_quantile_histmaker", "multi_output_tree");
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_F(TestPredictionCache, GpuHist) {
   auto ctx = MakeCUDACtx(0);
   this->RunTest(&ctx, "grow_gpu_hist", "one_output_per_tree");

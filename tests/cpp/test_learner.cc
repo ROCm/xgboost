@@ -325,7 +325,7 @@ TEST(Learner, GPUConfiguration) {
     ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CPU());
   }
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 
 TEST(Learner, Seed) {
   auto m = RandomDataGenerator{10, 10, 0}.GenerateDMatrix();

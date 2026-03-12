@@ -3,7 +3,7 @@
  */
 #pragma once
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 #include "../../src/data/ellpack_page.cuh"
 #endif
 
@@ -12,7 +12,7 @@
 #include "./helpers.h"  // for RandomDataGenerator
 
 namespace xgboost {
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 namespace detail {
 class HistogramCutsWrapper : public common::HistogramCuts {
  public:

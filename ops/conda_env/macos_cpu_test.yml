@@ -16,7 +16,7 @@ dependencies:
 - distributed
 - graphviz
 - python-graphviz
-- hypothesis<=6.112
+- hypothesis
 - astroid
 - sh
 - pytest

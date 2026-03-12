@@ -65,7 +65,7 @@ TEST(Objective, DeclareUnifiedTest(TweedieRegressionGPair)) {
   TestTweedieRegressionGPair(&ctx);
 }
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 TEST(Objective, CPU_vs_CUDA) {
   Context ctx = MakeCUDACtx(GPUIDX);
 
@@ -121,7 +121,7 @@ TEST(Objective, DeclareUnifiedTest(TweedieRegressionBasic)) {
 }
 
 // CoxRegression not implemented in GPU code, no need for testing.
-#if !defined(__CUDACC__) && !defined(__HIPCC__)
+#if !defined(__CUDACC__)
 TEST(Objective, CoxRegressionGPair) {
   Context ctx = MakeCUDACtx(GPUIDX);
   TestCoxRegressionGPair(&ctx);
