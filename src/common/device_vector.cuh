@@ -257,7 +257,11 @@ class GrowOnlyVirtualMemVec {
                 cu_.cuMemRelease(hdl->handle);
               }
             }});
+#if defined(XGBOOST_USE_HIP)
+    auto ptr = IntToDevPtr(DevPtrToInt(this->DevPtr()) + alloc_size);
+#else
     auto ptr = this->DevPtr() + alloc_size;
+#endif
     this->MapBlock(ptr, this->handles_.back());
   }
 
@@ -583,6 +587,8 @@ struct XGBCachingDeviceAllocatorImpl : public XGBBaseDeviceAllocator<T> {
 }  // namespace detail
 
 #endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+
+#endif  // defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
 
 // Declare xgboost allocators
 // Replacement of allocator with custom backend should occur here
