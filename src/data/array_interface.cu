@@ -4,9 +4,12 @@
 #include <cstdint>  // for int64_t
 
 #include "../common/cuda_stream.h"  // for Event, StreamRef, DefaultStream
-#include "../common/device_helpers.cuh"  // for CUDAEvent, CUDAStreamView, DefaultStream (HIP)
 #include "array_interface.h"
 #include "xgboost/logging.h"
+
+#if defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime.h>
+#endif
 
 namespace xgboost {
 void ArrayInterfaceHandler::SyncCudaStream(std::int64_t stream) {
@@ -20,24 +23,16 @@ void ArrayInterfaceHandler::SyncCudaStream(std::int64_t stream) {
        *   case where 0 might be given should either use None, 1, or 2 instead for
        *   clarity.
        */
-#ifndef XGBOOST_USE_HIP
       LOG(FATAL) << "Invalid stream ID in array interface: " << stream;
-#endif
     case 1:
       // default legacy stream
       break;
     case 2:
       // default per-thread stream
     default: {
-#if defined(XGBOOST_USE_HIP)
-      dh::CUDAEvent e;
-      e.Record(dh::CUDAStreamView{reinterpret_cast<cudaStream_t>(stream)});
-      dh::DefaultStream().Wait(e);
-#else
       curt::Event e;
       e.Record(curt::StreamRef{reinterpret_cast<cudaStream_t>(stream)});
       curt::DefaultStream().Wait(e);
-#endif
     }
   }
 }
@@ -66,17 +61,13 @@ bool ArrayInterfaceHandler::IsCudaPtr(void const* ptr) {
       default:
         return true;
     }
-    return true;
   } else {
     // other errors, `cudaErrorNoDevice`, `cudaErrorInsufficientDriver` etc.
     return false;
   }
-#endif
-
-#if defined(XGBOOST_USE_HIP)
+#elif defined(XGBOOST_USE_HIP)
   hipPointerAttribute_t attr;
   auto err = hipPointerGetAttributes(&attr, ptr);
-  // reset error
   CHECK_EQ(err, hipGetLastError());
   if (err == hipErrorInvalidValue) {
     return false;
@@ -97,10 +88,11 @@ bool ArrayInterfaceHandler::IsCudaPtr(void const* ptr) {
         return true;
     }
 #endif
-    return true;
   } else {
     return false;
   }
+#else
+  return false;
 #endif
 }
 }  // namespace xgboost
