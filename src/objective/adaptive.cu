@@ -1,13 +1,13 @@
 /**
- * Copyright 2022-2024, XGBoost Contributors
+ * Copyright 2022-2026, XGBoost Contributors
  */
 #include <thrust/sort.h>
 
 #include <cstdint>      // std::int32_t
 #if defined(XGBOOST_USE_CUDA)
 #include <cub/cub.cuh>  // NOLINT
-//#elif defined(XGBOOST_USE_HIP)
-//#include <cub/cub.hip.h>  // NOLINT
+#elif defined(XGBOOST_USE_HIP)
+#include <hipcub/hipcub.hpp>  // NOLINT
 #endif
 
 #include "../collective/aggregator.h"
@@ -19,7 +19,7 @@
 #include "adaptive.h"
 #include "xgboost/context.h"
 
-namespace xgboost::obj::detail {
+namespace xgboost::obj {
 void EncodeTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> position,
                           dh::device_vector<size_t>* p_ridx, HostDeviceVector<size_t>* p_nptr,
                           HostDeviceVector<bst_node_t>* p_nidx, RegTree const& tree) {
@@ -140,7 +140,7 @@ void EncodeTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
     // as we need to take other distributed workers into account.
     auto& h_nidx = nidx.HostVector();
     auto& h_nptr = nptr.HostVector();
-    FillMissingLeaf(leaves, &h_nidx, &h_nptr);
+    detail::FillMissingLeaf(leaves, &h_nidx, &h_nptr);
     nidx.DevicePointer();
     nptr.DevicePointer();
   }
@@ -160,7 +160,7 @@ void UpdateTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
 
   if (nptr.Empty()) {
     std::vector<float> quantiles;
-    UpdateLeafValues(ctx, &quantiles, nidx.ConstHostVector(), info, learning_rate, p_tree);
+    detail::UpdateLeafValues(ctx, &quantiles, nidx.ConstHostVector(), info, learning_rate, p_tree);
   }
 
   predt.SetDevice(ctx->Device());
@@ -171,9 +171,9 @@ void UpdateTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
 
   HostDeviceVector<float> quantiles;
   collective::ApplyWithLabels(ctx, info, &quantiles, [&] {
-    auto d_labels = info.labels.View(ctx->Device()).Slice(linalg::All(), IdxY(info, group_idx));
+    auto d_labels = info.labels.View(ctx->Device()).Slice(linalg::All(), detail::IdxY(info, group_idx));
     auto d_row_index = dh::ToSpan(ridx);
-    auto seg_beg = nptr.DevicePointer();
+    auto seg_beg = nptr.ConstDevicePointer();
     auto seg_end = seg_beg + nptr.Size();
     auto val_beg = dh::MakeTransformIterator<float>(thrust::make_counting_iterator(0ul),
                                                     [=] XGBOOST_DEVICE(size_t i) {
@@ -196,19 +196,18 @@ void UpdateTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
                                         w_it + d_weights.size(), &quantiles);
     }
   });
-  UpdateLeafValues(ctx, &quantiles.HostVector(), nidx.ConstHostVector(), info, learning_rate,
-                   p_tree);
+  detail::UpdateLeafValues(ctx, &quantiles.HostVector(), nidx.ConstHostVector(), info, learning_rate,
+                           p_tree);
 }
-}  // namespace xgboost::obj::detail
 
-namespace xgboost::obj::cuda_impl {
+namespace cuda_impl {
 void UpdateTreeLeaf(Context const* ctx, common::Span<bst_node_t const> position,
                     bst_target_t group_idx, MetaInfo const& info, float learning_rate,
                     HostDeviceVector<float> const& predt, std::vector<float> const& alphas,
                     RegTree* p_tree) {
   for (float alpha : alphas) {
-    detail::UpdateTreeLeafDevice(ctx, position, group_idx, info, learning_rate, predt, alpha,
-                                 p_tree);
+    UpdateTreeLeafDevice(ctx, position, group_idx, info, learning_rate, predt, alpha, p_tree);
   }
 }
-}  // namespace xgboost::obj::cuda_impl
+}  // namespace cuda_impl
+}  // namespace xgboost::obj
