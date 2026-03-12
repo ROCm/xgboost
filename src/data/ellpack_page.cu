@@ -508,7 +508,7 @@ EllpackPageImpl::EllpackPageImpl(Context const* ctx, GHistIndexMatrix const& pag
 
 EllpackPageImpl::~EllpackPageImpl() noexcept(false) {
   // Sync the stream to make sure all running CUDA kernels finish before deallocation.
-  auto status = dh::DefaultStream().Sync(false);
+  auto status = curt::DefaultStream().Sync(false);
   if (status != cudaSuccess) {
     auto str = cudaGetErrorString(status);
     // For external-memory, throwing here can trigger a series of calls to
