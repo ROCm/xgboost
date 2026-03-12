@@ -3,7 +3,7 @@
  */
 #pragma once
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 #include <cuda_runtime.h>
 #elif defined(XGBOOST_USE_HIP)
 #include <hip/hip_runtime.h>
@@ -104,7 +104,7 @@ class Stream {
   [[nodiscard]] StreamRef View() const { return StreamRef{stream_}; }
   [[nodiscard]] cudaStream_t Handle() const { return stream_; }
 
-  void Sync() { this->View().Sync(); }
+  void Sync() { (void)this->View().Sync(); }
   void Wait(Event const &e) { this->View().Wait(e); }
 };
 #else

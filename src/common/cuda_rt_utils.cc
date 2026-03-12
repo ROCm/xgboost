@@ -38,7 +38,7 @@ std::int32_t AllVisibleGPUs() {
     // cudaGetDeviceCount will fail.
     dh::safe_cuda(cudaGetDeviceCount(&n_visgpus));
   } catch (const dmlc::Error&) {
-    cudaGetLastError();  // reset error.
+    (void)cudaGetLastError();  // reset error.
     return 0;
   }
   return n_visgpus;
