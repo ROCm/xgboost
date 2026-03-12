@@ -44,15 +44,4 @@ std::vector<RowPartitioner::RowIndexT> RowPartitioner::GetRowsHost(bst_node_t ni
   dh::CopyDeviceSpanToVector(&rows, span);
   return rows;
 }
-
-std::vector<LeafInfo> RowPartitioner::GetLeaves() const {
-  std::vector<LeafInfo> out;
-  for (bst_node_t nidx = 0; nidx < static_cast<bst_node_t>(ridx_segments_.size()); ++nidx) {
-    if (ridx_segments_[nidx].left_child == -1) {
-      out.push_back(LeafInfo{nidx, ridx_segments_[nidx]});
-    }
-  }
-  return out;
-}
-
 };  // namespace xgboost::tree
