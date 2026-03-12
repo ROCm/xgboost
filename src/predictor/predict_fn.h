@@ -8,14 +8,11 @@
 #include <vector>  // for vector
 
 #include "../common/categorical.h"  // for IsCat, Decision
-#include <type_traits>
-
 #include "xgboost/tree_model.h"     // for RegTree
 
 namespace xgboost::predictor {
 /** @brief Whether it should traverse to the left branch of a tree. */
-template <bool has_categorical, typename TreeView,
-          std::enable_if_t<!std::is_same_v<std::remove_cv_t<std::remove_reference_t<TreeView>>, RegTree::Node>>* = nullptr>
+template <bool has_categorical, typename TreeView>
 XGBOOST_DEVICE bool GetDecision(TreeView const &tree, bst_node_t nid, float fvalue,
                                 RegTree::CategoricalSplitMatrix const &cats) {
   if (has_categorical && common::IsCat(cats.split_type, nid)) {
@@ -26,8 +23,7 @@ XGBOOST_DEVICE bool GetDecision(TreeView const &tree, bst_node_t nid, float fval
   }
 }
 
-template <bool has_missing, bool has_categorical, typename TreeView,
-          std::enable_if_t<!std::is_same_v<std::remove_cv_t<std::remove_reference_t<TreeView>>, RegTree::Node>>* = nullptr>
+template <bool has_missing, bool has_categorical, typename TreeView>
 XGBOOST_DEVICE bst_node_t GetNextNode(TreeView const &tree, const bst_node_t nid, float fvalue,
                                       bool is_missing,
                                       RegTree::CategoricalSplitMatrix const &cats) {
@@ -42,30 +38,6 @@ XGBOOST_DEVICE bst_node_t GetNextNode(TreeView const &tree, const bst_node_t nid
  * @brief Some old prediction methods accept the ntree_limit parameter and they use 0 to
  *        indicate no limit.
  */
-
-// Overloads for RegTree::Node (node-based API)
-template <bool has_categorical>
-XGBOOST_DEVICE bool GetDecision(RegTree::Node const& node, bst_node_t nid, float fvalue,
-                                RegTree::CategoricalSplitMatrix const& cats) {
-  if (has_categorical && common::IsCat(cats.split_type, nid)) {
-    auto node_categories = cats.categories.subspan(cats.node_ptr[nid].beg, cats.node_ptr[nid].size);
-    return common::Decision(node_categories, fvalue);
-  } else {
-    return fvalue < node.SplitCond();
-  }
-}
-template <bool has_missing, bool has_categorical>
-XGBOOST_DEVICE bst_node_t GetNextNode(RegTree::Node const& node, bst_node_t nid, float fvalue,
-                                      bool is_missing,
-                                      RegTree::CategoricalSplitMatrix const& cats) {
-  (void)nid;
-  if (has_missing && is_missing) {
-    return node.DefaultChild();
-  } else {
-    return node.LeftChild() + !GetDecision<has_categorical>(node, nid, fvalue, cats);
-  }
-}
-
 inline bst_tree_t GetTreeLimit(std::vector<std::unique_ptr<RegTree>> const &trees,
                                bst_tree_t ntree_limit) {
   auto n_trees = static_cast<bst_tree_t>(trees.size());
