@@ -220,10 +220,18 @@ class EllpackHostCacheStreamImpl {
       std::size_t constexpr kChunkSize = 1ul << 21;
       auto params = dc::CompressSnappy(
           &ctx, old_impl->gidx_buffer.ToSpan().subspan(n_h_bytes, n_comp_bytes), &tmp, kChunkSize);
+#if defined(XGBOOST_USE_HIP)
+      curt::StreamRef stream(static_cast<cudaStream_t>(ctx.CUDACtx()->Stream()));
+      common::RefResourceView<std::uint8_t> c_buf = dc::CoalesceCompressedBuffersToHost(
+          stream, this->cache_->pool, params, tmp, &c_out);
+      auto c_page = dc::MakeSnappyDecomprMgr(stream, this->cache_->pool,
+                                             std::move(c_out), c_buf.ToSpan());
+#else
       common::RefResourceView<std::uint8_t> c_buf = dc::CoalesceCompressedBuffersToHost(
           ctx.CUDACtx()->Stream(), this->cache_->pool, params, tmp, &c_out);
       auto c_page = dc::MakeSnappyDecomprMgr(ctx.CUDACtx()->Stream(), this->cache_->pool,
                                              std::move(c_out), c_buf.ToSpan());
+#endif
       CHECK_EQ(c_page.DecompressedBytes() + new_impl->gidx_buffer.size_bytes(), n_bytes);
 
       // Device cache
@@ -337,7 +345,12 @@ class EllpackHostCacheStreamImpl {
         dc::DecompressSnappy(stream, c_page->first, out, this->cache_->allow_decomp_fallback);
         curt::Event e;
         e.Record(stream);
+#if defined(XGBOOST_USE_HIP)
+        curt::StreamRef ctx_stream(static_cast<cudaStream_t>(ctx->CUDACtx()->Stream()));
+        ctx_stream.Wait(e);
+#else
         ctx->CUDACtx()->Stream().Wait(e);
+#endif
       }
       // Device cache
       if (!d_page->empty()) {

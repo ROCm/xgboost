@@ -236,7 +236,7 @@ struct NodePositionInfo {
 
 /** @brief Leaf node descriptor for gradient sum: node index and segment. */
 struct LeafInfo {
-  bst_node_t nidx{0};
+  bst_node_t nidx;
   NodePositionInfo node;
 };
 
@@ -338,7 +338,17 @@ class RowPartitioner {
   /**
    * \brief Returns leaf node descriptors (nidx + segment) for gradient sum.
    */
-  std::vector<LeafInfo> GetLeaves() const;
+  [[nodiscard]] std::vector<LeafInfo> GetLeaves() const {
+    std::vector<LeafInfo> leaves;
+    bst_node_t nidx = 0;
+    for (auto const& node : this->ridx_segments_) {
+      if (node.IsLeaf()) {
+        leaves.emplace_back(LeafInfo{nidx, node});
+      }
+      nidx += 1;
+    }
+    return leaves;
+  }
 
   /**
    * \brief Convenience method for testing

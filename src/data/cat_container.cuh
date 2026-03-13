@@ -5,7 +5,7 @@
 #include "../common/device_helpers.cuh"  // for ToSpan
 #include "../common/device_vector.cuh"   // for device_vector, XGBDeviceAllocator
 #include "../encoder/ordinal.h"          // for CatCharT
-#include "cat_container.h"               // for EncErrorPolicy
+#include "cat_container.h"               // for EncErrorPolicy (defines XGB_CAT_* when HIP)
 
 namespace xgboost::cuda_impl {
 struct CatStrArray {
@@ -41,7 +41,7 @@ struct ViewToStorageImpl<enc::CatStrArrayView> {
 };
 
 template <typename T>
-struct ViewToStorageImpl<common::Span<T const>> {
+struct ViewToStorageImpl<XGB_CAT_SPAN<T const>> {
   using Type = dh::device_vector<T>;
 };
 
@@ -78,5 +78,5 @@ using EncPolicyT = enc::Policy<EncErrorPolicy, EncThrustPolicy>;
 inline EncPolicyT EncPolicy = EncPolicyT{};
 
 [[nodiscard]] std::tuple<CatAccessor, dh::DeviceUVector<std::int32_t>> MakeCatAccessor(
-    Context const* ctx, enc::DeviceColumnsView const& new_enc, CatContainer const* orig_cats);
+    XGB_CAT_CTX const* ctx, enc::DeviceColumnsView const& new_enc, CatContainer const* orig_cats);
 }  // namespace xgboost::cuda_impl

@@ -50,6 +50,26 @@ auto ProclaimReturn(F&& f) { return cuda::proclaim_return_type<T>(std::forward<F
 namespace gpu_std = std;
 template <typename T, typename F>
 constexpr F&& ProclaimReturn(F&& f) { return std::forward<F>(f); }
+// HIP: std::visit/std::get pull in __throw_bad_variant_access (host-only). Use get_if in device code.
+namespace tree_variant_hip {
+template <typename V, typename F>
+__device__ inline auto Visit(V const& v, F&& f) -> decltype(f(*std::get_if<0>(&v))) {
+  switch (v.index()) {
+    case 0: return f(*std::get_if<0>(&v));
+    case 1: return f(*std::get_if<1>(&v));
+    default: __builtin_unreachable();
+  }
+}
+template <typename T, typename V>
+__device__ inline T const& Get(V const& v) {
+  return *std::get_if<T>(&v);
+}
+}  // namespace tree_variant_hip
+#define GPU_VISIT_TREE(var, visitor) tree_variant_hip::Visit(var, visitor)
+#define GPU_GET_TREE(type, var) tree_variant_hip::Get<type>(var)
+#else
+#define GPU_VISIT_TREE(var, visitor) gpu_std::visit(visitor, var)
+#define GPU_GET_TREE(type, var) gpu_std::get<type>(var)
 #endif
 
 namespace xgboost::predictor {
@@ -280,17 +300,15 @@ __global__ void PredictLeafKernel(Data data, common::Span<TreeViewVar const> d_t
   Loader loader{std::move(data), use_shared, num_features, data.NumRows(), missing, std::move(acc)};
   for (bst_tree_t tree_idx = tree_begin; tree_idx < tree_end; ++tree_idx) {
     auto const& d_tree = d_trees[tree_idx - tree_begin];
-    gpu_std::visit(
-        [&](auto&& tree) {
-          bst_node_t leaf = -1;
-          if (tree.HasCategoricalSplit()) {
-            leaf = GetLeafIndex<has_missing, true>(ridx, tree, &loader);
-          } else {
-            leaf = GetLeafIndex<has_missing, false>(ridx, tree, &loader);
-          }
-          d_out_predictions[ridx * (tree_end - tree_begin) + tree_idx] = leaf;
-        },
-        d_tree);
+    GPU_VISIT_TREE(d_tree, ([&](auto&& tree) {
+      bst_node_t leaf = -1;
+      if (tree.HasCategoricalSplit()) {
+        leaf = GetLeafIndex<has_missing, true>(ridx, tree, &loader);
+      } else {
+        leaf = GetLeafIndex<has_missing, false>(ridx, tree, &loader);
+      }
+      d_out_predictions[ridx * (tree_end - tree_begin) + tree_idx] = leaf;
+    }));
   }
 }
 
@@ -309,7 +327,7 @@ __global__ void PredictKernel(Data data, common::Span<TreeViewVar const> d_trees
   if (n_groups == 1u) {
     float sum = 0;
     for (auto const& d_tree : d_trees) {
-      auto const& sc_tree = gpu_std::get<tree::ScalarTreeView>(d_tree);
+      auto const& sc_tree = GPU_GET_TREE(tree::ScalarTreeView, d_tree);
       float leaf = GetLeafWeight<has_missing>(global_idx, sc_tree, &loader);
       sum += leaf;
     }
@@ -319,21 +337,18 @@ __global__ void PredictKernel(Data data, common::Span<TreeViewVar const> d_trees
       // Both d_tree_group and d_tress are subset of trees.
       auto tree_group = d_tree_groups[tree_idx];
       auto const& d_tree = d_trees[tree_idx];
-      gpu_std::visit(
-          enc::Overloaded{[&](tree::ScalarTreeView const& tree) {
-                            auto leaf = GetLeafWeight<has_missing>(global_idx, tree, &loader);
-                            bst_idx_t out_prediction_idx = global_idx * n_groups + tree_group;
-                            d_out_predictions[out_prediction_idx] += leaf;
-                          },
-                          [&](tree::MultiTargetTreeView const& tree) {
-                            // Tree group is 0.
-                            auto leaf = GetLeafWeight<has_missing>(global_idx, tree, &loader);
-                            for (std::size_t i = 0, n = leaf.Shape(0); i < n; ++i) {
-                              bst_idx_t out_prediction_idx = global_idx * n_groups + i;
-                              d_out_predictions[out_prediction_idx] += leaf(i);
-                            }
-                          }},
-          d_tree);
+      GPU_VISIT_TREE(d_tree, (enc::Overloaded{[&](tree::ScalarTreeView const& tree) {
+        auto leaf = GetLeafWeight<has_missing>(global_idx, tree, &loader);
+        bst_idx_t out_prediction_idx = global_idx * n_groups + tree_group;
+        d_out_predictions[out_prediction_idx] += leaf;
+      },
+      [&](tree::MultiTargetTreeView const& tree) {
+        auto leaf = GetLeafWeight<has_missing>(global_idx, tree, &loader);
+        for (std::size_t i = 0, n = leaf.Shape(0); i < n; ++i) {
+          bst_idx_t out_prediction_idx = global_idx * n_groups + i;
+          d_out_predictions[out_prediction_idx] += leaf(i);
+        }
+      }}));
     }
   }
 }
@@ -397,7 +412,13 @@ struct ShapSplitCondition {
       return l;
     }
     if (l.Capacity() > r.Capacity()) {
+#if defined(XGBOOST_USE_HIP)
+      common::CatBitField tmp = l;
+      l = r;
+      r = tmp;
+#else
       gpu_std::swap(l, r);
+#endif
     }
     for (size_t i = 0; i < r.Bits().size(); ++i) {
       l.Bits()[i] &= r.Bits()[i];
@@ -464,7 +485,7 @@ void ExtractPaths(Context const* ctx,
       ProclaimReturn<PathInfo>([=] __device__(size_t idx) -> PathInfo {
         bst_tree_t const tree_idx = dh::SegmentId(d_tree_segments, idx);
         bst_node_t const nidx = idx - d_tree_segments[tree_idx];
-        auto const& tree = gpu_std::get<tree::ScalarTreeView>(d_trees[tree_idx]);
+        auto const& tree = GPU_GET_TREE(tree::ScalarTreeView, d_trees[tree_idx]);
         if (!tree.IsLeaf(nidx) || tree.IsDeleted(nidx)) {
           // -1 if it's an internal split node
           return PathInfo{0, -1, 0};
@@ -504,7 +525,7 @@ void ExtractPaths(Context const* ctx,
     auto max_elem_it = dh::MakeIndexTransformIter([=] __device__(std::size_t i) -> std::size_t {
       auto tree_idx = dh::SegmentId(d_tree_segments, i);
       auto nidx = i - d_tree_segments[tree_idx];
-      return gpu_std::get<tree::ScalarTreeView>(d_trees[tree_idx])
+      return GPU_GET_TREE(tree::ScalarTreeView, d_trees[tree_idx])
           .GetCategoriesMatrix()
           .node_ptr[nidx]
           .size;
@@ -525,7 +546,7 @@ void ExtractPaths(Context const* ctx,
 
   dh::LaunchN(info.size(), ctx->CUDACtx()->Stream(), [=] __device__(size_t idx) {
     auto path_info = d_info[idx];
-    auto tree = gpu_std::get<tree::ScalarTreeView>(d_trees[path_info.tree_idx]);
+    auto tree = GPU_GET_TREE(tree::ScalarTreeView, d_trees[path_info.tree_idx]);
     std::int32_t group = d_tree_groups[path_info.tree_idx];
     auto child_nidx = path_info.nidx;
 
@@ -597,7 +618,7 @@ __global__ void MaskBitVectorKernel(SparsePageView data, common::Span<TreeViewVa
 
   std::size_t tree_offset = 0;
   for (auto tree_idx = tree_begin; tree_idx < tree_end; tree_idx++) {
-    auto const& d_tree = gpu_std::get<tree::ScalarTreeView>(d_trees[tree_idx - tree_begin]);
+    auto const& d_tree = GPU_GET_TREE(tree::ScalarTreeView, d_trees[tree_idx - tree_begin]);
     auto const tree_nodes = d_tree.Size();
     for (auto nid = 0; nid < tree_nodes; nid++) {
       if (d_tree.IsDeleted(nid) || d_tree.IsLeaf(nid)) {
@@ -665,7 +686,7 @@ __global__ void PredictByBitVectorKernel(common::Span<TreeViewVar const> d_trees
   std::size_t tree_offset = 0;
   if constexpr (predict_leaf) {
     for (auto tree_idx = tree_begin; tree_idx < tree_end; ++tree_idx) {
-      auto const& d_tree = gpu_std::get<tree::ScalarTreeView>(d_trees[tree_idx - tree_begin]);
+      auto const& d_tree = GPU_GET_TREE(tree::ScalarTreeView, d_trees[tree_idx - tree_begin]);
       auto const leaf = GetLeafIndexByBitVector(row_idx, d_tree, decision_bits, missing_bits,
                                                 num_nodes, tree_offset);
       d_out_predictions[row_idx * (tree_end - tree_begin) + tree_idx] = static_cast<float>(leaf);
@@ -675,7 +696,7 @@ __global__ void PredictByBitVectorKernel(common::Span<TreeViewVar const> d_trees
     if (num_group == 1) {
       float sum = 0;
       for (auto tree_idx = tree_begin; tree_idx < tree_end; tree_idx++) {
-        auto const& d_tree = gpu_std::get<tree::ScalarTreeView>(d_trees[tree_idx - tree_begin]);
+        auto const& d_tree = GPU_GET_TREE(tree::ScalarTreeView, d_trees[tree_idx - tree_begin]);
         sum += GetLeafWeightByBitVector(row_idx, d_tree, decision_bits, missing_bits, num_nodes,
                                         tree_offset);
         tree_offset += d_tree.Size();
@@ -684,7 +705,7 @@ __global__ void PredictByBitVectorKernel(common::Span<TreeViewVar const> d_trees
     } else {
       for (auto tree_idx = tree_begin; tree_idx < tree_end; tree_idx++) {
         auto const tree_group = d_tree_groups[tree_idx - tree_begin];
-        auto const& d_tree = gpu_std::get<tree::ScalarTreeView>(d_trees[tree_idx - tree_begin]);
+        auto const& d_tree = GPU_GET_TREE(tree::ScalarTreeView, d_trees[tree_idx - tree_begin]);
         bst_uint out_prediction_idx = row_idx * num_group + tree_group;
         d_out_predictions[out_prediction_idx] += GetLeafWeightByBitVector(
             row_idx, d_tree, decision_bits, missing_bits, num_nodes, tree_offset);

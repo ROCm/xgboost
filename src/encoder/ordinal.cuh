@@ -33,8 +33,40 @@
 #define ENC_VISIT cuda::std::visit
 #define ENC_GET cuda::std::get
 #elif defined(XGBOOST_USE_HIP)
-#define ENC_VISIT std::visit
-#define ENC_GET std::get
+// HIP: std::get and std::visit call __throw_bad_variant_access (host-only). Use std::get_if.
+template <typename T, typename V>
+__device__ __host__ inline T const& EncGet(V const& v) {
+  T const* p = std::get_if<T>(&v);
+  return *p;  // Caller guarantees variant holds T.
+}
+#define ENC_GET ::EncGet  // global namespace so visible inside enc::cuda_impl
+// Index-based dispatch with std::get_if (non-throwing) for visit in device code.
+template <typename V, typename F>
+__device__ inline auto EncVisitDevice(V const& v, F&& f) -> decltype(f(*std::get_if<0>(&v))) {
+  switch (v.index()) {
+    case 0: return f(*std::get_if<0>(&v));
+    case 1: return f(*std::get_if<1>(&v));
+    case 2: return f(*std::get_if<2>(&v));
+    case 3: return f(*std::get_if<3>(&v));
+    case 4: return f(*std::get_if<4>(&v));
+    case 5: return f(*std::get_if<5>(&v));
+    case 6: return f(*std::get_if<6>(&v));
+    case 7: return f(*std::get_if<7>(&v));
+    case 8: return f(*std::get_if<8>(&v));
+    case 9: return f(*std::get_if<9>(&v));
+    case 10: return f(*std::get_if<10>(&v));
+    default: __builtin_unreachable();
+  }
+}
+template <typename V, typename F>
+__device__ inline auto EncVisitImpl(V const& v, F&& f) -> decltype(f(*std::get_if<0>(&v))) {
+  return EncVisitDevice(v, std::forward<F>(f));
+}
+template <typename V, typename F>
+__host__ inline auto EncVisitImpl(V const& v, F&& f) -> decltype(std::visit(std::forward<F>(f), v)) {
+  return std::visit(std::forward<F>(f), v);
+}
+#define ENC_VISIT(visitor, variant) EncVisitImpl(variant, visitor)
 #endif
 
 namespace enc {
@@ -232,10 +264,21 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
     if (l.first == r.first) {  // same feature
       auto const& col = orig_enc.columns[l.first];
 #if defined(XGBOOST_USE_HIP)
-      return std::visit(
+      return ENC_VISIT((Overloaded{[&l, &r](CatStrArrayView const& str) -> bool {
+                       auto l_beg = str.offsets[l.second];
+                       auto l_end = str.offsets[l.second + 1];
+                       auto l_str = str.values.subspan(l_beg, l_end - l_beg);
+
+                       auto r_beg = str.offsets[r.second];
+                       auto r_end = str.offsets[r.second + 1];
+                       auto r_str = str.values.subspan(r_beg, r_end - r_beg);
+                       return l_str < r_str;
+                     },
+                     [&](auto&& values) {
+                       return values[l.second] < values[r.second];
+                     }}), col);
 #else
       return Visit(
-#endif
           Overloaded{[&l, &r](CatStrArrayView const& str) -> bool {
                        auto l_beg = str.offsets[l.second];
                        auto l_end = str.offsets[l.second + 1];
@@ -250,6 +293,7 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
                        return values[l.second] < values[r.second];
                      }},
           col);
+#endif
     }
     return l.first < r.first;
 #if defined(XGBOOST_USE_CUDA)
@@ -330,7 +374,7 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
         auto f_idx = dh::SegmentId(new_enc.feature_segments, i);
         std::int32_t searched_idx{detail::NotFound()};
         auto const& col = orig_enc.columns[f_idx];
-        ENC_VISIT(Overloaded{[&](CatStrArrayView const&) {
+        ENC_VISIT((Overloaded{[&](CatStrArrayView const&) {
                                auto op = cuda_impl::SegmentedSearchSortedStrOp{
                                    orig_enc, sorted_idx, new_enc, f_idx};
                                searched_idx = op(i);
@@ -340,7 +384,7 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
                                auto op = cuda_impl::SegmentedSearchSortedNumOp<T>{
                                    orig_enc, sorted_idx, new_enc, f_idx};
                                searched_idx = op(i);
-                             }},
+                             }}),
                   col);
 
         auto f_sorted_idx = sorted_idx.subspan(
@@ -381,7 +425,7 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
     std::stringstream name;
     auto const& col = h_columns[f_idx];
     ENC_VISIT(
-        Overloaded{[&](CatStrArrayView const& str) {
+        (Overloaded{[&](CatStrArrayView const& str) {
                      std::vector<CatCharT> values(str.values.size());
                      std::vector<std::int32_t> offsets(str.offsets.size());
                      thrust::copy_n(dh::tcbegin(str.values), str.values.size(), values.data());
@@ -399,7 +443,7 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
                      thrust::copy_n(dh::tcbegin(values), values.size(), h_values.data());
                      auto cat = h_values[f_local_idx];
                      name << cat;
-                   }},
+                   }}),
         col);
 
     detail::ReportMissing(policy, name.str(), f_idx);
@@ -407,3 +451,4 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
 }
 
 }  // namespace cuda_impl
+}  // namespace enc

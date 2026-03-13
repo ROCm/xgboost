@@ -666,7 +666,13 @@ auto MakeVec(DeviceOrd device, common::Span<T> span) {
 
 template <typename T>
 auto MakeVec(std::vector<T> const &v) {
+#if defined(XGBOOST_USE_HIP)
+  common::Span<T const> data(v.data(), v.size());
+  std::size_t shape[] = {v.size()};
+  return linalg::TensorView<T const, 1>(data, shape, DeviceOrd::CPU());
+#else
   return linalg::TensorView<T, 1>{{v.data(), v.size()}, {v.size()}, DeviceOrd::CPU()};
+#endif
 }
 
 /**

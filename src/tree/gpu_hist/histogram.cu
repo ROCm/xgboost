@@ -467,8 +467,10 @@ struct HistKernel {
         //
         // Also, it must precede the `cudaOccupancyMaxActiveBlocksPerMultiprocessor`,
         // otherwise the shmem bytes might be invalid.
-        dh::safe_cuda(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                           max_shared_bytes));
+        dh::safe_cuda(cudaFuncSetAttribute(
+            reinterpret_cast<const void*>(kernel),
+            cudaFuncAttributeMaxDynamicSharedMemorySize,
+            static_cast<int>(max_shared_bytes)));
       }
       if (new_shmem_bytes > this->shmem_bytes) {
         this->shmem_bytes = new_shmem_bytes;

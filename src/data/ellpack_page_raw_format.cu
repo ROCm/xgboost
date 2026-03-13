@@ -115,11 +115,21 @@ template <typename T>
   if (ConsoleLogger::GlobalVerbosity() == ConsoleLogger::LogVerbosity::kDebug) {
     curt::Event start{false}, stop{false};
     float milliseconds = 0;
+#if defined(XGBOOST_USE_HIP)
+    // HIP: CUDAStreamView is not StreamRef; construct StreamRef from underlying stream.
+    curt::StreamRef stream(static_cast<cudaStream_t>(ctx.CUDACtx()->Stream()));
+    start.Record(stream);
+#else
     start.Record(ctx.CUDACtx()->Stream());
+#endif
 
     dispatch();
 
+#if defined(XGBOOST_USE_HIP)
+    stop.Record(stream);
+#else
     stop.Record(ctx.CUDACtx()->Stream());
+#endif
     stop.Sync();
     dh::safe_cuda(cudaEventElapsedTime(&milliseconds, start, stop));
     double n_bytes = page->Impl()->MemCostBytes();

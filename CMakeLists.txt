@@ -416,6 +416,11 @@ if(BUILD_STATIC_LIB)
   add_library(xgboost STATIC)
 else()
   add_library(xgboost SHARED)
+  # Fail at link time on undefined symbols (e.g. declaration/definition name mismatch)
+  # instead of at runtime when loading libxgboost.so (e.g. Python wheel).
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(xgboost PRIVATE -Wl,--no-undefined)
+  endif()
 endif()
 target_link_libraries(xgboost PRIVATE objxgboost)
 target_include_directories(xgboost

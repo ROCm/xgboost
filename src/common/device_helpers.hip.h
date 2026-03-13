@@ -35,6 +35,7 @@
 #include "common.h"
 #include "cuda_rt_utils.h"  // for curt::AllVisibleGPUs
 #include "device_vector.cuh"  // MemoryLogger, allocators, device_vector (single source)
+#include "xgboost/context.h"  // for Context, DeviceOrd
 #include "xgboost/global_config.h"
 #include "xgboost/host_device_vector.h"
 #include "xgboost/logging.h"
@@ -144,6 +145,16 @@ inline int32_t CurrentDevice() {
   safe_cuda(hipGetDevice(&device));
   return device;
 }
+
+// Helper function to get a device from a potentially CPU context (HIP build).
+inline auto GetDevice(xgboost::Context const* ctx) {
+  auto d = (ctx->IsCUDA()) ? ctx->Device() : xgboost::DeviceOrd::CUDA(::xgboost::curt::CurrentDevice());
+  CHECK(!d.IsCPU());
+  return d;
+}
+
+/** \brief Warp size in threads. AMD supports 64; use 32 for CUDA compatibility. */
+constexpr int WarpThreads() { return 64; }
 
 inline size_t TotalMemory(int device_idx) {
   size_t device_free = 0;
@@ -920,6 +931,25 @@ inline void CUDAEvent::Record(CUDAStreamView stream) {  // NOLINT
 }
 
 inline CUDAStreamView DefaultStream() { return CUDAStreamView{hipStreamDefault}; }
+
+template <class Src, class Dst>
+void CopyTo(Src const &src, Dst *dst, CUDAStreamView stream = DefaultStream()) {
+  if (src.empty()) {
+    dst->clear();
+    return;
+  }
+  dst->resize(src.size());
+  using SVT = std::remove_cv_t<typename Src::value_type>;
+  using DVT = std::remove_cv_t<typename Dst::value_type>;
+  static_assert(std::is_same_v<SVT, DVT>, "Host and device containers must have same value type.");
+  dh::safe_cuda(hipMemcpyAsync(thrust::raw_pointer_cast(dst->data()), src.data(),
+                                src.size() * sizeof(SVT), hipMemcpyDefault, stream));
+}
+
+inline auto CachingThrustPolicy() {
+  XGBCachingDeviceAllocator<char> alloc;
+  return thrust::hip::par_nosync(alloc).on(DefaultStream());
+}
 
 class CUDAStream {
   hipStream_t stream_;
