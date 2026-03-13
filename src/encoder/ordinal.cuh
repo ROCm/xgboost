@@ -155,8 +155,21 @@ struct DftThrustPolicy {
  */
 using DftDevicePolicy = Policy<cuda_impl::DftThrustPolicy, detail::DftErrorHandler>;
 
+namespace cuda_impl {
+#if defined(XGBOOST_USE_HIP)
+// Device-callable pair for HIP; std::pair's operator= is host-only and breaks rocprim.
+struct DeviceSortPair {
+  std::int32_t first;
+  std::int32_t second;
+  DeviceSortPair() = default;
+  __device__ __host__ DeviceSortPair(std::int32_t a, std::int32_t b) : first(a), second(b) {}
+  __device__ __host__ DeviceSortPair& operator=(DeviceSortPair const&) = default;
+  __device__ __host__ DeviceSortPair(DeviceSortPair const&) = default;
+};
+#endif
+
 /**
- * @brief Sort the categories for the training set. Returns a list of sorted index.
+ * @brief Sort the categories for the training set (device overload). Returns a list of sorted index.
  *
  * @tparam ExecPolicy The @ref Policy class, accepts an error policy and a thrust exec policy.
  *
@@ -187,9 +200,7 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
   using MakePair = cuda::std::make_pair;
   using Visit = cuda::std::visit;
 #elif defined(XGBOOST_USE_HIP)
-  using Pair = std::pair<std::int32_t, std::int32_t>;
-  using MakePair = std::make_pair;
-  using Visit = std::visit;
+  using Pair = DeviceSortPair;
 #endif
 
   using Alloc = typename ExecPolicy::template ThrustAllocator<Pair>;
@@ -208,7 +219,7 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
       [=] __device__(std::int32_t i) {
         auto seg = dh::SegmentId(orig_enc.feature_segments, i);
         auto idx = d_sorted_idx[i];
-        return MakePair(static_cast<std::int32_t>(seg), idx);
+        return Pair(static_cast<std::int32_t>(seg), idx);
       });
 #endif
   thrust::copy(exec, key_it, key_it + n_total_cats, keys.begin());
@@ -220,7 +231,11 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
 #endif
     if (l.first == r.first) {  // same feature
       auto const& col = orig_enc.columns[l.first];
+#if defined(XGBOOST_USE_HIP)
+      return std::visit(
+#else
       return Visit(
+#endif
           Overloaded{[&l, &r](CatStrArrayView const& str) -> bool {
                        auto l_beg = str.offsets[l.second];
                        auto l_end = str.offsets[l.second + 1];
@@ -260,7 +275,7 @@ inline void SortNames(ExecPolicy const& policy, DeviceColumnsView orig_enc,
 }
 
 /**
- * @brief Calculate a mapping for recoding the data given old and new encoding.
+ * @brief Calculate a mapping for recoding the data given old and new encoding (device overload).
  *
  * @tparam ExecPolicy The @ref Policy class, accepts an error policy and a thrust exec policy
  *
@@ -391,4 +406,4 @@ void Recode(ExecPolicy const& policy, DeviceColumnsView orig_enc,
   }
 }
 
-}  // namespace enc
+}  // namespace cuda_impl

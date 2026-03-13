@@ -369,6 +369,16 @@ class DoubleBuffer {
   T *Other() { return buff.Alternate(); }
 };
 
+template <typename T>
+xgboost::common::Span<T> LazyResize(xgboost::Context const *ctx,
+                                    xgboost::HostDeviceVector<T> *buffer, std::size_t n) {
+  buffer->SetDevice(ctx->Device());
+  if (buffer->Size() < n) {
+    buffer->Resize(n);
+  }
+  return buffer->DeviceSpan().subspan(0, n);
+}
+
 /**
  * \brief Copies device span to std::vector.
  *
@@ -673,7 +683,7 @@ struct SegmentedUniqueReduceOp {
  * \return Number of unique values in total.
  */
 template <typename DerivedPolicy, typename KeyInIt, typename KeyOutIt, typename ValInIt,
-          typename ValOutIt, typename CompValue, typename CompKey>
+          typename ValOutIt, typename CompValue, typename CompKey = thrust::equal_to<size_t>>
 size_t
 SegmentedUnique(const thrust::detail::execution_policy_base<DerivedPolicy> &exec,
                 KeyInIt key_segments_first, KeyInIt key_segments_last, ValInIt val_first,

@@ -155,7 +155,7 @@ struct CatContainerImpl {
   dh::DeviceUVector<std::int32_t> mapping(new_enc.n_total_cats);
   auto d_sorted_idx = orig_cats->RefSortedIndex(ctx);
   auto orig_enc = orig_cats->DeviceView(ctx);
-  enc::Recode(EncPolicy, orig_enc, d_sorted_idx, new_enc, dh::ToSpan(mapping));
+  enc::cuda_impl::Recode(EncPolicy, orig_enc, d_sorted_idx, new_enc, dh::ToSpan(mapping));
   CHECK_EQ(new_enc.feature_segments.size(), orig_enc.feature_segments.size());
   auto cats_mapping = enc::MappingView{new_enc.feature_segments, dh::ToSpan(mapping)};
   auto acc = CatAccessor{cats_mapping};
@@ -276,7 +276,7 @@ void CatContainer::Sort(Context const* ctx) {
     CHECK(!view.Empty()) << view.n_total_cats;
     this->sorted_idx_.SetDevice(ctx->Device());
     this->sorted_idx_.Resize(view.n_total_cats);
-    enc::SortNames(cuda_impl::EncPolicy, view, this->sorted_idx_.DeviceSpan());
+    enc::cuda_impl::SortNames(cuda_impl::EncPolicy, view, this->sorted_idx_.DeviceSpan());
   }
 }
 

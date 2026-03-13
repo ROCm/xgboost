@@ -65,14 +65,19 @@ void ElementWiseKernel(TensorView<T, D> t, Fn&& fn, cudaStream_t s = nullptr) {
 
 template <typename T, std::int32_t D, typename Fn>
 void TransformIdxKernel(Context const* ctx, TensorView<T, D> t, Fn&& fn) {
+  TransformIdxKernel(ctx->CUDACtx(), t, std::forward<Fn>(fn));
+}
+
+template <typename T, std::int32_t D, typename Fn>
+void TransformIdxKernel(CUDAContext const* ctx, TensorView<T, D> t, Fn&& fn) {
   dh::safe_cuda(cudaSetDevice(t.Device().ordinal));
-  auto s = ctx->CUDACtx()->Stream();
+  auto s = ctx->Stream();
   if (t.Contiguous()) {
     auto ptr = t.Values().data();
     auto it =
         thrust::make_zip_iterator(thrust::make_counting_iterator(static_cast<std::size_t>(0)), ptr);
     using Tuple = typename cuda::std::iterator_traits<common::GetValueT<decltype(it)>>::value_type;
-    thrust::transform(ctx->CUDACtx()->CTP(), it, it + t.Size(), ptr,
+    thrust::transform(ctx->CTP(), it, it + t.Size(), ptr,
                       [=] XGBOOST_DEVICE(Tuple const& tup) {
                         return fn(thrust::get<0>(tup), thrust::get<1>(tup));
                       });
