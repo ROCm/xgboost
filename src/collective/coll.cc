@@ -140,7 +140,9 @@ bool constexpr IsFloatingPointV() {
   }
 }
 
-#if !defined(XGBOOST_USE_NCCL) && !defined(XGBOOST_USE_RCCL)
+Coll::~Coll() noexcept(false) = default;
+
+#if !defined(XGBOOST_USE_NCCL)
 Coll* Coll::MakeCUDAVar() {
   LOG(FATAL) << "NCCL is required for device communication.";
   return nullptr;

@@ -22,7 +22,7 @@ enum class AllgatherVAlgo {
 class Coll : public std::enable_shared_from_this<Coll> {
  public:
   Coll() = default;
-  virtual ~Coll() noexcept(false) {}  // NOLINT
+  virtual ~Coll() noexcept(false);
 
   virtual Coll* MakeCUDAVar();
 

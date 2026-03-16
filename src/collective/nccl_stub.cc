@@ -4,29 +4,24 @@
 #if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 #include "nccl_stub.h"
 
-#if defined(XGBOOST_USE_DLOPEN_NCCL)
-
+#if defined(XGBOOST_USE_DLOPEN_NCCL) || defined(XGBOOST_USE_DLOPEN_RCCL)
 #include <dlfcn.h>  // for dlclose, dlsym, dlopen
-
 #include <cstdint>  // for int32_t
-
 #include "xgboost/logging.h"
+#endif
 
-#endif  // defined(XGBOOST_USE_DLOPEN_NCCL)
-
-#if defined(XGBOOST_USE_NCCL) 
+#if defined(XGBOOST_USE_HIP)
+#include "../common/cuda_to_hip.h"
+#include <hip/hip_runtime_api.h>  // for hipPeekAtLastError
+#include <rccl/rccl.h>
+#include <thrust/system/hip/error.h>
+#include <thrust/system_error.h>
+#else
 #include <cuda.h>              // for CUDA_VERSION
 #include <cuda_runtime_api.h>  // for cudaPeekAtLastError
 #include <nccl.h>
-#include <thrust/system/cuda/error.h>  // for cuda_category
-#include <thrust/system_error.h>       // for system_error
-#elif defined(XGBOOST_USE_RCCL)
-#include "../common/cuda_to_hip.h"
-#include <hip/hip_runtime_api.h>  // for cudaPeekAtLastError
-#include <dlfcn.h>             // for dlclose, dlsym, dlopen
-#include <rccl/rccl.h>
-#include <thrust/system/hip/error.h>  // for cuda_category
-#include <thrust/system_error.h>       // for system_error
+#include <thrust/system/cuda/error.h>
+#include <thrust/system_error.h>
 #endif
 
 #include <memory>   // for shared_ptr
@@ -49,10 +44,10 @@ namespace xgboost::collective {
   if (code == ncclUnhandledCudaError) {
     // nccl usually preserves the last error so we can get more details.
     auto err = cudaPeekAtLastError();
-#if defined(XGBOOST_USE_NCCL)
-    ss << "  CUDA error: " << thrust::system_error(err, thrust::cuda_category()).what() << "\n";
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
     ss << "  HIP error: " << thrust::system_error(err, thrust::hip_category()).what() << "\n";
+#else
+    ss << "  CUDA error: " << thrust::system_error(err, thrust::cuda_category()).what() << "\n";
 #endif
   } else if (code == ncclSystemError) {
     ss << "  This might be caused by a network configuration issue. Please consider specifying "
@@ -66,7 +61,11 @@ NcclStub::NcclStub(StringView path) : path_{std::move(path)} {
 #if defined(XGBOOST_USE_DLOPEN_NCCL) || defined(XGBOOST_USE_DLOPEN_RCCL)
   CHECK(!path_.empty()) << "Empty path for NCCL.";
 
+#if defined(XGBOOST_USE_HIP)
+  auto cu_major = 12;  // RCCL compatibility version for error message
+#else
   auto cu_major = (CUDA_VERSION) / 1000;
+#endif
   std::stringstream ss;
   ss << R"m(
 

@@ -197,7 +197,8 @@ function(xgboost_link_nccl target)
 endfunction()
 
 function(xgboost_link_rccl target)
-  set(xgboost_rccl_flags -DXGBOOST_USE_RCCL=1)
+  # Use same define as NCCL; HIP vs CUDA path is chosen by XGBOOST_USE_HIP (set by HIP build).
+  set(xgboost_rccl_flags -DXGBOOST_USE_NCCL=1)
   if(USE_DLOPEN_RCCL)
     list(APPEND xgboost_rccl_flags -DXGBOOST_USE_DLOPEN_RCCL=1)
   endif()

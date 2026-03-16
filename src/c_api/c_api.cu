@@ -14,10 +14,10 @@
 #include "xgboost/data.h"
 #include "xgboost/json.h"
 #include "xgboost/learner.h"
-#if defined(XGBOOST_USE_NCCL)
-#include <nccl.h>
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
 #include <rccl/rccl.h>
+#elif defined(XGBOOST_USE_NCCL)
+#include <nccl.h>
 #endif
 #if defined(XGBOOST_USE_NVCOMP)
 #include <nvcomp/version.h>
@@ -49,20 +49,16 @@ void XGBBuildInfoDevice(Json *p_info) {
   info["USE_DLOPEN_NCCL"] = Boolean{true};
 #else
   info["USE_DLOPEN_NCCL"] = Boolean{false};
-#endif  // defined(XGBOOST_USE_DLOPEN_NCCL)
-#elif defined(XGBOOST_USE_RCCL)
-  info["USE_NCCL"] = Boolean{true};
+#endif
+#if defined(XGBOOST_USE_HIP)
   info["USE_RCCL"] = Boolean{true};
-  v = {Json{Integer{NCCL_MAJOR}}, Json{Integer{NCCL_MINOR}}, Json{Integer{NCCL_PATCH}}};
   info["RCCL_VERSION"] = v;
-  info["NCCL_VERSION"] = v;
 #if defined(XGBOOST_USE_DLOPEN_RCCL)
-  info["USE_DLOPEN_NCCL"] = Boolean{true};
   info["USE_DLOPEN_RCCL"] = Boolean{true};
 #else
-  info["USE_DLOPEN_NCCL"] = Boolean{false};
   info["USE_DLOPEN_RCCL"] = Boolean{false};
-#endif  // defined(XGBOOST_USE_DLOPEN_RCCL)
+#endif
+#endif
 #else
   info["USE_NCCL"] = Boolean{false};
   info["USE_DLOPEN_NCCL"] = Boolean{false};

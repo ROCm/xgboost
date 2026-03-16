@@ -34,6 +34,7 @@
 #include "../collective/communicator-inl.h"
 #include "common.h"
 #include "cuda_rt_utils.h"  // for curt::AllVisibleGPUs
+#include "cuda_stream.h"    // for curt::StreamRef (CUDAStreamView conversion)
 #include "device_vector.cuh"  // MemoryLogger, allocators, device_vector (single source)
 #include "xgboost/context.h"  // for Context, DeviceOrd
 #include "xgboost/global_config.h"
@@ -41,9 +42,9 @@
 #include "xgboost/logging.h"
 #include "xgboost/span.h"
 
-#ifdef XGBOOST_USE_RCCL
+#if defined(XGBOOST_USE_NCCL)
 #include "rccl.h"
-#endif  // XGBOOST_USE_RCCL
+#endif  // XGBOOST_USE_NCCL
 
 #if defined(XGBOOST_USE_RMM) && XGBOOST_USE_RMM == 1
 #include "rmm/mr/device/per_device_resource.hpp"
@@ -917,6 +918,8 @@ class CUDAStreamView {
 
  public:
   explicit CUDAStreamView(hipStream_t s) : stream_{s} {}
+  // Allow conversion from curt::StreamRef so collective code can pass nccl->Stream() etc.
+  CUDAStreamView(xgboost::curt::StreamRef ref) : stream_{static_cast<hipStream_t>(ref)} {}
   void Wait(CUDAEvent const &e) {
     dh::safe_cuda(hipStreamWaitEvent(stream_, hipEvent_t{e}, hipEventDefault));
   }

@@ -3,12 +3,12 @@
  */
 #pragma once
 
-#if defined(XGBOOST_USE_NCCL)
-#include "nccl.h"
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
 #include "../common/cuda_to_hip.h"
 #include <rccl/rccl.h>
-#endif  // XGBOOST_USE_NCCL
+#else
+#include "nccl.h"
+#endif
 
 #include <utility>  // for move
 
@@ -24,10 +24,10 @@ inline Result GetCUDAResult(cudaError rc) {
   if (rc == cudaSuccess) {
     return Success();
   }
-#if defined(XGBOOST_USE_NCCL)
-  std::string msg = thrust::system_error(rc, thrust::cuda_category()).what();
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
   std::string msg = thrust::system_error(rc, thrust::hip_category()).what();
+#else
+  std::string msg = thrust::system_error(rc, thrust::cuda_category()).what();
 #endif
   return Fail(msg);
 }
