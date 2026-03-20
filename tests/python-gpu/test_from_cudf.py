@@ -393,8 +393,8 @@ def test_invalid_meta() -> None:
         xgb.QuantileDMatrix(X, y)
     y = X.copy()
     y.iloc[0, 0] = None
-    # check by the cuDF->cupy converter.
-    with pytest.raises(ValueError, match="Label contains NaN"):
+    # check by the cuDF->cupy converter (cuDF raises before XGBoost label validation).
+    with pytest.raises(ValueError, match="no nulls"):
         xgb.DMatrix(X, y)
-    with pytest.raises(ValueError, match="Label contains NaN"):
+    with pytest.raises(ValueError, match="no nulls"):
         xgb.QuantileDMatrix(X, y)
