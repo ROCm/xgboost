@@ -11,7 +11,7 @@ from sklearn.datasets import (
     make_regression,
 )
 
-from ..core import Booster, DMatrix, QuantileDMatrix
+from ..core import Booster, DMatrix, QuantileDMatrix, build_info
 from ..sklearn import XGBClassifier, XGBRegressor
 from ..training import train
 from .updater import get_basescore
@@ -175,7 +175,15 @@ def run_adaptive(tree_method: str, weighted: bool, device: Device) -> None:
     config_0 = json.loads(booster_0.save_config())
     config_1 = json.loads(booster_1.save_config())
 
-    assert get_basescore(config_0) == get_basescore(config_1)
+    bs0 = get_basescore(config_0)
+    bs1 = get_basescore(config_1)
+    if build_info().get("USE_HIP", False) and weighted:
+        # On HIP, the inferred weighted median uses device float32 paths; the explicit
+        # base_score from sklearn is a host float. Serialized base_score values can
+        # differ in the least significant digits, so strict equality is too brittle.
+        np.testing.assert_allclose(bs0, bs1, rtol=1e-6, atol=1e-5)
+    else:
+        assert bs0 == bs1
 
     # check the base score is correctly serialized.
     raw_booster = booster_1.save_raw(raw_format="ubj")
