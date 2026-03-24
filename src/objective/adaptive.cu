@@ -3,7 +3,8 @@
  */
 #include <thrust/sort.h>
 
-#include <cstdint>      // std::int32_t
+#include <algorithm>  // max, min
+#include <cstdint>    // std::int32_t
 #if defined(XGBOOST_USE_CUDA)
 #include <cub/cub.cuh>  // NOLINT
 #elif defined(XGBOOST_USE_HIP)
@@ -13,6 +14,7 @@
 #include "../collective/aggregator.h"
 #include "../common/cuda_context.cuh"  // CUDAContext
 #include "../common/device_helpers.cuh"
+#include "../common/linalg_op.h"  // for VecScaMul
 #include "../common/stats.cuh"
 #include "../tree/sample_position.h"  // for SamplePosition
 #include "../tree/tree_view.h"        // for WalkTree
@@ -148,9 +150,11 @@ void EncodeTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
   CHECK_EQ(nptr.Size(), n_leaf + 1);
 }
 
-void UpdateTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> position,
-                          std::int32_t group_idx, MetaInfo const& info, float learning_rate,
-                          HostDeviceVector<float> const& predt, float alpha, RegTree* p_tree) {
+namespace cuda_impl {
+void UpdateTreeLeaf(Context const* ctx, common::Span<bst_node_t const> position,
+                    bst_target_t group_idx, MetaInfo const& info, float learning_rate,
+                    HostDeviceVector<float> const& predt, std::vector<float> const& h_alphas,
+                    RegTree* p_tree) {
   dh::safe_cuda(cudaSetDevice(ctx->Ordinal()));
   dh::device_vector<size_t> ridx;
   HostDeviceVector<size_t> nptr;
@@ -167,46 +171,51 @@ void UpdateTreeLeafDevice(Context const* ctx, common::Span<bst_node_t const> pos
   auto d_predt = linalg::MakeTensorView(ctx, predt.ConstDeviceSpan(), info.num_row_,
                                         predt.Size() / info.num_row_);
   CHECK_LT(group_idx, d_predt.Shape(1));
-  auto t_predt = d_predt.Slice(linalg::All(), group_idx);
-
+  if (p_tree->IsMultiTarget()) {
+    CHECK_EQ(d_predt.Shape(1), h_alphas.size());
+  }
   HostDeviceVector<float> quantiles;
+
+  auto d_row_index = dh::ToSpan(ridx);
+  // node segments
+  auto seg_beg = nptr.ConstDevicePointer();
+  auto seg_end = seg_beg + nptr.Size();
+  CHECK_EQ(nidx.Size() + 1, nptr.Size());
+
   collective::ApplyWithLabels(ctx, info, &quantiles, [&] {
-    auto d_labels = info.labels.View(ctx->Device()).Slice(linalg::All(), detail::IdxY(info, group_idx));
-    auto d_row_index = dh::ToSpan(ridx);
-    auto seg_beg = nptr.ConstDevicePointer();
-    auto seg_end = seg_beg + nptr.Size();
-    auto val_beg = dh::MakeTransformIterator<float>(thrust::make_counting_iterator(0ul),
-                                                    [=] XGBOOST_DEVICE(size_t i) {
-                                                      float p = t_predt(d_row_index[i]);
-                                                      auto y = d_labels(d_row_index[i]);
-                                                      return y - p;
-                                                    });
+    auto d_labels = info.labels.View(ctx->Device());
+
+    auto values = [=] XGBOOST_DEVICE(std::size_t i, std::size_t j) {
+      // If it's vector-leaf, group_idx is 0, j is used. Otherwise, j is 0, group idx is used.
+      auto p_idx = std::max(j, static_cast<std::size_t>(group_idx));
+      auto p = d_predt(d_row_index[i], p_idx);
+      // label is a single column for quantile regression, but it's a matrix for MAE.
+      auto y_idx = std::max(j, static_cast<std::size_t>(group_idx));
+      y_idx = std::min(y_idx, d_labels.Shape(1) - 1);
+      auto y = d_labels(d_row_index[i], y_idx);
+      return y - p;
+    };
     CHECK_EQ(d_labels.Shape(0), position.size());
-    auto val_end = val_beg + d_labels.Shape(0);
-    CHECK_EQ(nidx.Size() + 1, nptr.Size());
+
     if (info.weights_.Empty()) {
-      common::SegmentedQuantile(ctx, alpha, seg_beg, seg_end, val_beg, val_end, &quantiles);
+      common::SegmentedQuantile(ctx, h_alphas, seg_beg, seg_end, values, info.num_row_, &quantiles);
     } else {
       info.weights_.SetDevice(ctx->Device());
       auto d_weights = info.weights_.ConstDeviceSpan();
       CHECK_EQ(d_weights.size(), d_row_index.size());
       auto w_it =
           thrust::make_permutation_iterator(dh::tcbegin(d_weights), dh::tcbegin(d_row_index));
-      common::SegmentedWeightedQuantile(ctx, alpha, seg_beg, seg_end, val_beg, val_end, w_it,
+      common::SegmentedWeightedQuantile(ctx, h_alphas, seg_beg, seg_end, values, w_it,
                                         w_it + d_weights.size(), &quantiles);
     }
   });
-  detail::UpdateLeafValues(ctx, &quantiles.HostVector(), nidx.ConstHostVector(), info, learning_rate,
-                           p_tree);
-}
 
-namespace cuda_impl {
-void UpdateTreeLeaf(Context const* ctx, common::Span<bst_node_t const> position,
-                    bst_target_t group_idx, MetaInfo const& info, float learning_rate,
-                    HostDeviceVector<float> const& predt, std::vector<float> const& alphas,
-                    RegTree* p_tree) {
-  for (float alpha : alphas) {
-    UpdateTreeLeafDevice(ctx, position, group_idx, info, learning_rate, predt, alpha, p_tree);
+  if (p_tree->IsMultiTarget()) {
+    linalg::VecScaMul(ctx, linalg::MakeVec(ctx->Device(), quantiles.DeviceSpan()), learning_rate);
+    p_tree->SetLeaves(nidx.ConstHostVector(), quantiles.ConstHostSpan());
+  } else {
+    detail::UpdateLeafValues(ctx, &quantiles.HostVector(), nidx.ConstHostVector(), info,
+                             learning_rate, p_tree);
   }
 }
 }  // namespace cuda_impl
