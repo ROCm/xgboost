@@ -24,7 +24,7 @@ subtrees:
         title: Python API (upstream)
   - caption: Tutorial
     entries:
-      - url: https://github.com/AMD-AIOSS/rocm-finance/tree/main/examples/xgboost
+      - url: https://github.com/ROCm/rocm-finance/tree/release/26.01/examples/xgboost
         title: Examples
   - caption: About
     entries:
