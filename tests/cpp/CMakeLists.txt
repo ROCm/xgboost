@@ -87,7 +87,7 @@ target_link_libraries(testxgboost
   PRIVATE
   $<TARGET_NAME_IF_EXISTS:rmm::rmm_logger>
   $<TARGET_NAME_IF_EXISTS:rmm::rmm_logger_impl>
-  GTest::gtest GTest::gmock)
+  GTest::gtest GTest::gmock gcov)
 
 set_output_directory(testxgboost ${xgboost_BINARY_DIR})
 

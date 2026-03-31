@@ -600,27 +600,23 @@ endif()
 
 if(USE_HIP AND ENABLE_LLVM_CODE_COVERAGE)
     message(STATUS "Applying LLVM coverage flags to objxgboost and testxgboost")
-    add_compile_options(--coverage -fprofile-arcs -ftest-coverage)
-	add_link_options(--coverage)
     # The logic files are in objxgboost. Use PUBLIC so testxgboost inherits them.
     if(TARGET objxgboost)
-        target_compile_options(objxgboost PUBLIC 
-			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping> 
+        target_compile_options(objxgboost PUBLIC
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping>
 		)
     endif()
 
     # The test runner also needs instrumentation and the profile runtime linked
     if(TARGET testxgboost)
-        target_compile_options(testxgboost PUBLIC 
-			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping>	
+        target_compile_options(testxgboost PUBLIC
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping>
 		)
-        target_link_options(testxgboost PUBLIC 
+        target_link_options(testxgboost PUBLIC
 			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate>
 		)
     endif()
 endif()
-
-
 
 # Add xgboost.pc
 if(ADD_PKGCONFIG)
