@@ -599,7 +599,18 @@ if(GOOGLE_TEST)
 endif()
 
 if(USE_HIP AND ENABLE_LLVM_CODE_COVERAGE)
-    message(STATUS "Applying LLVM coverage flags to objxgboost and testxgboost")
+    message(STATUS "Applying LLVM coverage flags to xgboost, objxgboost and testxgboost")
+
+    # Apply coverage flags to the shared library target
+    if(TARGET xgboost)
+        target_compile_options(xgboost PUBLIC
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate -fcoverage-mapping>
+		)
+        target_link_options(xgboost PUBLIC
+			$<$<CXX_COMPILER_ID:Clang>:-fprofile-instr-generate>
+		)
+    endif()
+
     # The logic files are in objxgboost. Use PUBLIC so testxgboost inherits them.
     if(TARGET objxgboost)
         target_compile_options(objxgboost PUBLIC
