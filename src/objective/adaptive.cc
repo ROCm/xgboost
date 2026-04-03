@@ -22,6 +22,7 @@
 #include "xgboost/linalg.h"                // MakeTensorView
 #include "xgboost/span.h"                  // Span
 #include "xgboost/tree_model.h"            // RegTree
+#include "../tree/tree_view.h"             // for WalkTree
 
 #if !defined(XGBOOST_USE_CUDA)
 #include "../common/common.h"  // AssertGPUSupport
@@ -48,8 +49,8 @@ void EncodeTreeLeafHost(Context const* ctx, RegTree const& tree,
   CHECK_LE(begin_pos, sorted_pos.size());
 
   std::vector<bst_node_t> leaf;
-  tree.WalkTree([&](bst_node_t nidx) {
-    if (tree[nidx].IsLeaf()) {
+  tree::WalkTree(tree, [&](auto const& tree_view, bst_node_t nidx) {
+    if (tree_view.IsLeaf(nidx)) {
       leaf.push_back(nidx);
     }
     return true;
@@ -168,3 +169,15 @@ void UpdateTreeLeafDevice(Context const*, common::Span<bst_node_t const>, std::i
 }
 #endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 }  // namespace xgboost::obj::detail
+
+namespace xgboost::obj::cpu_impl {
+void UpdateTreeLeaf(Context const* ctx, std::vector<bst_node_t> const& position,
+                    bst_target_t group_idx, MetaInfo const& info, float learning_rate,
+                    HostDeviceVector<float> const& predt, std::vector<float> const& alphas,
+                    RegTree* p_tree) {
+  for (float alpha : alphas) {
+    detail::UpdateTreeLeafHost(ctx, position, static_cast<std::int32_t>(group_idx), info,
+                               learning_rate, predt, alpha, p_tree);
+  }
+}
+}  // namespace xgboost::obj::cpu_impl

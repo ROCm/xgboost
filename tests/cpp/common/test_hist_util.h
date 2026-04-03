@@ -14,11 +14,11 @@
 #include "../../../src/data/simple_dmatrix.h"
 #include "../helpers.h"
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#ifdef __CUDACC__
 #include <xgboost/json.h>
 
 #include "../../../src/data/device_adapter.cuh"
-#endif  // __CUDACC__, __HIPCC__
+#endif  // __CUDACC__
 
 // Some helper functions used to test both GPU and CPU algorithms
 //
@@ -45,7 +45,7 @@ inline std::vector<float> GenerateRandomWeights(int num_rows) {
   return w;
 }
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#ifdef __CUDACC__
 inline data::CupyAdapter AdapterFromData(const thrust::device_vector<float> &x,
   int num_rows, int num_columns) {
   Json array_interface{Object()};

@@ -15,6 +15,7 @@
 #include "../collective/test_worker.h"  // for TestDistributedGlobal, BaseMGPUTest
 #include "../helpers.h"
 #include "test_predictor.h"
+#include "test_shap.h"
 
 namespace xgboost::predictor {
 TEST(GPUPredictor, Basic) {
@@ -35,7 +36,8 @@ TEST(GPUPredictor, Basic) {
 
     auto ctx = MakeCUDACtx(0);
     LearnerModelParam mparam{MakeMP(n_col, .5, 1, ctx.Device())};
-    gbm::GBTreeModel model = CreateTestModel(&mparam, &ctx);
+    std::unique_ptr<gbm::GBTreeModel> p_model = CreateTestModel(&mparam, &ctx);
+    auto const& model = *p_model;
 
     // Test predict batch
     PredictionCacheEntry gpu_out_predictions;
@@ -71,7 +73,8 @@ void VerifyBasicColumnSplit(std::array<std::vector<float>, 32> const& expected_r
     std::unique_ptr<DMatrix> sliced{dmat->SliceCol(world_size, rank)};
 
     LearnerModelParam mparam{MakeMP(n_col, .5, 1, ctx.Device())};
-    gbm::GBTreeModel model = CreateTestModel(&mparam, &ctx);
+    std::unique_ptr<gbm::GBTreeModel> p_model = CreateTestModel(&mparam, &ctx);
+    auto const& model = *p_model;
 
     // Test predict batch
     PredictionCacheEntry out_predictions;
@@ -99,7 +102,8 @@ TEST_F(MGPUPredictorTest, BasicColumnSplit) {
     auto dmat = RandomDataGenerator(n_row, n_col, 0).GenerateDMatrix();
 
     LearnerModelParam mparam{MakeMP(n_col, .5, 1, ctx.Device())};
-    gbm::GBTreeModel model = CreateTestModel(&mparam, &ctx);
+    std::unique_ptr<gbm::GBTreeModel> p_model = CreateTestModel(&mparam, &ctx);
+    auto const& model = *p_model;
 
     // Test predict batch
     PredictionCacheEntry out_predictions;
@@ -152,7 +156,8 @@ void TestDecisionStumpExternalMemory(Context const* ctx, bst_feature_t n_feature
                                      Create create_fn) {
   std::int32_t n_classes = 3;
   LearnerModelParam mparam{MakeMP(n_features, .5, n_classes, ctx->Device())};
-  auto model = CreateTestModel(&mparam, ctx, n_classes);
+  std::unique_ptr<gbm::GBTreeModel> p_model = CreateTestModel(&mparam, ctx, n_classes);
+  auto const& model = *p_model;
   std::unique_ptr<Predictor> gpu_predictor =
       std::unique_ptr<Predictor>(Predictor::Create("gpu_predictor", ctx));
   gpu_predictor->Configure({});
@@ -229,70 +234,6 @@ TEST_F(MGPUPredictorTest, LesserFeaturesColumnSplit) {
   this->DoTest([] { TestPredictionWithLesserFeaturesColumnSplit(true); }, false);
 }
 
-// Very basic test of empty model
-TEST(GPUPredictor, ShapStump) {
-  cudaSetDevice(0);
-
-  auto ctx = MakeCUDACtx(0);
-  LearnerModelParam mparam{MakeMP(1, .5, 1, ctx.Device())};
-  gbm::GBTreeModel model(&mparam, &ctx);
-
-  std::vector<std::unique_ptr<RegTree>> trees;
-  trees.push_back(std::make_unique<RegTree>());
-  model.CommitModelGroup(std::move(trees), 0);
-
-  auto gpu_lparam = MakeCUDACtx(0);
-  std::unique_ptr<Predictor> gpu_predictor = std::unique_ptr<Predictor>(
-      Predictor::Create("gpu_predictor", &gpu_lparam));
-  gpu_predictor->Configure({});
-  HostDeviceVector<float> predictions;
-  auto dmat = RandomDataGenerator(3, 1, 0).GenerateDMatrix();
-  gpu_predictor->PredictContribution(dmat.get(), &predictions, model);
-  auto& phis = predictions.HostVector();
-  auto base_score = mparam.BaseScore(DeviceOrd::CPU())(0);
-  EXPECT_EQ(phis[0], 0.0);
-  EXPECT_EQ(phis[1], base_score);
-  EXPECT_EQ(phis[2], 0.0);
-  EXPECT_EQ(phis[3], base_score);
-  EXPECT_EQ(phis[4], 0.0);
-  EXPECT_EQ(phis[5], base_score);
-}
-
-TEST(GPUPredictor, Shap) {
-  auto ctx = MakeCUDACtx(0);
-  LearnerModelParam mparam{MakeMP(1, .5, 1, ctx.Device())};
-  gbm::GBTreeModel model(&mparam, &ctx);
-
-  std::vector<std::unique_ptr<RegTree>> trees;
-  trees.push_back(std::make_unique<RegTree>());
-  trees[0]->ExpandNode(0, 0, 0.5, true, 1.0, -1.0, 1.0, 0.0, 5.0, 2.0, 3.0);
-  model.CommitModelGroup(std::move(trees), 0);
-
-  auto cpu_lparam = MakeCUDACtx(-1);
-  std::unique_ptr<Predictor> gpu_predictor =
-      std::unique_ptr<Predictor>(Predictor::Create("gpu_predictor", &ctx));
-  std::unique_ptr<Predictor> cpu_predictor = std::unique_ptr<Predictor>(
-      Predictor::Create("cpu_predictor", &cpu_lparam));
-  gpu_predictor->Configure({});
-  cpu_predictor->Configure({});
-  HostDeviceVector<float> predictions;
-  HostDeviceVector<float> cpu_predictions;
-  auto dmat = RandomDataGenerator(3, 1, 0).GenerateDMatrix();
-  gpu_predictor->PredictContribution(dmat.get(), &predictions, model);
-  cpu_predictor->PredictContribution(dmat.get(), &cpu_predictions, model);
-  auto& phis = predictions.HostVector();
-  auto& cpu_phis = cpu_predictions.HostVector();
-  for (auto i = 0ull; i < phis.size(); i++) {
-    EXPECT_NEAR(cpu_phis[i], phis[i], 1e-3);
-  }
-}
-
-TEST_P(ShapExternalMemoryTest, GPUPredictor) {
-  auto ctx = MakeCUDACtx(0);
-  auto [is_qdm, is_interaction] = this->GetParam();
-  this->Run(&ctx, is_qdm, is_interaction);
-}
-
 TEST(GPUPredictor, IterationRange) {
   auto ctx = MakeCUDACtx(0);
   TestIterationRange(&ctx);
@@ -334,14 +275,15 @@ TEST_F(MGPUPredictorTest, CategoricalPredictionLeafColumnSplit) {
 TEST(GPUPredictor, PredictLeafBasic) {
   size_t constexpr kRows = 5, kCols = 5;
   auto dmat = RandomDataGenerator(kRows, kCols, 0).Device(DeviceOrd::CUDA(0)).GenerateDMatrix();
-  auto lparam = MakeCUDACtx(0);
+  auto lparam = MakeCUDACtx(GPUIDX);
   std::unique_ptr<Predictor> gpu_predictor =
       std::unique_ptr<Predictor>(Predictor::Create("gpu_predictor", &lparam));
   gpu_predictor->Configure({});
 
   LearnerModelParam mparam{MakeMP(kCols, .0, 1)};
   Context ctx;
-  gbm::GBTreeModel model = CreateTestModel(&mparam, &ctx);
+  std::unique_ptr<gbm::GBTreeModel> p_model = CreateTestModel(&mparam, &ctx);
+  auto const& model = *p_model;
 
   HostDeviceVector<float> leaf_out_predictions;
   gpu_predictor->PredictLeaf(dmat.get(), &leaf_out_predictions, model);
@@ -349,6 +291,11 @@ TEST(GPUPredictor, PredictLeafBasic) {
   for (auto v : h_leaf_out_predictions) {
     ASSERT_EQ(v, 0);
   }
+}
+
+TEST(GPUPredictor, Multi) {
+  auto ctx = MakeCUDACtx(0);
+  TestVectorLeafPrediction(&ctx);
 }
 
 TEST(GPUPredictor, Sparse) {

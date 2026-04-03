@@ -1,18 +1,18 @@
 /**
- * Copyright 2023, XGBoost Contributors
+ * Copyright 2023-2025, XGBoost Contributors
  */
 #pragma once
 
-#if defined(XGBOOST_USE_NCCL)
-#include "nccl.h"
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
 #include "../common/cuda_to_hip.h"
 #include <rccl/rccl.h>
-#endif  // XGBOOST_USE_NCCL
+#else
+#include "nccl.h"
+#endif
 
 #include <utility>  // for move
 
-#include "../common/device_helpers.cuh"
+#include "../common/cuda_stream.h"  // for StreamRef
 #include "coll.h"
 #include "comm.h"
 #include "nccl_stub.h"  // for NcclStub
@@ -24,10 +24,10 @@ inline Result GetCUDAResult(cudaError rc) {
   if (rc == cudaSuccess) {
     return Success();
   }
-#if defined(XGBOOST_USE_NCCL)
-  std::string msg = thrust::system_error(rc, thrust::cuda_category()).what();
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
   std::string msg = thrust::system_error(rc, thrust::hip_category()).what();
+#else
+  std::string msg = thrust::system_error(rc, thrust::cuda_category()).what();
 #endif
   return Fail(msg);
 }
@@ -37,7 +37,7 @@ class NCCLComm : public Comm {
   ncclComm_t nccl_comm_{nullptr};
   std::shared_ptr<NcclStub> stub_;
   ncclUniqueId nccl_unique_id_{};
-  dh::CUDAStreamView stream_;
+  curt::StreamRef stream_;
   std::string nccl_path_;
 
  public:
@@ -52,7 +52,7 @@ class NCCLComm : public Comm {
   }
   ~NCCLComm() override;
   [[nodiscard]] bool IsFederated() const override { return false; }
-  [[nodiscard]] dh::CUDAStreamView Stream() const { return stream_; }
+  [[nodiscard]] curt::StreamRef Stream() const { return stream_; }
   [[nodiscard]] Result Block() const override {
     auto rc = this->Stream().Sync(false);
     return GetCUDAResult(rc);
@@ -67,16 +67,16 @@ class NCCLChannel : public Channel {
   std::int32_t rank_{-1};
   ncclComm_t nccl_comm_{};
   std::shared_ptr<NcclStub> stub_;
-  dh::CUDAStreamView stream_;
+  curt::StreamRef stream_;
 
  public:
   explicit NCCLChannel(Comm const& comm, std::int32_t rank, ncclComm_t nccl_comm,
-                       std::shared_ptr<NcclStub> stub, dh::CUDAStreamView stream)
+                       std::shared_ptr<NcclStub> stub, curt::StreamRef stream)
       : rank_{rank},
         nccl_comm_{nccl_comm},
         stub_{std::move(stub)},
         Channel{comm, nullptr},
-        stream_{stream} {}
+        stream_{std::move(stream)} {}
 
   [[nodiscard]] Result SendAll(std::int8_t const* ptr, std::size_t n) override {
     return stub_->Send(ptr, n, ncclInt8, rank_, nccl_comm_, stream_);

@@ -16,6 +16,7 @@
 #include <iterator>                                // std::distance
 #include <limits>                                  // std::numeric_limits
 #include <type_traits>                             // std::is_floating_point_v,std::iterator_traits
+#include <vector>                                  // std::vector
 
 #include "algorithm.cuh"                           // SegmentedArgMergeSort
 #include "cuda_context.cuh"                        // CUDAContext
@@ -187,6 +188,48 @@ void SegmentedQuantile(Context const* ctx, double alpha, SegIt seg_begin, SegIt 
 }
 
 /**
+ * @brief Calculate multiple quantiles for multiple segments.
+ *
+ *    Each segment has `n_alphas` quantiles. All segments share the same set of quantiles.
+ *
+ *    The output quantiles are stored in a row-major matrix with shape: (n_segments, n_alphas).
+ *
+ * @param h_alphas Quantiles to be estimated.
+ * @param values   A callable object that indexes the value matrix with shape (n, n_alphas).
+ * @param n        The number of samples in values matrix, should equal to *(seg_end - 1).
+ */
+template <typename SegIt, typename ValIt>
+void SegmentedQuantile(Context const* ctx, std::vector<float> const& h_alphas, SegIt seg_begin,
+                       SegIt seg_end, ValIt values, std::size_t n,
+                       HostDeviceVector<float>* quantiles) {
+  auto n_segments = std::distance(seg_begin, seg_end) - 1;
+  if (n_segments <= 0) {
+    return;
+  }
+
+  auto n_alphas = h_alphas.size();
+  quantiles->SetDevice(ctx->Device());
+  quantiles->Resize(n_segments * n_alphas);
+  auto d_out = quantiles->DeviceSpan();
+
+  HostDeviceVector<float> col;
+  col.SetDevice(ctx->Device());
+  for (std::size_t alpha_idx = 0; alpha_idx < n_alphas; ++alpha_idx) {
+    auto val_begin = dh::MakeIndexTransformIter(
+        [=] XGBOOST_DEVICE(std::size_t i) { return values(i, alpha_idx); });
+    auto val_end = val_begin + n;
+    common::SegmentedQuantile(ctx, static_cast<double>(h_alphas[alpha_idx]), seg_begin, seg_end,
+                              val_begin, val_end, &col);
+    CHECK_EQ(col.Size(), n_segments);
+    auto d_col = col.DeviceSpan();
+    std::size_t const j = alpha_idx;
+    dh::LaunchN(n_segments, ctx->CUDACtx()->Stream(), [=] XGBOOST_DEVICE(std::size_t seg) {
+      d_out[seg * n_alphas + j] = d_col[seg];
+    });
+  }
+}
+
+/**
  * @brief Compute segmented quantile on GPU with weighted inputs.
  *
  * @tparam SegIt Iterator for CSR style segments indptr
@@ -197,8 +240,7 @@ void SegmentedQuantile(Context const* ctx, double alpha, SegIt seg_begin, SegIt 
  * @param w_begin  Iterator for weight for each input element
  */
 template <typename SegIt, typename ValIt, typename AlphaIt, typename WIter,
-          typename std::enable_if_t<
-              !std::is_same_v<typename std::iterator_traits<AlphaIt>::value_type, void>>* = nullptr>
+          std::enable_if_t<!std::is_floating_point_v<AlphaIt>>* = nullptr>
 void SegmentedWeightedQuantile(Context const* ctx, AlphaIt alpha_it, SegIt seg_beg, SegIt seg_end,
                                ValIt val_begin, ValIt val_end, WIter w_begin, WIter w_end,
                                HostDeviceVector<float>* quantiles) {
@@ -248,6 +290,49 @@ void SegmentedWeightedQuantile(Context const* ctx, double alpha, SegIt seg_beg, 
   return SegmentedWeightedQuantile(ctx, thrust::make_constant_iterator(alpha), seg_beg, seg_end,
                                    val_begin, val_end, w_begin, w_end, quantiles);
 }
+
+/**
+ * @brief Calculate multiple weighted quantiles for multiple segments.
+ *
+ * @param h_alphas Quantiles to be estimated.
+ * @param values   A callable object that indexes the value matrix with shape (n, n_alphas).
+ * @param n        The number of samples in values matrix, should equal to *(seg_end - 1).
+ */
+template <typename SegIt, typename ValIt, typename WIter>
+void SegmentedWeightedQuantile(Context const* ctx, std::vector<float> const& h_alphas,
+                               SegIt seg_beg, SegIt seg_end, ValIt values, WIter w_begin,
+                               WIter w_end, HostDeviceVector<float>* quantiles) {
+  auto cuctx = ctx->CUDACtx();
+
+  auto n_segments = std::distance(seg_beg, seg_end) - 1;
+  if (n_segments <= 0) {
+    return;
+  }
+  auto n_alphas = h_alphas.size();
+  std::size_t n = std::distance(w_begin, w_end);
+
+  quantiles->SetDevice(ctx->Device());
+  quantiles->Resize(n_segments * n_alphas);
+  auto d_out = quantiles->DeviceSpan();
+
+  HostDeviceVector<float> col;
+  col.SetDevice(ctx->Device());
+  for (std::size_t alpha_idx = 0; alpha_idx < n_alphas; ++alpha_idx) {
+    auto val_begin = dh::MakeIndexTransformIter(
+        [=] XGBOOST_DEVICE(std::size_t i) { return values(i, alpha_idx); });
+    auto val_end = val_begin + n;
+
+    common::SegmentedWeightedQuantile(ctx, static_cast<double>(h_alphas[alpha_idx]), seg_beg, seg_end,
+                                      val_begin, val_end, w_begin, w_end, &col);
+    CHECK_EQ(col.Size(), n_segments);
+    auto d_col = col.DeviceSpan();
+    std::size_t const j = alpha_idx;
+    dh::LaunchN(n_segments, cuctx->Stream(), [=] XGBOOST_DEVICE(std::size_t seg) {
+      d_out[seg * n_alphas + j] = d_col[seg];
+    });
+  }
+}
+
 }  // namespace common
 }  // namespace xgboost
 #endif  // XGBOOST_COMMON_STATS_CUH_

@@ -7,6 +7,7 @@
 #include <vector>  // for vector
 #include <utility>  // for pair, make_pair
 
+#include "../common/categorical.h"        // include before encoder so <bitset> is parsed in global ns
 #include "../common/cuda_context.cuh"    // for CUDAContext
 #include "../common/device_helpers.cuh"  // for ToSpan
 #include "../common/device_vector.cuh"   // for device_vector
@@ -14,7 +15,7 @@
 #include "../encoder/ordinal.cuh"        // for SortNames
 #include "../encoder/ordinal.h"          // for DictionaryView
 #include "../encoder/types.h"            // for Overloaded
-#include "cat_container.cuh"             // for CatStrArray
+#include "cat_container.cuh"             // for CatStrArray (includes cat_container.h with XGB_CAT_* for HIP)
 #include "cat_container.h"               // for CatContainer
 #include "xgboost/span.h"                // for Span
 
@@ -40,7 +41,7 @@ struct CatContainerImpl {
   std::vector<ColumnType> columns;
   dh::device_vector<enc::DeviceCatIndexView> columns_v;
   template <typename VariantT>
-  void CopyFrom(Context const* ctx, enc::detail::ColumnsViewImpl<VariantT> that) {
+  void CopyFrom(XGB_CAT_CTX const* ctx, enc::detail::ColumnsViewImpl<VariantT> that) {
     this->columns.resize(that.columns.size());
     this->columns_v.resize(that.columns.size());
     CHECK_EQ(this->columns.size(), this->columns_v.size());
@@ -84,13 +85,13 @@ struct CatContainerImpl {
             }
 
             // Create the view
-            using V = common::Span<std::add_const_t<T>>;
+            using V = XGB_CAT_SPAN<std::add_const_t<T>>;
             h_columns_v[f_idx].emplace<V>();
             auto& col_v = Get<V>(h_columns_v[f_idx]);
             col_v = dh::ToSpan(col);
           }};
       auto visit = [&](auto const& col) {
-        using ColT = common::GetValueT<decltype(col)>;
+        using ColT = XGB_CAT_GET_VALUE_T<decltype(col)>;
         if constexpr (std::is_same_v<ColT, enc::HostCatIndexView>) {
           Visit(dispatch, col);
         } else {
@@ -121,27 +122,27 @@ struct CatContainerImpl {
                        if (!out_str.offsets.empty()) {
                          dh::safe_cuda(cudaMemcpyAsync(
                              out_str.offsets.data(), thrust::raw_pointer_cast(str.offsets.data()),
-                             common::Span{out_str.offsets}.size_bytes(), cudaMemcpyDefault));
+                             XGB_CAT_SPAN{out_str.offsets}.size_bytes(), cudaMemcpyDefault));
                        }
                        // Values
                        out_str.values.resize(str.values.size());
                        if (!out_str.values.empty()) {
                          dh::safe_cuda(cudaMemcpyAsync(
                              out_str.values.data(), thrust::raw_pointer_cast(str.values.data()),
-                             common::Span{out_str.values}.size_bytes(), cudaMemcpyDefault));
+                             XGB_CAT_SPAN{out_str.values}.size_bytes(), cudaMemcpyDefault));
                        }
                      },
                      [&](auto&& values) {
                        using T0 = decltype(values);
                        using T1 = std::add_const_t<typename std::decay_t<T0>::value_type>;
-                       using Vec = typename cpu_impl::ViewToStorageImpl<common::Span<T1>>::Type;
+                       using Vec = typename cpu_impl::ViewToStorageImpl<XGB_CAT_SPAN<T1>>::Type;
                        out_col.emplace<Vec>();
                        auto& out_vec = std::get<Vec>(out_col);
                        out_vec.resize(values.size());
                        if (!out_vec.empty()) {
                          dh::safe_cuda(cudaMemcpyAsync(
                              out_vec.data(), thrust::raw_pointer_cast(values.data()),
-                             common::Span{out_vec}.size_bytes(), cudaMemcpyDefault));
+                             XGB_CAT_SPAN{out_vec}.size_bytes(), cudaMemcpyDefault));
                        }
                      }},
                  col);
@@ -151,11 +152,11 @@ struct CatContainerImpl {
 };
 
 [[nodiscard]] std::tuple<CatAccessor, dh::DeviceUVector<std::int32_t>> MakeCatAccessor(
-    Context const* ctx, enc::DeviceColumnsView const& new_enc, CatContainer const* orig_cats) {
+    XGB_CAT_CTX const* ctx, enc::DeviceColumnsView const& new_enc, CatContainer const* orig_cats) {
   dh::DeviceUVector<std::int32_t> mapping(new_enc.n_total_cats);
   auto d_sorted_idx = orig_cats->RefSortedIndex(ctx);
   auto orig_enc = orig_cats->DeviceView(ctx);
-  enc::Recode(EncPolicy, orig_enc, d_sorted_idx, new_enc, dh::ToSpan(mapping));
+  enc::cuda_impl::Recode(EncPolicy, orig_enc, d_sorted_idx, new_enc, dh::ToSpan(mapping));
   CHECK_EQ(new_enc.feature_segments.size(), orig_enc.feature_segments.size());
   auto cats_mapping = enc::MappingView{new_enc.feature_segments, dh::ToSpan(mapping)};
   auto acc = CatAccessor{cats_mapping};
@@ -167,7 +168,7 @@ CatContainer::CatContainer()  // NOLINT
     : cpu_impl_{std::make_unique<cpu_impl::CatContainerImpl>()},
       cu_impl_{std::make_unique<cuda_impl::CatContainerImpl>()} {}
 
-CatContainer::CatContainer(Context const* ctx, enc::DeviceColumnsView const& df, bool is_ref)
+CatContainer::CatContainer(XGB_CAT_CTX const* ctx, enc::DeviceColumnsView const& df, bool is_ref)
     : CatContainer{} {
   this->is_ref_ = is_ref;
   this->n_total_cats_ = df.n_total_cats;
@@ -193,7 +194,7 @@ CatContainer::CatContainer(Context const* ctx, enc::DeviceColumnsView const& df,
 
 CatContainer::~CatContainer() = default;
 
-void CatContainer::Copy(Context const* ctx, CatContainer const& that) {
+void CatContainer::Copy(XGB_CAT_CTX const* ctx, CatContainer const& that) {
   if (ctx->IsCPU()) {
     // Pull data to host
     [[maybe_unused]] auto h_view = that.HostView();
@@ -227,7 +228,7 @@ void CatContainer::Copy(Context const* ctx, CatContainer const& that) {
                        this->cu_impl_->columns[f_idx].emplace<Vec>();
                        this->cu_impl_->columns[f_idx] = values;
 
-                       using S = common::Span<std::add_const_t<T>>;
+                       using S = XGB_CAT_SPAN<std::add_const_t<T>>;
                        h_columns_v[f_idx].emplace<S>();
                        auto& col_v = Get<S>(h_columns_v[f_idx]);
                        col_v = dh::ToSpan(values);
@@ -261,7 +262,7 @@ void CatContainer::Copy(Context const* ctx, CatContainer const& that) {
   return this->cu_impl_->columns.size();
 }
 
-void CatContainer::Sort(Context const* ctx) {
+void CatContainer::Sort(XGB_CAT_CTX const* ctx) {
   if (!this->HasCategorical()) {
     return;
   }
@@ -276,7 +277,7 @@ void CatContainer::Sort(Context const* ctx) {
     CHECK(!view.Empty()) << view.n_total_cats;
     this->sorted_idx_.SetDevice(ctx->Device());
     this->sorted_idx_.Resize(view.n_total_cats);
-    enc::SortNames(cuda_impl::EncPolicy, view, this->sorted_idx_.DeviceSpan());
+    enc::cuda_impl::SortNames(cuda_impl::EncPolicy, view, this->sorted_idx_.DeviceSpan());
   }
 }
 
@@ -291,7 +292,7 @@ void CatContainer::Sort(Context const* ctx) {
   return this->HostViewImpl();
 }
 
-[[nodiscard]] enc::DeviceColumnsView CatContainer::DeviceView(Context const* ctx) const {
+[[nodiscard]] enc::DeviceColumnsView CatContainer::DeviceView(XGB_CAT_CTX const* ctx) const {
   CHECK(ctx->IsCUDA());
   std::lock_guard guard{device_mu_};
   if (!this->DeviceCanRead()) {

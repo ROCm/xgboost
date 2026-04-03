@@ -34,6 +34,9 @@ pushd build
 cmake .. \
   -GNinja \
   -DCMAKE_PREFIX_PATH="${cmake_prefix_path}" \
+  -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+  -DCMAKE_CUDA_COMPILER_LAUNCHER=sccache \
   -DUSE_CUDA=ON \
   -DUSE_OPENMP=ON \
   -DHIDE_CXX_SYMBOLS=ON \
@@ -45,7 +48,6 @@ cmake .. \
   -DUSE_DMLC_GTEST=ON \
   -DENABLE_ALL_WARNINGS=ON \
   -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF \
-  -DBUILD_DEPRECATED_CLI=ON \
   ${cmake_args}
 time ninja -v
 popd

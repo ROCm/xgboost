@@ -381,7 +381,7 @@ void GPUHistEvaluator::LaunchEvaluateSplits(
     TreeEvaluator::SplitEvaluator<GPUTrainingParam> evaluator,
     common::Span<DeviceSplitCandidate> out_splits) {
   if (need_sort_histogram_) {
-    this->SortHistogram(d_inputs, shared_inputs, evaluator);
+    this->SortHistogram(ctx, d_inputs, shared_inputs, evaluator);
   }
 
   size_t combined_num_features = max_active_features * d_inputs.size();

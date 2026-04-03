@@ -51,7 +51,7 @@ TEST(GBTree, SelectTreeMethod) {
   ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
   gbtree.Configure({{"booster", "dart"}, {"tree_method", "hist"}});
   ASSERT_EQ(tparam.updater_seq, "grow_gpu_hist");
-#endif  // XGBOOST_USE_CUDA, XGBOOST_USE_HIP
+#endif  // XGBOOST_USE_CUDA
 }
 
 TEST(GBTree, PredictionCache) {
@@ -65,8 +65,8 @@ TEST(GBTree, PredictionCache) {
 
   gbtree.Configure({{"tree_method", "hist"}});
   auto p_m = RandomDataGenerator{kRows, kCols, 0}.GenerateDMatrix();
-  linalg::Matrix<GradientPair> gpair({kRows}, ctx.Device());
-  gpair.Data()->Copy(GenerateRandomGradients(kRows));
+
+  GradientContainer gpair = GenerateRandomGradients(&ctx, kRows, 1);
 
   PredictionCacheEntry out_predictions;
   gbtree.DoBoost(p_m.get(), &gpair, &out_predictions, nullptr);
@@ -117,9 +117,10 @@ TEST(GBTree, WrongUpdater) {
   ASSERT_THROW(learner->UpdateOneIter(0, p_dmat), dmlc::Error);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#ifdef XGBOOST_USE_CUDA
 TEST(GBTree, ChoosePredictor) {
   // The test ensures data don't get pulled into device.
+  // XGBoost chooses predictor based on the data placement when input is a SparsePage.
   std::size_t constexpr kRows = 17, kCols = 15;
 
   auto p_dmat = RandomDataGenerator(kRows, kCols, 0).GenerateDMatrix();
@@ -206,9 +207,9 @@ TEST(GBTree, ChooseTreeMethod) {
       learner->SetParam("device", d);
     }
     learner->Configure();
+    Context ctx;
     for (std::int32_t i = 0; i < 3; ++i) {
-      linalg::Matrix<GradientPair> gpair{{Xy->Info().num_row_}, DeviceOrd::CPU()};
-      gpair.Data()->Copy(GenerateRandomGradients(Xy->Info().num_row_));
+      GradientContainer gpair = GenerateRandomGradients(&ctx, Xy->Info().num_row_, 1);
       learner->BoostOneIter(0, Xy, &gpair);
     }
 
@@ -429,7 +430,7 @@ class Dart : public testing::TestWithParam<char const*> {
 
 TEST_P(Dart, Prediction) { this->Run(GetParam()); }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 INSTANTIATE_TEST_SUITE_P(PredictorTypes, Dart, testing::Values("CPU", "GPU"));
 #else
 INSTANTIATE_TEST_SUITE_P(PredictorTypes, Dart, testing::Values("CPU"));
@@ -674,7 +675,7 @@ TEST(GBTree, InplacePredictionError) {
     test_ext_err("dart", &ctx);
   }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
   {
     auto ctx = MakeCUDACtx(0);
     test_ext_err("gbtree", &ctx);
@@ -689,7 +690,7 @@ TEST(GBTree, InplacePredictionError) {
     if (ctx->IsCPU()) {
       p_fmat = rng.GenerateQuantileDMatrix(true);
     } else {
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
       p_fmat = rng.Device(ctx->Device()).GenerateQuantileDMatrix(true);
 #else
       CHECK(p_fmat);
@@ -718,7 +719,7 @@ TEST(GBTree, InplacePredictionError) {
     test_qdm_err("dart", &ctx);
   }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
   {
     auto ctx = MakeCUDACtx(0);
     test_qdm_err("gbtree", &ctx);

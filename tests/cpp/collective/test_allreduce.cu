@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2024, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_NCCL)
 #include <gtest/gtest.h>
 #include <thrust/host_vector.h>  // for host_vector
 

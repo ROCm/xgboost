@@ -55,7 +55,6 @@ class TrainingCallback(ABC):
 
     """
 
-    # pylint: disable=invalid-name
     EvalsLog: TypeAlias = EvalsLog
 
     def __init__(self) -> None:
@@ -161,7 +160,7 @@ class CallbackContainer:
         output_margin: bool = True,
         is_cv: bool = False,
     ) -> None:
-        self.callbacks = set(callbacks)
+        self.callbacks = list(dict.fromkeys(callbacks))
         for cb in callbacks:
             if not isinstance(cb, TrainingCallback):
                 raise TypeError("callback must be an instance of `TrainingCallback`.")

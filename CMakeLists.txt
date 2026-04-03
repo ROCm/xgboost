@@ -4,7 +4,7 @@ if(PLUGIN_SYCL)
   string(REPLACE " -isystem ${CONDA_PREFIX}/include" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 endif()
 
-project(xgboost LANGUAGES CXX C VERSION 3.1.1)
+project(xgboost LANGUAGES CXX C VERSION 3.2.0)
 include(cmake/Utils.cmake)
 list(APPEND CMAKE_MODULE_PATH "${xgboost_SOURCE_DIR}/cmake/modules")
 
@@ -226,6 +226,9 @@ endif()
 if(PLUGIN_DENSE_PARSER)
   message(SEND_ERROR "The option `PLUGIN_DENSE_PARSER` has been removed from XGBoost.")
 endif()
+if(BUILD_DEPRECATED_CLI)
+  message(SEND_ERROR  "The option `BUILD_DEPRECATED_CLI` is removed from XGBoost.")
+endif()
 
 #-- Sanitizer
 if(USE_SANITIZER)
@@ -248,39 +251,18 @@ if(USE_CUDA)
   endif()
 
   enable_language(CUDA)
-  if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_LESS 11.0)
-    message(FATAL_ERROR "CUDA version must be at least 11.0!")
+  if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_LESS 12.9)
+    message(FATAL_ERROR "CUDA version must be at least 12.9!")
   endif()
   if(DEFINED GPU_COMPUTE_VER)
     compute_cmake_cuda_archs("${GPU_COMPUTE_VER}")
   endif()
 
-  find_package(CUDAToolkit REQUIRED)
-  find_package(CCCL CONFIG)
-  if(NOT CCCL_FOUND)
-    message(STATUS "Standalone CCCL not found. Attempting to use CCCL from CUDA Toolkit...")
-    find_package(CCCL CONFIG
-      HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
-    if(NOT CCCL_FOUND)
-      message(STATUS "Could not locate CCCL from CUDA Toolkit. Using Thrust and CUB from CUDA Toolkit...")
-      find_package(libcudacxx CONFIG REQUIRED
-        HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
-      find_package(CUB CONFIG REQUIRED
-        HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
-      find_package(Thrust CONFIG REQUIRED
-        HINTS ${CUDAToolkit_LIBRARY_DIR}/cmake)
-      thrust_create_target(Thrust HOST CPP DEVICE CUDA)
-      add_library(CCCL::CCCL INTERFACE IMPORTED GLOBAL)
-      target_link_libraries(CCCL::CCCL INTERFACE libcudacxx::libcudacxx CUB::CUB Thrust)
-    endif()
-  endif()
+  find_package(CUDAToolkit 12.8 REQUIRED)
 endif()
 
 if(USE_NVCOMP)
   find_package(nvcomp REQUIRED)
-  if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_LESS 12.8)
-    message(SEND_ERROR "NVComp support requires CUDA >= 12.8")
-  endif()
 endif()
 
 if (USE_HIP)
@@ -317,7 +299,7 @@ if(USE_OPENMP)
   if(APPLE)
     find_openmp_macos()
   else()
-    find_package(OpenMP REQUIRED)
+    find_package(OpenMP REQUIRED C CXX)
   endif()
 endif()
 
@@ -434,6 +416,11 @@ if(BUILD_STATIC_LIB)
   add_library(xgboost STATIC)
 else()
   add_library(xgboost SHARED)
+  # Fail at link time on undefined symbols (e.g. declaration/definition name mismatch)
+  # instead of at runtime when loading libxgboost.so (e.g. Python wheel).
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(xgboost PRIVATE -Wl,--no-undefined)
+  endif()
 endif()
 target_link_libraries(xgboost PRIVATE objxgboost)
 target_include_directories(xgboost
@@ -441,28 +428,6 @@ target_include_directories(xgboost
   $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>)
 #-- End shared library
-
-#-- CLI for xgboost
-if(BUILD_DEPRECATED_CLI)
-  add_executable(runxgboost ${xgboost_SOURCE_DIR}/src/cli_main.cc)
-  target_link_libraries(runxgboost PRIVATE objxgboost)
-  target_include_directories(runxgboost
-    PRIVATE
-    ${xgboost_SOURCE_DIR}/include
-    ${xgboost_SOURCE_DIR}/dmlc-core/include
-  )
-  set_target_properties(runxgboost PROPERTIES OUTPUT_NAME xgboost)
-  xgboost_target_properties(runxgboost)
-  xgboost_target_link_libraries(runxgboost)
-  xgboost_target_defs(runxgboost)
-
-  if(KEEP_BUILD_ARTIFACTS_IN_BINARY_DIR)
-    set_output_directory(runxgboost ${xgboost_BINARY_DIR})
-  else()
-    set_output_directory(runxgboost ${xgboost_SOURCE_DIR})
-  endif()
-endif()
-#-- End CLI for xgboost
 
 # Common setup for all targets
 foreach(target xgboost objxgboost dmlc)
@@ -485,11 +450,6 @@ if(KEEP_BUILD_ARTIFACTS_IN_BINARY_DIR)
   set_output_directory(xgboost ${xgboost_BINARY_DIR}/lib)
 else()
   set_output_directory(xgboost ${xgboost_SOURCE_DIR}/lib)
-endif()
-
-# Ensure these two targets do not build simultaneously, as they produce outputs with conflicting names
-if(BUILD_DEPRECATED_CLI)
-  add_dependencies(xgboost runxgboost)
 endif()
 
 #-- Installing XGBoost
@@ -526,17 +486,9 @@ install(DIRECTORY ${xgboost_SOURCE_DIR}/include/xgboost
 #
 # https://github.com/dmlc/xgboost/issues/6085
 if(BUILD_STATIC_LIB)
-  if(BUILD_DEPRECATED_CLI)
-    set(INSTALL_TARGETS xgboost runxgboost objxgboost dmlc)
-  else()
-    set(INSTALL_TARGETS xgboost objxgboost dmlc)
-  endif()
+  set(INSTALL_TARGETS xgboost objxgboost dmlc)
 else()
-  if(BUILD_DEPRECATED_CLI)
-    set(INSTALL_TARGETS xgboost runxgboost)
-  else()
-    set(INSTALL_TARGETS xgboost)
-  endif()
+  set(INSTALL_TARGETS xgboost)
 endif()
 
 install(TARGETS ${INSTALL_TARGETS}
@@ -581,21 +533,6 @@ if(GOOGLE_TEST)
     NAME TestXGBoostLib
     COMMAND testxgboost
     WORKING_DIRECTORY ${xgboost_BINARY_DIR})
-  # CLI tests
-  configure_file(
-    ${xgboost_SOURCE_DIR}/tests/cli/machine.conf.in
-    ${xgboost_BINARY_DIR}/tests/cli/machine.conf
-    @ONLY
-    NEWLINE_STYLE UNIX)
-  if(BUILD_DEPRECATED_CLI)
-    add_test(
-      NAME TestXGBoostCLI
-      COMMAND runxgboost ${xgboost_BINARY_DIR}/tests/cli/machine.conf
-      WORKING_DIRECTORY ${xgboost_BINARY_DIR})
-    set_tests_properties(TestXGBoostCLI
-      PROPERTIES
-      PASS_REGULAR_EXPRESSION ".*test-rmse:0.087.*")
-  endif()
 endif()
 
 if(USE_HIP AND ENABLE_LLVM_CODE_COVERAGE)

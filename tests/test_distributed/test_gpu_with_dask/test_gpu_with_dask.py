@@ -41,20 +41,16 @@ pytestmark = [
     tm.timeout(180),
 ]
 
-try:
-    import cudf
-    import dask
-    import dask.dataframe as dd
-    from dask import __version__ as dask_version
-    from dask import array as da
-    from dask.distributed import Client
-    from dask_cuda import LocalCUDACluster
+import cudf
+import dask
+import dask.dataframe as dd
+from dask import __version__ as dask_version
+from dask import array as da
+from dask.distributed import Client
+from dask_cuda import LocalCUDACluster
 
-    from xgboost import dask as dxgb
-    from xgboost.testing.dask import check_init_estimation, check_uneven_nan
-except ImportError:
-    dask_version = None
-
+from xgboost import dask as dxgb
+from xgboost.testing.dask import check_init_estimation, check_uneven_nan
 
 dask_version_ge110 = dask_version and parse_version(dask_version) >= parse_version(
     "2024.11.0"
@@ -618,7 +614,7 @@ def test_with_asyncio(local_cuda_client: Client) -> None:
 
 
 @pytest.mark.skipif(
-    condition=not xgb.build_info()["USE_DLOPEN_NCCL"] and not xgb.build_info()["USE_DLOPEN_RCCL"],
+    condition=not xgb.build_info()["USE_DLOPEN_NCCL"],
     reason="Not compiled with dlopen.",
 )
 def test_invalid_nccl(local_cuda_client: Client) -> None:
@@ -639,7 +635,7 @@ def test_invalid_nccl(local_cuda_client: Client) -> None:
 
 
 @pytest.mark.skipif(
-    condition=not xgb.build_info()["USE_DLOPEN_NCCL"] and not xgb.build_info()["USE_DLOPEN_RCCL"],
+    condition=not xgb.build_info()["USE_DLOPEN_NCCL"],
     reason="Not compiled with dlopen.",
 )
 @pytest.mark.parametrize("tree_method", ["hist", "approx"])

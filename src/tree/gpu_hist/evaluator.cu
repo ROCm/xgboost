@@ -66,7 +66,8 @@ void GPUHistEvaluator::Reset(Context const *ctx, common::HistogramCuts const &cu
 }
 
 common::Span<bst_feature_t const> GPUHistEvaluator::SortHistogram(
-    common::Span<const EvaluateSplitInputs> d_inputs, EvaluateSplitSharedInputs shared_inputs,
+    Context const* ctx, common::Span<const EvaluateSplitInputs> d_inputs,
+    EvaluateSplitSharedInputs shared_inputs,
     TreeEvaluator::SplitEvaluator<GPUTrainingParam> evaluator) {
   dh::XGBCachingDeviceAllocator<char> alloc;
   auto sorted_idx = this->SortedIdx(d_inputs.size(), shared_inputs.feature_values.size());

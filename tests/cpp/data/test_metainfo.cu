@@ -44,7 +44,6 @@ std::string PrepareData(std::string typestr, thrust::device_vector<T>* out, cons
 
 TEST(MetaInfo, FromInterface) {
   cudaSetDevice(0);
-
   Context ctx;
   thrust::device_vector<float> d_data;
 
@@ -89,7 +88,6 @@ TEST(MetaInfo, GPUStridedData) {
 
 TEST(MetaInfo, Group) {
   cudaSetDevice(0);
-
   MetaInfo info;
   Context ctx;
 
@@ -144,7 +142,6 @@ TEST(MetaInfo, GPUQid) {
 
 TEST(MetaInfo, DeviceExtend) {
   dh::safe_cuda(cudaSetDevice(0));
-
   size_t const kRows = 100;
   MetaInfo lhs, rhs;
   Context ctx;

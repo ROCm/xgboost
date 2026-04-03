@@ -3,7 +3,7 @@ change without notice.
 
 """
 
-# pylint: disable=invalid-name,missing-function-docstring
+# pylint: disable=missing-function-docstring
 import importlib.util
 import os
 import platform
@@ -21,7 +21,6 @@ from typing import (
     Generator,
     List,
     Optional,
-    Sequence,
     Set,
     Tuple,
     TypedDict,
@@ -49,6 +48,9 @@ from .data import (
     make_categorical,
     make_sparse_regression,
 )
+
+# Used to be defined in this top level module.
+from .utils import non_decreasing, non_increasing  # NOLINT
 
 hypothesis = pytest.importorskip("hypothesis")
 
@@ -188,10 +190,6 @@ def no_cupy() -> PytestSkip:
 
 def no_dask_cudf() -> PytestSkip:
     return no_mod("dask_cudf")
-
-
-def no_json_schema() -> PytestSkip:
-    return no_mod("jsonschema")
 
 
 def no_graphviz() -> PytestSkip:
@@ -503,14 +501,6 @@ multi_dataset_strategy = make_datasets_with_margin(
 )()
 
 
-def non_increasing(L: Sequence[float], tolerance: float = 1e-4) -> bool:
-    return all((y - x) < tolerance for x, y in zip(L, L[1:]))
-
-
-def non_decreasing(L: Sequence[float], tolerance: float = 1e-4) -> bool:
-    return all((y - x) >= -tolerance for x, y in zip(L, L[1:]))
-
-
 M = TypeVar("M", xgb.Booster, xgb.XGBModel)
 
 
@@ -625,7 +615,7 @@ def ls_obj(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Least squared error."""
     grad = y_pred - y_true
-    hess = np.ones(len(y_true))
+    hess = np.ones(grad.shape)
     if sample_weight is not None:
         grad *= sample_weight
         hess *= sample_weight

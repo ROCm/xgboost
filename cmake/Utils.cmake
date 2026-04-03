@@ -67,6 +67,7 @@ function(compute_cmake_cuda_archs archs)
   set(CMAKE_CUDA_ARCHITECTURES ${archs})
 
   # Set up defaults based on CUDA varsion
+  # Remember to update arch-specific tunings when supporting new archs.
   if(NOT CMAKE_CUDA_ARCHITECTURES)
     if(CUDA_VERSION VERSION_GREATER_EQUAL "13.0")
       set(CMAKE_CUDA_ARCHITECTURES 75 80 90 100 120)
@@ -117,7 +118,9 @@ function(xgboost_set_cuda_flags target)
 
   if(USE_NVTX)
     target_compile_definitions(${target} PRIVATE -DXGBOOST_USE_NVTX=1)
-    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
+    if(NOT USE_DEVICE_DEBUG)
+      target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo>)
+    endif()
   endif()
 
   # Use CCCL we find before CUDA Toolkit to make sure we get newer headers as intended
@@ -194,7 +197,8 @@ function(xgboost_link_nccl target)
 endfunction()
 
 function(xgboost_link_rccl target)
-  set(xgboost_rccl_flags -DXGBOOST_USE_RCCL=1)
+  # Use same define as NCCL; HIP vs CUDA path is chosen by XGBOOST_USE_HIP (set by HIP build).
+  set(xgboost_rccl_flags -DXGBOOST_USE_NCCL=1)
   if(USE_DLOPEN_RCCL)
     list(APPEND xgboost_rccl_flags -DXGBOOST_USE_DLOPEN_RCCL=1)
   endif()

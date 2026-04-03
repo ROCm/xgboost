@@ -10,8 +10,9 @@
 #include <cstdint>  // for uint8_t, uint32_t, int32_t
 #include <memory>   // for shared_ptr
 
+#include "cuda_stream.h"  // for StreamRef
 #include "device_compression.cuh"
-#include "device_helpers.cuh"  // for CUDAStreamView, MemcpyBatchAsync
+#include "device_helpers.cuh"  // for MemcpyBatchAsync
 #include "xgboost/span.h"      // for Span
 
 #if defined(XGBOOST_USE_NVCOMP)
@@ -76,7 +77,7 @@ XGBOOST_DEVICE std::uint32_t GetUncompressedSize(std::uint8_t const* src, std::s
 void FillDecompParams(void const* const* d_in_chunk_ptrs, std::size_t const* d_in_chunk_nbytes,
                       common::Span<CUmemDecompressParams> de_params, size_t* d_act_nbytes,
                       std::size_t const* d_out_chunk_nbytes, std::int32_t* statuses,
-                      dh::CUDAStreamView stream) {
+                      curt::StreamRef stream) {
   auto n_chunks = de_params.size();
   dh::LaunchN(n_chunks, stream,
               [d_in_chunk_ptrs, d_in_chunk_nbytes, d_out_chunk_nbytes, d_act_nbytes, de_params,
@@ -155,7 +156,7 @@ void SafeNvComp(nvcompStatus_t status) {
   return de;
 }
 
-SnappyDecomprMgrImpl::SnappyDecomprMgrImpl(dh::CUDAStreamView s,
+SnappyDecomprMgrImpl::SnappyDecomprMgrImpl(curt::StreamRef s,
                                            std::shared_ptr<HostPinnedMemPool> pool,
                                            CuMemParams params,
                                            common::Span<std::uint8_t const> in_compressed_data)
@@ -253,7 +254,7 @@ SnappyDecomprMgr::~SnappyDecomprMgr() = default;
 
 SnappyDecomprMgrImpl* SnappyDecomprMgr::Impl() const { return this->pimpl_.get(); }
 
-void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
+void DecompressSnappy(curt::StreamRef stream, SnappyDecomprMgr const& mgr,
                       common::Span<common::CompressedByteT> out, bool allow_fallback) {
   xgboost_NVTX_FN_RANGE();
   auto mgr_impl = mgr.Impl();
@@ -276,11 +277,17 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
     // Fallback to nvcomp. This is only used during tests where we don't have access to DE
     // but still want the test coverage.
     CHECK(allow_fallback);
-    CheckAlign(nvcompBatchedSnappyDecompressRequiredAlignments);
+    nvcompAlignmentRequirements_t decompression_alignment_reqs;
+    SafeNvComp(nvcompBatchedSnappyDecompressGetRequiredAlignments(
+        nvcompBatchedSnappyDecompressDefaultOpts, &decompression_alignment_reqs));
+    CheckAlign(decompression_alignment_reqs);
     auto n_chunks = mgr_impl->Chunks();
     // Get sketch space
     std::size_t n_tmp_bytes = 0;
-    SafeNvComp(nvcompBatchedSnappyDecompressGetTempSize(n_chunks, /*unused*/ 0, &n_tmp_bytes));
+    SafeNvComp(nvcompBatchedSnappyDecompressGetTempSizeAsync(
+        n_chunks, /*max_uncompressed_chunk_bytes=*/0, nvcompBatchedSnappyDecompressDefaultOpts,
+        &n_tmp_bytes,
+        /*max_total_uncompressed_bytes=*/0));
     dh::device_vector<char> tmp(n_tmp_bytes, 0);
 
     dh::device_vector<nvcompStatus_t> status(n_chunks, nvcompSuccess);
@@ -296,7 +303,8 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
     SafeNvComp(nvcompBatchedSnappyDecompressAsync(
         mgr_impl->d_in_chunk_ptrs.data().get(), mgr_impl->d_in_chunk_sizes.data().get(),
         mgr_impl->d_out_chunk_sizes.data().get(), mgr_impl->act_nbytes.data().get(), n_chunks,
-        tmp.data().get(), n_tmp_bytes, d_out_ptrs.data().get(), status.data().get(), stream));
+        tmp.data().get(), n_tmp_bytes, d_out_ptrs.data().get(),
+        nvcompBatchedSnappyDecompressDefaultOpts, status.data().get(), stream));
   }
 }
 
@@ -306,7 +314,7 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
                                          std::size_t chunk_size) {
   CHECK_GT(chunk_size, 0);
   auto cuctx = ctx->CUDACtx();
-  auto nvcomp_batched_snappy_opts = nvcompBatchedSnappyDefaultOpts;
+  auto nvcomp_batched_snappy_opts = nvcompBatchedSnappyCompressDefaultOpts;
 
   nvcompAlignmentRequirements_t compression_alignment_reqs;
   SafeNvComp(nvcompBatchedSnappyCompressGetRequiredAlignments(nvcomp_batched_snappy_opts,
@@ -351,8 +359,9 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
    * Outputs
    */
   std::size_t comp_temp_bytes;
-  SafeNvComp(nvcompBatchedSnappyCompressGetTempSize(n_chunks, chunk_size,
-                                                    nvcomp_batched_snappy_opts, &comp_temp_bytes));
+  SafeNvComp(nvcompBatchedSnappyCompressGetTempSizeAsync(
+      n_chunks, chunk_size, nvcomp_batched_snappy_opts, &comp_temp_bytes,
+      /*max_total_uncompressed_bytes=*/in.size()));
   CHECK_EQ(comp_temp_bytes, 0);
   dh::DeviceUVector<char> comp_tmp(comp_temp_bytes);
 
@@ -380,7 +389,8 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
    */
   SafeNvComp(nvcompBatchedSnappyCompressAsync(
       in_ptrs.data(), in_sizes.data(), max_in_nbytes, n_chunks, comp_tmp.data(), comp_temp_bytes,
-      out_ptrs.data(), out_sizes.data(), nvcomp_batched_snappy_opts, cuctx->Stream()));
+      out_ptrs.data(), out_sizes.data(), nvcomp_batched_snappy_opts, /*device_statuses=*/nullptr,
+      cuctx->Stream()));
   auto n_bytes = thrust::reduce(cuctx->CTP(), out_sizes.cbegin(), out_sizes.cend());
   auto n_total_bytes = p_out->size();
   auto ratio = static_cast<double>(n_total_bytes) / in.size_bytes();
@@ -409,9 +419,8 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
 }
 
 [[nodiscard]] common::RefResourceView<std::uint8_t> CoalesceCompressedBuffersToHost(
-    dh::CUDAStreamView stream, std::shared_ptr<HostPinnedMemPool> pool,
-    CuMemParams const& in_params, dh::DeviceUVector<std::uint8_t> const& in_buf,
-    CuMemParams* p_out) {
+    curt::StreamRef stream, std::shared_ptr<HostPinnedMemPool> pool, CuMemParams const& in_params,
+    dh::DeviceUVector<std::uint8_t> const& in_buf, CuMemParams* p_out) {
   std::size_t n_total_act_bytes = in_params.TotalSrcActBytes();
   std::size_t n_total_bytes = in_params.TotalSrcBytes();
   if (n_total_bytes == 0) {
@@ -462,7 +471,7 @@ void DecompressSnappy(dh::CUDAStreamView stream, SnappyDecomprMgr const& mgr,
 
 namespace xgboost::dc {
 // Impl
-SnappyDecomprMgrImpl::SnappyDecomprMgrImpl(dh::CUDAStreamView,
+SnappyDecomprMgrImpl::SnappyDecomprMgrImpl(curt::StreamRef,
                                            std::shared_ptr<common::cuda_impl::HostPinnedMemPool>,
                                            CuMemParams,
                                            common::Span<common::CompressedByteT const>) {}
@@ -478,7 +487,7 @@ SnappyDecomprMgrImpl* SnappyDecomprMgr::Impl() const { return nullptr; }
 [[nodiscard]] std::size_t SnappyDecomprMgr::DecompressedBytes() const { return 0; }
 
 // Round-trip compression
-void DecompressSnappy(dh::CUDAStreamView, SnappyDecomprMgr const&,
+void DecompressSnappy(curt::StreamRef, SnappyDecomprMgr const&,
                       common::Span<common::CompressedByteT>, bool) {
   common::AssertNvCompSupport();
 }
@@ -494,7 +503,7 @@ void DecompressSnappy(dh::CUDAStreamView, SnappyDecomprMgr const&,
 }
 
 [[nodiscard]] common::RefResourceView<std::uint8_t> CoalesceCompressedBuffersToHost(
-    dh::CUDAStreamView, std::shared_ptr<HostPinnedMemPool>, CuMemParams const& in_params,
+    curt::StreamRef, std::shared_ptr<HostPinnedMemPool>, CuMemParams const& in_params,
     dh::DeviceUVector<std::uint8_t> const&, CuMemParams*) {
   std::size_t n_total_bytes = in_params.TotalSrcBytes();
   if (n_total_bytes == 0) {

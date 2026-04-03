@@ -1,16 +1,27 @@
 /**
- * Copyright 2015-2025, XGBoost Contributors
+ * Copyright 2015-2026, XGBoost Contributors
  */
 #include "cuda_rt_utils.h"
 
+#include <cstring>  // for memcpy
+#include <set>      // for set
+#include <sstream>  // for stringstream
+
+#include "cuda_stream.h"   // for StreamRef
+#include "xgboost/span.h"  // for Span
+
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda_runtime_api.h>
+
+#include <algorithm>  // for max
+
 #elif defined(XGBOOST_USE_HIP)
 #include "cuda_to_hip.h"
 #include <hip/hip_runtime.h>
-#endif
 
 #include <algorithm>  // for max
+
+#endif
 
 #include <cstddef>  // for size_t
 #include <cstdint>  // for int32_t
@@ -27,7 +38,7 @@ std::int32_t AllVisibleGPUs() {
     // cudaGetDeviceCount will fail.
     dh::safe_cuda(cudaGetDeviceCount(&n_visgpus));
   } catch (const dmlc::Error&) {
-    cudaGetLastError();  // reset error.
+    (void)cudaGetLastError();  // reset error.
     return 0;
   }
   return n_visgpus;
@@ -97,11 +108,47 @@ void GetDrVersionGlobal(std::int32_t* major, std::int32_t* minor) {
 
 [[nodiscard]] std::int32_t GetNumaId() {
   std::int32_t numa_id = -1;
-#if defined(XGBOOST_USE_CUDA)
   dh::safe_cuda(cudaDeviceGetAttribute(&numa_id, cudaDevAttrHostNumaId, curt::CurrentDevice()));
   numa_id = std::max(numa_id, 0);
-#endif
   return numa_id;
+}
+
+[[nodiscard]] std::int32_t GetMpCnt(std::int32_t device) {
+  std::int32_t n_mps = 0;
+  dh::safe_cuda(cudaDeviceGetAttribute(&n_mps, cudaDevAttrMultiProcessorCount, device));
+  CHECK_GT(n_mps, 0);
+  return n_mps;
+}
+
+[[nodiscard]] bool MemoryPoolsSupported(std::int32_t device) {
+  std::int32_t res = 0;
+  dh::safe_cuda(cudaDeviceGetAttribute(&res, cudaDevAttrMemoryPoolsSupported, device));
+  return !!res;
+}
+
+static_assert(kUuidLength == sizeof(std::declval<cudaDeviceProp>().uuid));
+
+void GetUuid(xgboost::common::Span<unsigned char> uuid, std::int32_t device) {
+  cudaDeviceProp prop{};
+  dh::safe_cuda(cudaGetDeviceProperties(&prop, device));
+  std::memcpy(uuid.data(), static_cast<void*>(&(prop.uuid)), kUuidLength);
+}
+
+[[nodiscard]] std::string PrintUuid(common::Span<unsigned char const, kUuidLength> uuid) {
+  std::set<std::size_t> dash_pos{0, 4, 6, 8, 10};
+  std::stringstream ss;
+  ss << "GPU";
+  for (std::size_t i = 0; i < kUuidLength; ++i) {
+    if (dash_pos.find(i) != dash_pos.cend()) {
+      ss << "-";
+    }
+    ss << std::setw(2) << std::setfill('0') << std::hex << (0xFF & std::uint32_t{uuid[i]});
+  }
+  return ss.str();
+}
+
+void MemcpyAsync(void* dst, const void* src, std::size_t count, StreamRef stream) {
+  dh::safe_cuda(cudaMemcpyAsync(dst, src, count, cudaMemcpyDefault, stream));
 }
 
 #else
@@ -133,5 +180,18 @@ void SetDevice(std::int32_t device) {
   return 0;
 }
 
-#endif  // !defined(XGBOOST_USE_CUDA)
+[[nodiscard]] std::int32_t GetMpCnt(std::int32_t) {
+  common::AssertGPUSupport();
+  return 0;
+}
+
+[[nodiscard]] bool MemoryPoolsSupported(std::int32_t) { return false; }
+
+void GetUuid(xgboost::common::Span<unsigned char>, std::int32_t) { common::AssertGPUSupport(); }
+
+[[nodiscard]] std::string PrintUuid(common::Span<unsigned char const, kUuidLength>) { return {}; }
+
+void MemcpyAsync(void*, const void*, std::size_t, StreamRef) { common::AssertGPUSupport(); }
+
+#endif  // !defined(XGBOOST_USE_CUDA) && !defined(XGBOOST_USE_HIP)
 }  // namespace xgboost::curt

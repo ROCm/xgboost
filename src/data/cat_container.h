@@ -18,9 +18,30 @@
 #include "xgboost/base.h"                // for bst_cat_t
 #include "xgboost/data.h"                // for Entry
 #include "xgboost/host_device_vector.h"  // for HostDeviceVector
-#include "xgboost/json.h"                // for Json
+
+#if defined(XGBOOST_USE_HIP)
+// HIP: qualify with ::xgboost when this header may be included from namespace enc (avoids
+// enc::xgboost lookup). Remove or adjust when upstream/other versions handle namespace differently.
+#define XGB_CAT_CTX ::xgboost::Context
+#define XGB_CAT_SPAN ::xgboost::common::Span
+#define XGB_CAT_BST_CAT_T ::xgboost::bst_cat_t
+#define XGB_CAT_HDV ::xgboost::HostDeviceVector
+#define XGB_CAT_ENTRY ::xgboost::Entry
+#define XGB_CAT_AS_CAT ::xgboost::common::AsCat
+#define XGB_CAT_GET_VALUE_T ::xgboost::common::GetValueT
+#else
+#define XGB_CAT_CTX Context
+#define XGB_CAT_SPAN common::Span
+#define XGB_CAT_BST_CAT_T bst_cat_t
+#define XGB_CAT_HDV HostDeviceVector
+#define XGB_CAT_ENTRY Entry
+#define XGB_CAT_AS_CAT common::AsCat
+#define XGB_CAT_GET_VALUE_T common::GetValueT
+#endif
 
 namespace xgboost {
+class Json;
+
 /**
  * @brief Error policy class used to interface with the encoder implementaion.
  */
@@ -49,7 +70,7 @@ struct ViewToStorageImpl<enc::CatStrArrayView> {
 };
 
 template <typename T>
-struct ViewToStorageImpl<common::Span<T const>> {
+struct ViewToStorageImpl<XGB_CAT_SPAN<T const>> {
   using Type = std::vector<T>;
 };
 
@@ -81,7 +102,7 @@ struct CatContainerImpl {
                                    this->columns_v.emplace_back(enc::CatStrArrayView(str));
                                  },
                                  [this](auto&& values) {
-                                   this->columns_v.emplace_back(common::Span{values});
+                                   this->columns_v.emplace_back(XGB_CAT_SPAN{values});
                                  }},
                  col);
     }
@@ -111,7 +132,7 @@ class CatContainer {
    * method changes the permission in the HostDeviceVector as we need to pull data into
    * targeted devices.
    */
-  void CopyCommon(Context const* ctx, CatContainer const& that) {
+  void CopyCommon(XGB_CAT_CTX const* ctx, CatContainer const& that) {
     auto device = ctx->Device();
 
     that.sorted_idx_.SetDevice(device);
@@ -138,7 +159,7 @@ class CatContainer {
     if (this->n_total_cats_ != 0) {
       CHECK(!this->cpu_impl_->columns_v.empty());
     }
-    return {common::Span{this->cpu_impl_->columns_v}, this->feature_segments_.ConstHostSpan(),
+    return {XGB_CAT_SPAN{this->cpu_impl_->columns_v}, this->feature_segments_.ConstHostSpan(),
             this->n_total_cats_};
   }
 
@@ -146,11 +167,11 @@ class CatContainer {
   CatContainer();
   explicit CatContainer(enc::HostColumnsView const& df, bool is_ref);
 #if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-  explicit CatContainer(Context const* ctx, enc::DeviceColumnsView const& df, bool is_ref);
+  explicit CatContainer(XGB_CAT_CTX const* ctx, enc::DeviceColumnsView const& df, bool is_ref);
 #endif  // defined(XGBOOST_USE_CUDA)
   ~CatContainer();
 
-  void Copy(Context const* ctx, CatContainer const& that);
+  void Copy(XGB_CAT_CTX const* ctx, CatContainer const& that);
 
   [[nodiscard]] bool HostCanRead() const { return this->feature_segments_.HostCanRead(); }
   [[nodiscard]] bool DeviceCanRead() const { return this->feature_segments_.DeviceCanRead(); }
@@ -176,11 +197,11 @@ class CatContainer {
    * This provides a common ordering of the categories between the training dataset and
    * the test dataset.
    */
-  void Sort(Context const* ctx);
+  void Sort(XGB_CAT_CTX const* ctx);
   /**
    * @brief Obtain a view to the sorted index created by the @ref Sort method.
    */
-  [[nodiscard]] common::Span<bst_cat_t const> RefSortedIndex(Context const* ctx) const {
+  [[nodiscard]] XGB_CAT_SPAN<XGB_CAT_BST_CAT_T const> RefSortedIndex(XGB_CAT_CTX const* ctx) const {
     std::lock_guard guard{device_mu_};
     if (ctx->IsCPU()) {
       return this->sorted_idx_.ConstHostSpan();
@@ -207,17 +228,17 @@ class CatContainer {
   /**
    * @brief Get a view to the GPU storage.
    */
-  [[nodiscard]] enc::DeviceColumnsView DeviceView(Context const* ctx) const;
+  [[nodiscard]] enc::DeviceColumnsView DeviceView(XGB_CAT_CTX const* ctx) const;
 #endif  // defined(XGBOOST_USE_CUDA)
 
  private:
   mutable std::mutex device_mu_;  // mutex for copying between devices.
-  HostDeviceVector<std::int32_t> feature_segments_;
-  bst_cat_t n_total_cats_{0};
+  XGB_CAT_HDV<std::int32_t> feature_segments_;
+  XGB_CAT_BST_CAT_T n_total_cats_{0};
 
   std::unique_ptr<cpu_impl::CatContainerImpl> cpu_impl_;
 
-  HostDeviceVector<bst_cat_t> sorted_idx_;
+  XGB_CAT_HDV<XGB_CAT_BST_CAT_T> sorted_idx_;
 #if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
   std::unique_ptr<cuda_impl::CatContainerImpl> cu_impl_;
 #endif  // defined(XGBOOST_USE_CUDA)
@@ -234,14 +255,14 @@ struct CatAccessor {
   [[nodiscard]] XGBOOST_DEVICE T operator()(T fvalue, Fidx f_idx) const {
     if (!enc.Empty() && !enc[f_idx].empty()) {
       auto f_mapping = enc[f_idx];
-      auto cat_idx = common::AsCat(fvalue);
-      if (cat_idx >= 0 && cat_idx < common::AsCat(f_mapping.size())) {
+      auto cat_idx = XGB_CAT_AS_CAT(fvalue);
+      if (cat_idx >= 0 && cat_idx < XGB_CAT_AS_CAT(f_mapping.size())) {
         fvalue = f_mapping.data()[cat_idx];
       }
     }
     return fvalue;
   }
-  [[nodiscard]] XGBOOST_DEVICE float operator()(Entry const& e) const {
+  [[nodiscard]] XGBOOST_DEVICE float operator()(XGB_CAT_ENTRY const& e) const {
     return this->operator()(e.fvalue, e.index);
   }
   [[nodiscard]] XGBOOST_DEVICE float operator()(data::COOTuple const& e) const {
@@ -260,18 +281,18 @@ struct NoOpAccessor {
     return fvalue;
   }
   [[nodiscard]] XGBOOST_DEVICE float operator()(data::COOTuple const& e) const { return e.value; }
-  [[nodiscard]] XGBOOST_DEVICE float operator()(Entry const& e) const { return e.fvalue; }
+  [[nodiscard]] XGBOOST_DEVICE float operator()(XGB_CAT_ENTRY const& e) const { return e.fvalue; }
 };
 
-void SyncCategories(Context const* ctx, CatContainer* cats, bool is_empty);
+void SyncCategories(XGB_CAT_CTX const* ctx, CatContainer* cats, bool is_empty);
 
 namespace cpu_impl {
-inline auto MakeCatAccessor(Context const* ctx, enc::HostColumnsView const& new_enc,
+inline auto MakeCatAccessor(XGB_CAT_CTX const* ctx, enc::HostColumnsView const& new_enc,
                             CatContainer const* orig_cats) {
   std::vector<std::int32_t> mapping(new_enc.n_total_cats);
   auto sorted_idx = orig_cats->RefSortedIndex(ctx);
   auto orig_enc = orig_cats->HostView();
-  enc::Recode(cpu_impl::EncPolicy, orig_enc, sorted_idx, new_enc, common::Span{mapping});
+  enc::Recode(cpu_impl::EncPolicy, orig_enc, sorted_idx, new_enc, XGB_CAT_SPAN{mapping});
   CHECK_EQ(new_enc.feature_segments.size(), orig_enc.feature_segments.size());
   auto cats_mapping = enc::MappingView{new_enc.feature_segments, mapping};
   auto acc = CatAccessor{cats_mapping};

@@ -11,6 +11,7 @@
 #if defined(XGBOOST_USE_CUDA)
 #include <cuda/functional>  // for proclaim_return_type
 #endif
+#include <memory>           // for unique_ptr
 #include <vector>           // for vector
 
 #include "../../common/cuda_context.cuh"    // for CUDAContext
@@ -154,8 +155,8 @@ void SortPositionBatch(Context const* ctx, common::Span<const PerNodeData<OpData
   dh::LDGIterator<PerNodeData<OpDataT>> batch_info_itr(d_batch_info.data());
   WriteResultsFunctor<OpDataT> write_results{batch_info_itr, ridx.data(), ridx_tmp.data(),
                                              d_counts.data()};
- #if defined(XGBOOST_USE_CUDA)
-   using ProclaimReturnType =  cuda::proclaim_return_type<IndexFlagTuple>;
+#if defined(XGBOOST_USE_CUDA)
+  using ProclaimReturnType = cuda::proclaim_return_type<IndexFlagTuple>;
 #elif defined(XGBOOST_USE_HIP)
   #define ProclaimReturnType(...) (__VA_ARGS__)
 #endif
@@ -172,6 +173,9 @@ void SortPositionBatch(Context const* ctx, common::Span<const PerNodeData<OpData
         return IndexFlagTuple{static_cast<cuda_impl::RowIndexT>(item_idx), go_left, nidx_in_batch,
                               go_left};
       }));
+#if defined(XGBOOST_USE_HIP)
+  #undef ProclaimReturnType
+#endif
   // Reach down to the dispatch function to avoid using int as the offset type.
   std::size_t n_bytes = 0;
   if (tmp->empty()) {
@@ -189,9 +193,9 @@ void SortPositionBatch(Context const* ctx, common::Span<const PerNodeData<OpData
                                                                  ctx->CUDACtx()->Stream());
 #elif defined(XGBOOST_USE_HIP)
     auto ret = hipcub::DeviceScan::InclusiveScan(nullptr, n_bytes, input_iterator,
-                                                  discard_write_iterator, IndexFlagOp{},
-                                                  static_cast<std::uint64_t>(total_rows),
-                                                  ctx->CUDACtx()->Stream());
+                                                 discard_write_iterator, IndexFlagOp{},
+                                                 static_cast<std::uint64_t>(total_rows),
+                                                 ctx->CUDACtx()->Stream());
 #endif
     dh::safe_cuda(ret);
     tmp->resize(n_bytes);
@@ -206,10 +210,10 @@ void SortPositionBatch(Context const* ctx, common::Span<const PerNodeData<OpData
                                                                static_cast<std::uint64_t>(total_rows),
                                                                ctx->CUDACtx()->Stream());
 #elif defined(XGBOOST_USE_HIP)
-	auto ret = hipcub::DeviceScan::InclusiveScan(tmp->data(), n_bytes, input_iterator,
-                                                discard_write_iterator, IndexFlagOp{},
-                                                static_cast<std::uint64_t>(total_rows),
-                                                ctx->CUDACtx()->Stream());
+  auto ret = hipcub::DeviceScan::InclusiveScan(tmp->data(), n_bytes, input_iterator,
+                                               discard_write_iterator, IndexFlagOp{},
+                                               static_cast<std::uint64_t>(total_rows),
+                                               ctx->CUDACtx()->Stream());
 #endif
   dh::safe_cuda(ret);
 
@@ -227,7 +231,13 @@ struct NodePositionInfo {
   Segment segment;
   bst_node_t left_child = -1;
   bst_node_t right_child = -1;
-  __device__ bool IsLeaf() { return left_child == -1; }
+  [[nodiscard]] XGBOOST_DEVICE bool IsLeaf() const { return left_child == -1; }
+};
+
+/** @brief Leaf node descriptor for gradient sum: node index and segment. */
+struct LeafInfo {
+  bst_node_t nidx;
+  NodePositionInfo node;
 };
 
 XGBOOST_DEV_INLINE int GetPositionFromSegments(std::size_t idx,
@@ -326,6 +336,21 @@ class RowPartitioner {
   [[nodiscard]] bst_node_t GetNumNodes() const { return n_nodes_; }
 
   /**
+   * \brief Returns leaf node descriptors (nidx + segment) for gradient sum.
+   */
+  [[nodiscard]] std::vector<LeafInfo> GetLeaves() const {
+    std::vector<LeafInfo> leaves;
+    bst_node_t nidx = 0;
+    for (auto const& node : this->ridx_segments_) {
+      if (node.IsLeaf()) {
+        leaves.emplace_back(LeafInfo{nidx, node});
+      }
+      nidx += 1;
+    }
+    return leaves;
+  }
+
+  /**
    * \brief Convenience method for testing
    */
   std::vector<RowIndexT> GetRowsHost(bst_node_t nidx);
@@ -341,6 +366,7 @@ class RowPartitioner {
    * \param left_nidx   The left child indices.
    * \param right_nidx  The right child indices.
    * \param op_data     User-defined data provided as the second argument to op
+   * \param ridx_tmp    Temporary buffer for sorting (size must equal Size()).
    * \param op          Device lambda with the row index as the first argument and op_data as the
    * second. Returns true if this training instance goes on the left partition.
    */
@@ -348,7 +374,8 @@ class RowPartitioner {
   void UpdatePositionBatch(Context const* ctx, std::vector<bst_node_t> const& nidx,
                            std::vector<bst_node_t> const& left_nidx,
                            std::vector<bst_node_t> const& right_nidx,
-                           std::vector<OpDataT> const& op_data, UpdatePositionOpT op) {
+                           std::vector<OpDataT> const& op_data,
+                           common::Span<RowIndexT> ridx_tmp, UpdatePositionOpT op) {
     if (nidx.empty()) {
       return;
     }
@@ -356,6 +383,7 @@ class RowPartitioner {
     CHECK_EQ(nidx.size(), left_nidx.size());
     CHECK_EQ(nidx.size(), right_nidx.size());
     CHECK_EQ(nidx.size(), op_data.size());
+    CHECK_EQ(ridx_tmp.size(), this->Size());
     this->n_nodes_ += (left_nidx.size() + right_nidx.size());
     common::Span<PerNodeData<OpDataT>> h_batch_info =
         pinned2_.GetSpan<PerNodeData<OpDataT>>(nidx.size());
@@ -374,7 +402,7 @@ class RowPartitioner {
     dh::TemporaryArray<RowIndexT> d_counts(nidx.size(), 0);
 
     // Process a sub-batch
-    auto sub_batch_impl = [ctx, op, this](common::Span<bst_node_t const> nidx,
+    auto sub_batch_impl = [ctx, op, this, ridx_tmp](common::Span<bst_node_t const> nidx,
                                           common::Span<PerNodeData<OpDataT>> d_batch_info,
                                           common::Span<RowIndexT> d_counts) {
       std::size_t total_rows = 0;
@@ -384,7 +412,7 @@ class RowPartitioner {
 
       // Partition the rows according to the operator
       SortPositionBatch<UpdatePositionOpT, OpDataT>(ctx, d_batch_info, dh::ToSpan(this->ridx_),
-                                                    dh::ToSpan(this->ridx_tmp_), d_counts,
+                                                    ridx_tmp, d_counts,
                                                     total_rows, op, &this->tmp_);
     };
 
@@ -420,6 +448,15 @@ class RowPartitioner {
     }
   }
 
+  /** \brief Overload for single-partitioner use; uses this partitioner's own ridx_tmp_. */
+  template <typename UpdatePositionOpT, typename OpDataT>
+  void UpdatePositionBatch(Context const* ctx, std::vector<bst_node_t> const& nidx,
+                           std::vector<bst_node_t> const& left_nidx,
+                           std::vector<bst_node_t> const& right_nidx,
+                           std::vector<OpDataT> const& op_data, UpdatePositionOpT op) {
+    UpdatePositionBatch(ctx, nidx, left_nidx, right_nidx, op_data, dh::ToSpan(this->ridx_tmp_), op);
+  }
+
   /**
    * @brief Finalise the position of all training instances after tree construction is
    * complete. Does not update any other meta information in this data structure, so
@@ -448,4 +485,57 @@ class RowPartitioner {
         base_ridx, d_ridx, d_out_position, op);
   }
 };
+
+/** \brief Container of RowPartitioner for external memory (one per batch). */
+class RowPartitionerBatches {
+ private:
+  // Temporary buffer for sorting the samples (shared across batches).
+  dh::DeviceUVector<cuda_impl::RowIndexT> ridx_tmp_;
+  std::vector<std::unique_ptr<RowPartitioner>> partitioners_;
+
+ public:
+  void Reset(Context const* ctx, std::vector<bst_idx_t> const& batch_ptr) {
+    CHECK_GE(batch_ptr.size(), 2u);
+    auto n_batches = batch_ptr.size() - 1;
+    partitioners_.resize(n_batches);
+    bst_idx_t n_max_samples = 0;
+    for (std::size_t k = 0; k < n_batches; ++k) {
+      if (!partitioners_[k]) {
+        partitioners_[k] = std::make_unique<RowPartitioner>();
+      }
+      bst_idx_t n_samples = batch_ptr[k + 1] - batch_ptr[k];
+      partitioners_[k]->Reset(ctx, n_samples, batch_ptr[k]);
+      CHECK_LE(n_samples, std::numeric_limits<cuda_impl::RowIndexT>::max());
+      n_max_samples = std::max(n_max_samples, n_samples);
+    }
+    ridx_tmp_.resize(n_max_samples);
+  }
+
+  std::size_t Size() const { return partitioners_.size(); }
+  bool Empty() const { return partitioners_.empty(); }
+
+  RowPartitioner* At(std::size_t k) { return partitioners_.at(k).get(); }
+  RowPartitioner const* At(std::size_t k) const { return partitioners_.at(k).get(); }
+
+  RowPartitioner* Front() { return partitioners_.front().get(); }
+  RowPartitioner const* Front() const { return partitioners_.front().get(); }
+
+  auto begin() { return partitioners_.begin(); }
+  auto end() { return partitioners_.end(); }
+  auto begin() const { return partitioners_.begin(); }
+  auto end() const { return partitioners_.end(); }
+
+  template <typename UpdatePositionOpT, typename OpDataT>
+  void UpdatePositionBatch(Context const* ctx, std::size_t k,
+                           std::vector<bst_node_t> const& nidx,
+                           std::vector<bst_node_t> const& left_nidx,
+                           std::vector<bst_node_t> const& right_nidx,
+                           std::vector<OpDataT> const& op_data, UpdatePositionOpT op) {
+    RowPartitioner* part = partitioners_.at(k).get();
+    auto ridx_tmp = dh::ToSpan(ridx_tmp_).subspan(0, part->Size());
+    part->UpdatePositionBatch(ctx, nidx, left_nidx, right_nidx, op_data, ridx_tmp, op);
+  }
+};
+
 };  // namespace xgboost::tree
+

@@ -4,10 +4,7 @@
 #pragma once
 #if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
 
-#if defined(XGBOOST_USE_NCCL)
-#include <cuda_runtime_api.h>
-#include <nccl.h>
-#elif defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_HIP)
 #include "../common/cuda_to_hip.h"
 
 #ifndef THRUST_DEVICE_SYSTEM
@@ -16,6 +13,9 @@
 
 #include <hip/hip_runtime_api.h>
 #include <rccl/rccl.h>
+#else
+#include <cuda_runtime_api.h>
+#include <nccl.h>
 #endif
 
 #include <atomic>  // for atomic
@@ -152,4 +152,4 @@ class NcclStub {
                               std::chrono::seconds timeout);
 }  // namespace xgboost::collective
 
-#endif  // defined(XGBOOST_USE_NCCL)
+#endif  // defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)

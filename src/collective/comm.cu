@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2024, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_NCCL)
 #include <algorithm>  // for sort
 #include <cstddef>    // for size_t
 #include <cstdint>    // for uint64_t, int8_t
@@ -12,7 +12,10 @@
 
 #include "../common/cuda_context.cuh"    // for CUDAContext
 #include "../common/cuda_rt_utils.h"     // for SetDevice
-#include "../common/device_helpers.cuh"  // for DefaultStream
+#include "../common/device_helpers.cuh"
+#if defined(XGBOOST_USE_HIP)
+#include "../common/cuda_stream.h"       // for curt::DefaultStream (StreamRef for NCCLChannel)
+#endif
 #include "../common/type.h"              // for EraseType
 #include "comm.cuh"                      // for NCCLComm
 #include "comm.h"                        // for Comm
@@ -123,7 +126,12 @@ NCCLComm::NCCLComm(Context const* ctx, Comm const& root, std::shared_ptr<Coll> p
 
   for (std::int32_t r = 0; r < root.World(); ++r) {
     this->channels_.emplace_back(
-        std::make_shared<NCCLChannel>(root, r, nccl_comm_, stub_, dh::DefaultStream()));
+        std::make_shared<NCCLChannel>(root, r, nccl_comm_, stub_,
+#if defined(XGBOOST_USE_HIP)
+                                      curt::DefaultStream()));
+#else
+                                      dh::DefaultStream()));
+#endif
   }
 }
 

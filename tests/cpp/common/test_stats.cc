@@ -75,7 +75,7 @@ TEST(Stats, Median) {
     auto m = out(0);
     ASSERT_EQ(m, .5f);
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
     ctx = ctx.MakeCUDA(0);
     ASSERT_FALSE(ctx.IsCPU());
     Median(&ctx, values, weights, &out);
@@ -94,7 +94,7 @@ TEST(Stats, Median) {
     ASSERT_EQ(out(0), .5f);
     ASSERT_EQ(out(1), .5f);
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
     ctx = ctx.MakeCUDA(0);
     Median(&ctx, values, weights, &out);
     ASSERT_EQ(out(0), .5f);
@@ -114,7 +114,7 @@ void TestMean(Context const* ctx) {
   float mean = nf * (nf - 1) / 2 / n;
 
   linalg::Vector<float> res{{1}, ctx->Device()};
-  Mean(ctx, data, &res);
+  Mean(ctx, data.View(ctx->Device()), &res);
   auto h_res = res.HostView();
   ASSERT_EQ(h_res.Size(), 1);
   ASSERT_EQ(mean, h_res(0));
