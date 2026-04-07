@@ -15,7 +15,7 @@ cupy and cuml. These libraries are not strictly required.
 import time
 
 import cupy as cp
-from cuml.model_selection import train_test_split
+from sklearn.model_selection import train_test_split
 from sklearn.datasets import fetch_covtype
 
 import xgboost as xgb

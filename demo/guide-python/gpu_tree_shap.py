@@ -14,7 +14,7 @@ import xgboost as xgb
 
 # Fetch dataset using sklearn
 try:
-    _data = fetch_california_housing(return_X_y=True)
+    _data = fetch_california_housing()
     X = _data.data
     y = _data.target
     feature_names = _data.feature_names
