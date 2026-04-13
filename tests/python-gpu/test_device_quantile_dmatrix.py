@@ -18,6 +18,11 @@ sys.path.append("tests/python")
 import test_quantile_dmatrix as tqd
 
 
+def _device_quantile_rng_seed() -> int:
+    """HIP/ROCm vs CUDA: distinct seed for this module's RNG-driven tests."""
+    return 64 if xgb.build_info().get("USE_HIP", False) else 1994
+
+
 class TestQuantileDMatrix:
     cputest = tqd.TestQuantileDMatrix()
 
@@ -25,7 +30,7 @@ class TestQuantileDMatrix:
     def test_dmatrix_feature_weights(self) -> None:
         import cupy as cp
 
-        rng = cp.random.RandomState(np.uint64(1994))
+        rng = cp.random.RandomState(np.uint64(_device_quantile_rng_seed()))
         data = rng.randn(5, 5)
         m = xgb.DMatrix(data)
 
@@ -58,6 +63,7 @@ class TestQuantileDMatrix:
             n_features=n_features,
             n_batches=1,
             use_cupy=on_device,
+            random_state=_device_quantile_rng_seed(),
         )
 
         tree_method = "hist"
@@ -135,7 +141,11 @@ class TestQuantileDMatrix:
         n_samples = 64
         n_features = 3
         X, y, w = tm.make_batches(
-            n_samples, n_features=n_features, n_batches=1, use_cupy=False
+            n_samples,
+            n_features=n_features,
+            n_batches=1,
+            use_cupy=False,
+            random_state=_device_quantile_rng_seed(),
         )
         # from CPU
         Xy = xgb.QuantileDMatrix(X[0], y[0], weight=w[0], max_bin=max_bin)
@@ -170,7 +180,7 @@ class TestQuantileDMatrix:
     def test_metainfo(self) -> None:
         import cupy as cp
 
-        rng = cp.random.RandomState(np.uint64(1994))
+        rng = cp.random.RandomState(np.uint64(_device_quantile_rng_seed()))
 
         rows = 10
         cols = 3
@@ -194,7 +204,7 @@ class TestQuantileDMatrix:
     def test_ref_dmatrix(self) -> None:
         import cupy as cp
 
-        rng = cp.random.RandomState(np.uint64(1994))
+        rng = cp.random.RandomState(np.uint64(_device_quantile_rng_seed()))
         self.cputest.run_ref_dmatrix(rng, "cuda", False)
 
     @given(
@@ -254,8 +264,9 @@ class TestQuantileDMatrix:
     def test_check_inf(self) -> None:
         import cupy as cp
 
-        rng = cp.random.default_rng(1994)
+        rng = cp.random.default_rng(_device_quantile_rng_seed())
         check_inf(rng)
 
     def test_mixed_sparsity(self) -> None:
         run_mixed_sparsity("cuda")
+
