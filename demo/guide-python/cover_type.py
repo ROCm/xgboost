@@ -14,11 +14,20 @@ cupy and cuml. These libraries are not strictly required.
 """
 import time
 
-import cupy as cp
-from sklearn.model_selection import train_test_split
+import xgboost as xgb
 from sklearn.datasets import fetch_covtype
 
-import xgboost as xgb
+# Try to use cuML for GPU-accelerated data processing (CUDA only)
+# Fall back to sklearn on platforms without cuML
+try:
+    import cupy as cp
+    from cuml.model_selection import train_test_split
+    print("Using cuML (GPU-accelerated data processing)")
+except ImportError:
+    import numpy as cp  # Use numpy instead of cupy
+    from sklearn.model_selection import train_test_split
+    print("cuML not available - using sklearn (CPU arrays).")
+
 
 # Fetch dataset using sklearn
 X, y = fetch_covtype(return_X_y=True)
