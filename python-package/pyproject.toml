@@ -9,7 +9,7 @@ backend-path = ["."]
 build-backend = "packager.pep517"
 
 [project]
-name = "xgboost"
+name = "amd_xgboost"
 description = "XGBoost Python Package"
 readme = { file = "README.rst", content-type = "text/x-rst" }
 authors = [
