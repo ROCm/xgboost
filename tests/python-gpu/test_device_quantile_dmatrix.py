@@ -18,9 +18,11 @@ sys.path.append("tests/python")
 import test_quantile_dmatrix as tqd
 
 
-def _device_quantile_rng_seed() -> int:
-    """HIP/ROCm vs CUDA: distinct seed for this module's RNG-driven tests."""
-    return 64 if xgb.build_info().get("USE_HIP", False) else 1994
+def _device_quantile_rng_seed(*, use_cupy: bool = True) -> int:
+    """CuPy + HIP/ROCm: use ROCm-oriented seed; otherwise upstream default 1994."""
+    if use_cupy and xgb.build_info().get("USE_HIP", False):
+        return 64
+    return 1994
 
 
 class TestQuantileDMatrix:
@@ -63,7 +65,7 @@ class TestQuantileDMatrix:
             n_features=n_features,
             n_batches=1,
             use_cupy=on_device,
-            random_state=_device_quantile_rng_seed(),
+            random_state=_device_quantile_rng_seed(use_cupy=on_device),
         )
 
         tree_method = "hist"
@@ -145,7 +147,7 @@ class TestQuantileDMatrix:
             n_features=n_features,
             n_batches=1,
             use_cupy=False,
-            random_state=_device_quantile_rng_seed(),
+            random_state=_device_quantile_rng_seed(use_cupy=False),
         )
         # from CPU
         Xy = xgb.QuantileDMatrix(X[0], y[0], weight=w[0], max_bin=max_bin)
