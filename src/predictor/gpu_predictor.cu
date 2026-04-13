@@ -408,9 +408,29 @@ struct ShapSplitCondition {
   // bitfield.
   XGBOOST_DEVICE static common::CatBitField Intersect(common::CatBitField l,
                                                       common::CatBitField r) {
+    // Handle empty/invalid categorical data
+    // Both empty -> return empty
+    if ((l.Data() == nullptr || l.Capacity() == 0) &&
+        (r.Data() == nullptr || r.Capacity() == 0)) {
+      return common::CatBitField{};
+    }
+    // Only left is valid -> return left
+    if (r.Data() == nullptr || r.Capacity() == 0) {
+      return l;
+    }
+    // Only right is valid -> return right
+    if (l.Data() == nullptr || l.Capacity() == 0) {
+      return r;
+    }
+    // Same pointer -> return either
     if (l.Data() == r.Data()) {
       return l;
     }
+    // Empty bit spans
+    if (l.Bits().size() == 0) return r;
+    if (r.Bits().size() == 0) return l;
+
+    // Both valid -> perform intersection
     if (l.Capacity() > r.Capacity()) {
 #if defined(XGBOOST_USE_HIP)
       common::CatBitField tmp = l;
@@ -420,7 +440,8 @@ struct ShapSplitCondition {
       gpu_std::swap(l, r);
 #endif
     }
-    for (size_t i = 0; i < r.Bits().size(); ++i) {
+    size_t min_size = min(l.Bits().size(), r.Bits().size());
+    for (size_t i = 0; i < min_size; ++i) {
       l.Bits()[i] &= r.Bits()[i];
     }
     return l;
@@ -428,13 +449,19 @@ struct ShapSplitCondition {
 
   // Combine two split conditions on the same feature
   XGBOOST_DEVICE void Merge(ShapSplitCondition other) {
-    // Combine duplicate features
-    if (categories.Capacity() != 0 || other.categories.Capacity() != 0) {
+    // For categorical splits, merge the category sets
+    // For numerical splits, tighten the bounds
+    bool this_has_data = categories.Capacity() != 0 && categories.Data() != nullptr;
+    bool other_has_data = other.categories.Capacity() != 0 && other.categories.Data() != nullptr;
+
+    if (this_has_data || other_has_data) {
       categories = Intersect(categories, other.categories);
     } else {
+      // Both are numerical, intersect the bounds
       feature_lower_bound = max(feature_lower_bound, other.feature_lower_bound);
       feature_upper_bound = min(feature_upper_bound, other.feature_upper_bound);
     }
+    // Missing branch: only if both take missing values
     is_missing_branch = is_missing_branch && other.is_missing_branch;
   }
 };
