@@ -294,10 +294,15 @@ __global__ void PredictLeafKernel(Data data, common::Span<TreeViewVar const> d_t
                                   bst_tree_t tree_end, bst_feature_t num_features, bool use_shared,
                                   float missing, EncAccessor acc) {
   bst_idx_t ridx = blockDim.x * blockIdx.x + threadIdx.x;
+  
+  // Must construct Loader (and run cooperative BlockFill) on all block threads before any early
+  // exit: SparsePageLoader::BlockFill uses BlockStrideRange and only fills all of smem when every
+  // threadIdx in [0, blockDim.x) participates (same pattern as PredictKernel below).
+  Loader loader{std::move(data), use_shared, num_features, data.NumRows(), missing, std::move(acc)};
+  
   if (ridx >= data.NumRows()) {
     return;
   }
-  Loader loader{std::move(data), use_shared, num_features, data.NumRows(), missing, std::move(acc)};
   for (bst_tree_t tree_idx = tree_begin; tree_idx < tree_end; ++tree_idx) {
     auto const& d_tree = d_trees[tree_idx - tree_begin];
     GPU_VISIT_TREE(d_tree, ([&](auto&& tree) {
