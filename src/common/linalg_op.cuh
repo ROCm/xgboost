@@ -8,25 +8,27 @@
 #include <thrust/iterator/zip_iterator.h>       // for make_zip_iterator
 #include <thrust/transform.h>                   // for transform
 
-#include <cstdint>            // for int32_t
-#include <cstdlib>            // for size_t
+#include <cstdint>  // for int32_t
+#include <cstdlib>  // for size_t
+#include <tuple>  // for apply
 #if defined(XGBOOST_USE_HIP)
 #include <iterator>
-#include <tuple>
-namespace cuda { namespace std { using namespace ::std; } }
+namespace cuda {
+namespace std {
+using namespace ::std;
+}
+}  // namespace cuda
 #else
 #include <cuda/std/iterator>  // for iterator_traits
 #include <cuda/std/tuple>     // for get
 #include <cuda/std/version>   // for CCCL_MINOR_VERSION
 #endif
-#include <tuple>              // for apply
 
 #include "cuda_context.cuh"
 #include "device_helpers.cuh"  // for LaunchN
 #include "type.h"              // for GetValueT
 #include "xgboost/context.h"   // for Context
-#include "xgboost/linalg.h"
-#include "linalg_op.h"  // for ElementWiseKernelHost    // for TensorView
+#include "xgboost/linalg.h"    // for TensorView
 
 #if defined(XGBOOST_USE_CUDA) && ((CCCL_MAJOR_VERSION >= 3) || (CCCL_MAJOR_VERSION >= 2 && CCCL_MINOR_VERSION >= 8))
 #define xgboost_CCCL_HAS_PROCLAIM_COPYABLE 1
@@ -64,11 +66,6 @@ void ElementWiseKernel(TensorView<T, D> t, Fn&& fn, cudaStream_t s = nullptr) {
 }
 
 template <typename T, std::int32_t D, typename Fn>
-void TransformIdxKernel(Context const* ctx, TensorView<T, D> t, Fn&& fn) {
-  TransformIdxKernel(ctx->CUDACtx(), t, std::forward<Fn>(fn));
-}
-
-template <typename T, std::int32_t D, typename Fn>
 void TransformIdxKernel(CUDAContext const* ctx, TensorView<T, D> t, Fn&& fn) {
   dh::safe_cuda(cudaSetDevice(t.Device().ordinal));
   auto s = ctx->Stream();
@@ -76,10 +73,18 @@ void TransformIdxKernel(CUDAContext const* ctx, TensorView<T, D> t, Fn&& fn) {
     auto ptr = t.Values().data();
     auto it =
         thrust::make_zip_iterator(thrust::make_counting_iterator(static_cast<std::size_t>(0)), ptr);
+#if defined(XGBOOST_USE_HIP)
+    using Tuple = typename std::iterator_traits<common::GetValueT<decltype(it)>>::value_type;
+#else
     using Tuple = typename cuda::std::iterator_traits<common::GetValueT<decltype(it)>>::value_type;
+#endif
     thrust::transform(ctx->CTP(), it, it + t.Size(), ptr,
                       [=] XGBOOST_DEVICE(Tuple const& tup) {
+#if defined(XGBOOST_USE_HIP)
                         return fn(thrust::get<0>(tup), thrust::get<1>(tup));
+#else
+                        return fn(cuda::std::get<0>(tup), cuda::std::get<1>(tup));
+#endif
                       });
   } else {
     dh::LaunchN(t.Size(), s, [=] __device__(size_t i) mutable {
@@ -87,6 +92,11 @@ void TransformIdxKernel(CUDAContext const* ctx, TensorView<T, D> t, Fn&& fn) {
       v = fn(i, v);
     });
   }
+}
+
+template <typename T, std::int32_t D, typename Fn>
+void TransformIdxKernel(Context const* ctx, TensorView<T, D> t, Fn&& fn) {
+  TransformIdxKernel(ctx->CUDACtx(), t, std::forward<Fn>(fn));
 }
 
 template <typename T, std::int32_t D, typename Fn>
@@ -144,35 +154,6 @@ template <typename T, std::int32_t D>
 auto tend(TensorView<T, D> v) {  // NOLINT
   return tbegin(v) + v.Size();
 }
-// Dispatcher for Context-based ElementWiseKernel (required by objectives)
-template <typename T, std::int32_t D, typename Fn>
-void ElementWiseKernel(Context const* ctx, TensorView<T, D> t, Fn&& fn) {
-  if (ctx->IsCUDA()) {
-    cuda_impl::ElementWiseKernel(t, fn, ctx->CUDACtx()->Stream());
-  } else {
-    ElementWiseKernelHost(t, ctx->Threads(), fn);
-  }
-}
-
-
-// Dispatcher for Context-based TransformKernel (required by objectives, e.g. multiclass InitBaseScore)
-template <typename T, std::int32_t D, typename Fn>
-void TransformKernel(Context const* ctx, TensorView<T, D> t, Fn&& fn) {
-  if (ctx->IsCUDA()) {
-    cuda_impl::TransformKernel(ctx, t, std::forward<Fn>(fn));
-  } else {
-    ElementWiseKernelHost(t, ctx->Threads(), [&](std::size_t i) {
-      T& v = std::apply(t, UnravelIndex(i, t.Shape()));
-      v = fn(v);
-    });
-  }
-}
-
-inline void LogE(Context const* ctx, linalg::VectorView<float> x, float rt_eps = 0.0f) {
-  CHECK_EQ(x.Device().ordinal, ctx->Device().ordinal);
-  TransformKernel(ctx, x, [=] XGBOOST_DEVICE(float v) { return log(v + rt_eps); });
-}
-
 }  // namespace xgboost::linalg
 
 #if defined(xgboost_CCCL_HAS_PROCLAIM_COPYABLE)

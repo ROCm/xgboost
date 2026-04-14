@@ -8,7 +8,6 @@
 #include <cmath>    // for log
 #include <cstddef>  // for size_t
 
-
 #include "../common/survival_util.h"
 #include "../common/transform.h"
 #include "xgboost/host_device_vector.h"
@@ -17,12 +16,10 @@
 #include "xgboost/objective.h"
 #include "xgboost/span.h"
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
-#include "../common/linalg_op.cuh"  // for ElementWiseKernel
-#elif defined(XGBOOST_USE_SYCL)
+#if defined(XGBOOST_USE_SYCL)
 #include "../../plugin/sycl/common/linalg_op.h"
 #else
-#include "../common/linalg_op.h"  // for ElementWiseKernel
+#include "../common/linalg_op.h"  // ElementWiseKernel; pulls linalg_op.cuh on HIP/CUDA TUs
 #endif
 
 using AFTParam = xgboost::common::AFTParam;
