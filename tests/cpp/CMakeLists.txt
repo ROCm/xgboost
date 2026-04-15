@@ -7,12 +7,23 @@ if(USE_DMLC_GTEST)
   endif()
   set(GTEST_LIBRARIES gtest gmock)
 else()
-  find_package(GTest REQUIRED)
+  find_package(GTest QUIET)
+  if(NOT GTest_FOUND)
+    message(STATUS "GTest not found on the system; fetching GoogleTest with FetchContent.")
+    include(FetchContent)
+    FetchContent_Declare(
+      googletest
+      GIT_REPOSITORY https://github.com/google/googletest.git
+      GIT_TAG release-1.14.0
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+  endif()
 endif()
 
 file(GLOB_RECURSE TEST_SOURCES "*.cc")
 
-if(USE_CUDA)
+if(USE_CUDA OR USE_HIP)
   file(GLOB_RECURSE CUDA_TEST_SOURCES "*.cu")
   list(APPEND TEST_SOURCES ${CUDA_TEST_SOURCES})
 endif()
@@ -77,7 +88,7 @@ target_link_libraries(testxgboost
   PRIVATE
   $<TARGET_NAME_IF_EXISTS:rmm::rmm_logger>
   $<TARGET_NAME_IF_EXISTS:rmm::rmm_logger_impl>
-  GTest::gtest GTest::gmock gcov)
+  GTest::gtest GTest::gmock)
 
 set_output_directory(testxgboost ${xgboost_BINARY_DIR})
 
