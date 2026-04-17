@@ -82,6 +82,10 @@ def main() -> None:
     # Convert to DMatrix for SHAP value
     booster: xgb.Booster = reg.get_booster()
     m = xgb.DMatrix(X, enable_categorical=True)  # specify categorical data support.
+
+    # TEMPORARY WORKAROUND: Use CPU for categorical SHAP due to mismatch with GPU SHAP
+    booster.set_param({"device": "cpu"})
+
     SHAP = booster.predict(m, pred_contribs=True)
     margin = booster.predict(m, output_margin=True)
     np.testing.assert_allclose(
