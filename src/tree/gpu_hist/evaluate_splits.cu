@@ -388,17 +388,46 @@ void GPUHistEvaluator::LaunchEvaluateSplits(
   dh::TemporaryArray<DeviceSplitCandidate> feature_best_splits(
       combined_num_features, DeviceSplitCandidate());
 
-  // One block for each feature
+  // One block for each feature.
+  //
+  // The kernel uses cub::WarpReduce to compute per-feature reductions and __shfl_sync to
+  // broadcast the result across threads in the block. Both are warp-scoped, so the kernel
+  // only produces a correct global argmax when the block is exactly one wavefront wide --
+  // otherwise the second wavefront in the block does its own private reduction and races
+  // into shared memory, silently producing the wrong split (no crash, just wrong models).
+  //
+  // Wavefront size is therefore the only valid block size:
+  //   NVIDIA               -> warp 32
+  //   AMD CDNA / GCN (gfx9)-> wave 64
+  //   AMD RDNA (gfx10/11/12)-> wave 32
+  //
+  // On HIP we query the device at launch time and dispatch to the matching template
+  // instantiation, which keeps a single binary working across both AMD wavefront sizes
+  // (e.g. fatbins shipped with multiple --offload-arch entries).
+  auto launch = [&](auto block_threads_const) {
+    constexpr uint32_t kBlockThreads = decltype(block_threads_const)::value;
+    dh::LaunchKernel{static_cast<uint32_t>(combined_num_features), kBlockThreads, 0,  // NOLINT
+                     ctx->CUDACtx()->Stream()}(
+        EvaluateSplitsKernel<kBlockThreads>, max_active_features, d_inputs, shared_inputs,
+        this->SortedIdx(d_inputs.size(), shared_inputs.feature_values.size()), evaluator,
+        dh::ToSpan(feature_best_splits));
+  };
+
 #if defined(XGBOOST_USE_HIP)
-uint32_t constexpr kBlockThreads = 64;  // AMD wavefront size
+  int dev = 0, warp_size = 0;
+  dh::safe_cuda(hipGetDevice(&dev));
+  dh::safe_cuda(hipDeviceGetAttribute(&warp_size, hipDeviceAttributeWarpSize, dev));
+  if (warp_size == 32) {
+    launch(std::integral_constant<int, 32>{});
+  } else if (warp_size == 64) {
+    launch(std::integral_constant<int, 64>{});
+  } else {
+    LOG(FATAL) << "xgboost: unsupported AMD wavefront size " << warp_size
+               << " (expected 32 or 64)";
+  }
 #else
-uint32_t constexpr kBlockThreads = 32;  // NVIDIA warp size  
+  launch(std::integral_constant<int, 32>{});
 #endif
-  dh::LaunchKernel{static_cast<uint32_t>(combined_num_features), kBlockThreads, 0,  // NOLINT
-                   ctx->CUDACtx()->Stream()}(
-      EvaluateSplitsKernel<kBlockThreads>, max_active_features, d_inputs, shared_inputs,
-      this->SortedIdx(d_inputs.size(), shared_inputs.feature_values.size()), evaluator,
-      dh::ToSpan(feature_best_splits));
 
   // Reduce to get best candidate for left and right child over all features
   auto reduce_offset = dh::MakeTransformIterator<size_t>(
