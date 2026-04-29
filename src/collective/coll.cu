@@ -121,7 +121,7 @@ template <typename Fn, typename R = std::invoke_result_t<Fn, dh::CUDAStreamView>
     using std::chrono_literals::operator""ms;
     do {
 #if defined(XGBOOST_USE_HIP)
-      auto rc = GetCUDAResult(hipStreamQuery(static_cast<hipStream_t>(stream)));
+      auto rc = GetCUDAResult(hipStreamSynchronize(static_cast<hipStream_t>(stream)));
 #else
       auto rc = GetCUDAResult(stream.Sync(false));
 #endif
