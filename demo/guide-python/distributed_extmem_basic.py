@@ -122,24 +122,30 @@ class Iterator(xgboost.DataIter):
 
 def setup_numa() -> None:
     """Set correct NUMA binding for GPU-based external memory training."""
-    from pyhwloc import from_this_system
-    from pyhwloc.cuda_runtime import get_device
-    from pyhwloc.topology import MemBindFlags, MemBindPolicy, TypeFilter
+    try:
+        from pyhwloc import from_this_system
+        from pyhwloc.cuda_runtime import get_device
+        from pyhwloc.topology import MemBindFlags, MemBindPolicy, TypeFilter
 
-    devices = os.getenv("CUDA_VISIBLE_DEVICES", None)
-    assert devices is not None, "CUDA_VISIBLE_DEVICES must be set."
+        devices = os.getenv("CUDA_VISIBLE_DEVICES", None)
+        assert devices is not None, "CUDA_VISIBLE_DEVICES must be set."
 
-    with from_this_system().set_io_types_filter(TypeFilter.KEEP_ALL) as topo:
-        # Get CPU affinity for this GPU. Device ordinal 0 is used because
-        # CUDA_VISIBLE_DEVICES has already reordered the devices.
-        dev = get_device(topo, device=0)
-        cpuset = dev.get_affinity()
+        with from_this_system().set_io_types_filter(TypeFilter.KEEP_ALL) as topo:
+            # Get CPU affinity for this GPU. Device ordinal 0 is used because
+            # CUDA_VISIBLE_DEVICES has already reordered the devices.
+            dev = get_device(topo, device=0)
+            cpuset = dev.get_affinity()
 
-        # Set CPU binding
-        topo.set_cpubind(cpuset)
-        # Set memory binding with STRICT policy - ensures all memory allocations come
-        # from the local NUMA node. hwloc determines the NUMA nodes from cpuset.
-        topo.set_membind(cpuset, MemBindPolicy.BIND, MemBindFlags.STRICT)
+            # Set CPU binding
+            topo.set_cpubind(cpuset)
+            # Set memory binding with STRICT policy - ensures all memory allocations come
+            # from the local NUMA node. hwloc determines the NUMA nodes from cpuset.
+            topo.set_membind(cpuset, MemBindPolicy.BIND, MemBindFlags.STRICT)
+    except (ModuleNotFoundError, FileNotFoundError, OSError) as e:
+        # pyhwloc not available or runtime libraries missing - NUMA optimization will be
+        # skipped. Training will still work correctly without NUMA affinity binding.
+        import warnings
+        warnings.warn(f"NUMA optimization skipped ({type(e).__name__}: {e})", stacklevel=2)
 
 
 def setup_async_pool() -> None:
