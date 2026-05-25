@@ -1,0 +1,14 @@
+.venv
+build
+
+# documentation artifacts
+_build/
+_images/
+__pycache__/
+_static/
+_templates/
+_toc.yml
+docBin/
+_doxygen/
+_readthedocs/
+__pycache__/

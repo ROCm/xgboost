@@ -1,0 +1,49 @@
+.. meta::
+   :description: Use XGBoost with ROCm support on AMD GPUs
+   :keywords: amd, rocm, finance, financial, fintech, algorithm, gpu
+
+********************************************************************
+XGBoost on ROCm documentation
+********************************************************************
+
+XGBoost on ROCm provides GPU‑accelerated gradient boosting on AMD hardware,
+enabling scalable, high‑performance machine learning for financial risk
+modeling and data‑intensive workloads. This implementation utilizes optimized
+kernels, enhanced memory management, and multi‑GPU scaling to accelerate
+performance compared to CPU‑only baselines.
+
+XGBoost excels in financial applications by using level-wise tree growth to
+generate balanced, accurate models. It ensures robustness against noisy data
+and outliers through strong L1 and L2 regularization and automatically manages
+missing values. Tunable hyperparameters provide the high precision required for
+tasks like loan default prediction, while interpretability tools such as
+feature importance aid in regulatory compliance. While GPU acceleration speeds
+up processing on large datasets by parallelizing split computations, memory
+requirements increase with tree depth.
+
+XGBoost is part of the `ROCm-Finance toolkit
+<https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.05/>`__.
+
+The XGBoost public repository is located at `<https://github.com/ROCm/XGBoost/>`__.
+
+.. grid:: 2
+   :gutter: 3
+
+   .. grid-item-card:: Install
+
+      * :doc:`/install/install`
+      * :doc:`/install/build-from-source`
+
+   .. grid-item-card:: Reference
+
+      * `Get started with XGBoost (upstream) <https://xgboost.readthedocs.io/en/release_3.2.0/get_started.html>`__
+      * `Python API (upstream) <https://xgboost.readthedocs.io/en/release_3.2.0/python/python_api.html>`__
+
+   .. grid-item-card:: Examples
+
+      * :doc:`/examples/run-xgboost-example`
+
+To contribute to the documentation, refer to
+`Contributing to ROCm <https://rocm.docs.amd.com/en/latest/contribute/contributing.html>`_.
+
+You can find licensing information on the :doc:`Licensing <about/license>` page.

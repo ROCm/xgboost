@@ -1,0 +1,33 @@
+defaults:
+  numbered: False
+  maxdepth: 6
+root: index
+
+subtrees:
+
+- entries:
+  - file: what-is-xgboost.rst
+
+- caption: Install
+  entries:
+  - file: install/install.rst
+    title: Install with pip
+  - file: install/build-from-source.rst
+    title: Build from source
+
+- caption: Reference
+  entries:
+  - url: https://xgboost.readthedocs.io/en/release_3.2.0/get_started.html
+    title: Get started with XGBoost (upstream)
+  - url: https://xgboost.readthedocs.io/en/release_3.2.0/python/python_api.html
+    title: Python API (upstream)
+
+- caption: Examples
+  entries:
+  - file: examples/run-xgboost-example.rst
+    title: Run an XGBoost example
+
+- caption: About
+  entries:
+    - file: about/license.rst
+      title: License
