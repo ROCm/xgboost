@@ -31,7 +31,7 @@ prediction, while interpretability tools such as feature importance support
 regulatory compliance.
 
 On AMD GPUs, training parallelizes split computations across the device,
-speeding processing on large datasets. Memory requirements grow with tree depth,
+speeding up processing on large datasets. Memory requirements grow with tree depth,
 so workload sizing should account for both model complexity and GPU memory.
 
 Features and use cases
@@ -50,7 +50,7 @@ ROCm XGBoost on AMD hardware provides:
 * **ROCm-Finance integration**: Install and operate alongside other ROCm-Finance
   libraries on supported ROCm versions
 * **Regularization and missing-value handling**: Built-in L1/L2 penalties and
-  automatic treatment of missing features
+  automatic handling of missing values
 * **Model interpretability**: Feature importance and related tools for
   explainable predictions in regulated environments
 

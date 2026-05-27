@@ -11,11 +11,15 @@ Run an XGBoost example
 For comprehensive tutorials and guides on using XGBoost, refer to the upstream XGBoost documentation:
 
 * `XGBoost Documentation <https://xgboost.readthedocs.io/en/release_3.2.0/>`__
+
 * `Getting Started Guide <https://xgboost.readthedocs.io/en/stable/get_started.html>`__
+
 * `XGBoost 3.2.0 Release Notes <https://xgboost.readthedocs.io/en/release_3.2.0/changes/v3.2.0.html>`__
 
 For detailed Python API documentation, refer to:
+
 * `Python API Guide <https://xgboost.readthedocs.io/en/latest/python/python_api.html>`__
+
 * `Python Introduction <https://xgboost.readthedocs.io/en/latest/python/python_intro.html>`__
 
 Key Python modules
@@ -85,20 +89,20 @@ The `https://github.com/ROCm/rocm-finance/tree/release/26.01/examples/xgboost <h
 
 The ``xgboost`` directory includes:
 
-* ``README.md`` - Documentation providing setup instructions, requirements, and usage guidelines for the XGBoost fraud detection demo
-* ``xgboost_example.py`` - The primary application file implementing an interactive fraud detection system
+* ``README.md``: Documentation providing setup instructions, requirements, and usage guidelines for the XGBoost fraud detection demo
+* ``xgboost_example.py``: The primary application file implementing an interactive fraud detection system
 
 XGBoost Credit Card Fraud Detection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This demonstration showcases accelerated credit card fraud detection using AMD ROCm GPU and XGBoost. Key features include the following:
 
-* GPU training: Leverages ROCm-enabled AMD graphics processors for model training
-* Performance comparison: Enables optional CPU benchmarking to measure GPU speedup
-* Model evaluation: Generates accuracy metrics, AUC scores, and confusion matrices
-* Data visualization: Displays top 20 suspicious transactions and prediction analysis
-* Export functionality: Saves predictions to CSV format
-* Interactive interface: Uses Gradio framework for web-based interaction
+- **GPU training:** Leverages ROCm-enabled AMD graphics processors for model training
+- **Performance comparison:** Enables optional CPU benchmarking to measure GPU speedup
+- **Model evaluation:** Generates accuracy metrics, AUC scores, and confusion matrices
+- **Data visualization:** Displays top 20 suspicious transactions and prediction analysis
+- **Export functionality:** Saves predictions to CSV format
+- **Interactive interface:** Uses Gradio framework for web-based interaction
 
 The example demonstrates how to train XGBoost on ROCm-enabled AMD GPUs while providing optional CPU training for speed comparison. Users can configure hyperparameters and observe performance differences between GPU and CPU implementations on the credit card fraud dataset.
 

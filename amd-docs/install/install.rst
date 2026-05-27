@@ -25,7 +25,7 @@ a ROCm development environment Docker container. See
 Install using pip
 =================
 
-Install the ROCm-enabled XGBoost library from the AMD-hosted PyPI repository.
+Install the ROCm-enabled XGBoost library from the AMD-hosted PyPI (Python Package Index) repository.
 
 .. tab-set::
 

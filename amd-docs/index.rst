@@ -8,7 +8,7 @@ XGBoost on ROCm documentation
 
 XGBoost on ROCm provides GPU‑accelerated gradient boosting on AMD hardware,
 enabling scalable, high‑performance machine learning for financial risk
-modeling and data‑intensive workloads. This implementation utilizes optimized
+modeling and data‑intensive workloads. It uses optimized
 kernels, enhanced memory management, and multi‑GPU scaling to accelerate
 performance compared to CPU‑only baselines.
 
