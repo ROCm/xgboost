@@ -5,13 +5,13 @@
 .. _install-xgboost-pip:
 
 *****************************
-Install ROCm XGBoost with pip
+Install XGBoost with pip
 *****************************
 
 Prerequisites
 =============
 
-To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ , you need the following prerequisites:
+To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ on ROCm, you need the following prerequisites:
 
 - **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.2 <https://rocm.docs.amd.com/en/docs-7.0.2/>`__
 - **Operating system:** Ubuntu 24.04
