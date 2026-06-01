@@ -13,9 +13,9 @@ Prerequisites
 
 To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ on ROCm, you need the following prerequisites:
 
-- **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.3 <https://rocm.docs.amd.com/en/docs-7.0.3/>`__
+- **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.2 <https://rocm.docs.amd.com/en/docs-7.0.2/>`__
 - **Operating system:** Ubuntu 24.04
-- **GPU platform:** AMD Instinct™ MI325X, MI300X
+- **GPU platform:** AMD Instinct™ MI355X (ROCm 7.2.3 only), MI325X, MI300X
 - **Python:** `3.12 <https://www.python.org/downloads/release/python-3123/>`__
 
 For a consistent and streamlined setup experience, it's recommended to use
@@ -113,13 +113,13 @@ Build from source
               numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
             pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.1.1/simple/
 
-      .. tab-item:: ROCm 7.0.3
+      .. tab-item:: ROCm 7.0.2
 
          .. code-block:: shell
 
             pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging \
               numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
-            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.3/simple/
+            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.2/simple/
 
 8. Run the Python examples.
 

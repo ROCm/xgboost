@@ -13,7 +13,7 @@ Prerequisites
 
 To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ on ROCm, you need the following prerequisites:
 
-- **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.3 <https://rocm.docs.amd.com/en/docs-7.0.3/>`__
+- **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.2 <https://rocm.docs.amd.com/en/docs-7.0.2/>`__
 - **Operating system:** Ubuntu 24.04
 - **GPU platform:** AMD Instinct™ MI325X, MI300X
 - **Python:** `3.12 <https://www.python.org/downloads/release/python-3123/>`__
@@ -43,12 +43,12 @@ Install the ROCm-enabled XGBoost library from the AMD-hosted PyPI (Python Packag
 
          pip install amd_xgboost --extra-index-url=https://pypi.amd.com/rocm-7.1.1/simple
 
-   .. tab-item:: ROCm 7.0.3
-      :sync: rocm703
+   .. tab-item:: ROCm 7.0.2
+      :sync: rocm702
 
       .. code-block:: shell
 
-         pip install amd_xgboost --extra-index-url=https://pypi.amd.com/rocm-7.0.3/simple
+         pip install amd_xgboost --extra-index-url=https://pypi.amd.com/rocm-7.0.2/simple
 
 Verify your installation
 ------------------------
