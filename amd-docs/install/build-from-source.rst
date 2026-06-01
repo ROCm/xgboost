@@ -13,7 +13,7 @@ Prerequisites
 
 To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ on ROCm, you need the following prerequisites:
 
-- **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.2 <https://rocm.docs.amd.com/en/docs-7.0.2/>`__
+- **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.3 <https://rocm.docs.amd.com/en/docs-7.0.3/>`__
 - **Operating system:** Ubuntu 24.04
 - **GPU platform:** AMD Instinct™ MI325X, MI300X
 - **Python:** `3.12 <https://www.python.org/downloads/release/python-3123/>`__
@@ -30,11 +30,11 @@ Build from source
 
    .. code-block:: shell
 
-      RUN apt-get update && apt-get install -y --no-install-recommends git libomp-dev python3-venv curl ca-certificates gpg wget
-      RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
-      RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main' | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
-      RUN apt-get update
-      RUN apt-get install -y cmake libgtest-dev libgmock-dev
+      apt-get update && apt-get install -y --no-install-recommends git libomp-dev python3-venv curl ca-certificates gpg wget
+      wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
+      echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main' | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+      apt-get update
+      apt-get install -y cmake libgtest-dev libgmock-dev
 
 2. Clone the `<https://github.com/ROCm/xgboost>`__ source code from GitHub.
 
@@ -74,9 +74,9 @@ Build from source
 
    Build Options:
 
-   - ``DUSE_HIP=1``: Enable ROCm/HIP support
-   - ``DUSE_RCCL=1``: Enable RCCL for multi-GPU support
-   - ``DGOOGLE_TEST=1``: Include unit tests
+   - ``-DUSE_HIP=1``: Enable ROCm/HIP support
+   - ``-DUSE_RCCL=1``: Enable RCCL for multi-GPU support
+   - ``-DGOOGLE_TEST=1``: Include unit tests
 
 5. Build and install the Python package.
 
@@ -113,13 +113,13 @@ Build from source
               numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
             pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.1.1/simple/
 
-      .. tab-item:: ROCm 7.0.2
+      .. tab-item:: ROCm 7.0.3
 
          .. code-block:: shell
 
             pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging \
               numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
-            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.2/simple/
+            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.3/simple/
 
 8. Run the Python examples.
 
