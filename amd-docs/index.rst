@@ -43,7 +43,5 @@ The XGBoost public repository is located at `<https://github.com/ROCm/XGBoost/>`
 
       * :doc:`/examples/run-xgboost-example`
 
-To contribute to the documentation, refer to
-`Contributing to ROCm <https://rocm.docs.amd.com/en/latest/contribute/contributing.html>`_.
 
 You can find licensing information on the :doc:`Licensing <about/license>` page.
