@@ -44,4 +44,7 @@ The XGBoost public repository is located at `<https://github.com/ROCm/XGBoost/>`
       * :doc:`/examples/run-xgboost-example`
 
 
+To contribute to XGBoost, refer to
+`Contributing to ROCm-Finance <https://github.com/ROCm/rocm-finance/blob/release/26.01/CONTRIBUTING.md>`__.
+
 You can find licensing information on the :doc:`Licensing <about/license>` page.
