@@ -16,7 +16,7 @@ To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ on
 - **ROCm version:** `7.2.3 <https://rocm.docs.amd.com/en/docs-7.2.3/>`__, `7.1.1 <https://rocm.docs.amd.com/en/docs-7.1.1/>`__, `7.0.2 <https://rocm.docs.amd.com/en/docs-7.0.2/>`__
 - **Operating system:** Ubuntu 24.04
 - **GPU platform:** AMD Instinct™ MI355X (ROCm 7.2.3 only), MI325X, MI300X
-- **Python:** `3.12 <https://www.python.org/downloads/release/python-3123/>`__
+- **Python:** `3.12 <https://www.python.org/downloads/release/python-31213/>`__, `3.11 <https://www.python.org/downloads/release/python-31115/>`__, `3.10 <https://www.python.org/downloads/release/python-31020/>`__
 
 For a consistent and streamlined setup experience, it's recommended to use
 a ROCm development environment Docker container. See `Install ROCm-Finance
