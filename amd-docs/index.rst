@@ -3,7 +3,7 @@
    :keywords: amd, rocm, finance, financial, fintech, algorithm, gpu
 
 ********************************************************************
-XGBoost on ROCm documentation
+XGBoost documentation
 ********************************************************************
 
 XGBoost on ROCm provides GPU‑accelerated gradient boosting on AMD hardware,
@@ -21,10 +21,10 @@ feature importance aid in regulatory compliance. While GPU acceleration speeds
 up processing on large datasets by parallelizing split computations, memory
 requirements increase with tree depth.
 
-XGBoost is part of the `ROCm-Finance toolkit
+XGBoost is part of the `AMD Finance toolkit
 <https://rocm.docs.amd.com/projects/rocm-finance-internal/en/docs-26.05/>`__.
 
-The XGBoost public repository is located at `<https://github.com/ROCm/XGBoost/>`__.
+The XGBoost public repository is located at `<https://github.com/AMD-Ecosystem/XGBoost/>`__.
 
 .. grid:: 2
    :gutter: 3
@@ -45,6 +45,6 @@ The XGBoost public repository is located at `<https://github.com/ROCm/XGBoost/>`
 
 
 To contribute to XGBoost, refer to
-`Contributing to ROCm-Finance <https://github.com/ROCm/rocm-finance/blob/release/26.01/CONTRIBUTING.md>`__.
+`Contributing to AMD Finance <https://github.com/AMD-Ecosystem/rocm-finance/blob/release/26.01/CONTRIBUTING.md>`__.
 
 You can find licensing information on the :doc:`Licensing <about/license>` page.

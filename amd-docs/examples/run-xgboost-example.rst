@@ -85,7 +85,7 @@ Quick example
 Examples repository
 ====================================================================
 
-The `https://github.com/ROCm/rocm-finance/tree/release/26.05/examples/xgboost <https://github.com/ROCm/rocm-finance/tree/release/26.05/examples/xgboost>`__ repository contains comprehensive examples demonstrating GPU-accelerated machine learning using AMD ROCm.
+The `https://github.com/AMD-Ecosystem/rocm-finance/tree/release/26.05/examples/xgboost <https://github.com/AMD-Ecosystem/rocm-finance/tree/release/26.05/examples/xgboost>`__ repository contains comprehensive examples demonstrating GPU-accelerated machine learning using AMD ROCm.
 
 The ``xgboost`` directory includes:
 
@@ -112,7 +112,7 @@ Run the example
 .. code-block:: bash
 
    # Clone the repository
-   git clone https://github.com/ROCm/rocm-finance.git
+   git clone https://github.com/AMD-Ecosystem/rocm-finance.git
    cd rocm-finance/examples/xgboost
    
    # Install dependencies
@@ -122,4 +122,4 @@ Run the example
    python xgboost_example.py
 
 
-For more examples and use cases, see the `XGBoost Demo Gallery <https://github.com/ROCm/xgboost/tree/release/3.2.0/demo>`__.
+For more examples and use cases, see the `XGBoost Demo Gallery <https://github.com/AMD-Ecosystem/xgboost/tree/release/3.2.0/demo>`__.

@@ -19,7 +19,7 @@ To use XGBoost `3.2.0 <https://github.com/dmlc/xgboost/tree/release_3.2.0>`__ on
 - **Python:** `3.12 <https://www.python.org/downloads/release/python-31213/>`__, `3.11 <https://www.python.org/downloads/release/python-31115/>`__, `3.10 <https://www.python.org/downloads/release/python-31020/>`__
 
 For a consistent and streamlined setup experience, it's recommended to use
-a ROCm development environment Docker container. See `Install ROCm-Finance
+a ROCm development environment Docker container. See `Install AMD Finance
 <https://rocm.docs.amd.com/projects/rocm-finance-internal/en/docs-26.05/install/install.html>`__
 for instructions.
 
@@ -36,11 +36,11 @@ Build from source
       apt-get update
       apt-get install -y cmake libgtest-dev libgmock-dev
 
-2. Clone the `<https://github.com/ROCm/xgboost>`__ source code from GitHub.
+2. Clone the `<https://github.com/AMD-Ecosystem/xgboost>`__ source code from GitHub.
 
    .. code-block:: shell
 
-      git clone --recurse-submodules https://github.com/rocm/xgboost.git
+      git clone --recurse-submodules https://github.com/AMD-Ecosystem/xgboost.git
 
 3. Create and activate a Python virtual environment.
 

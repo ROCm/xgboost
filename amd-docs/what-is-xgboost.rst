@@ -14,7 +14,7 @@ previous trees, producing accurate models for classification and regression on
 structured, tabular data.
 
 On AMD hardware, XGBoost runs through the ROCm stack as GPU-accelerated
-gradient boosting. The ROCm-Finance distribution targets AMD Instinct GPUs,
+gradient boosting. The AMD Finance distribution targets AMD Instinct GPUs,
 delivering scalable, high-performance machine learning for financial risk
 modeling and other data-intensive workloads. Optimized kernels, enhanced memory
 management, and multi-GPU scaling accelerate training compared to CPU-only
@@ -47,7 +47,7 @@ ROCm XGBoost on AMD hardware provides:
   tabular datasets
 * **Multi-GPU scaling**: Distribute training across multiple AMD GPUs for
   enterprise-scale workloads
-* **ROCm-Finance integration**: Install and operate alongside other ROCm-Finance
+* **AMD Finance integration**: Install and operate alongside other AMD Finance
   libraries on supported ROCm versions
 * **Regularization and missing-value handling**: Built-in L1/L2 penalties and
   automatic handling of missing values
@@ -67,5 +67,5 @@ on AMD GPUs, including:
 * **High-throughput training**: GPU parallelization of split computations for
   faster iteration on data-intensive workloads
 * **Multi-GPU enterprise deployments**: Scale training across multiple AMD
-  Instinct GPUs in ROCm-Finance environments
+  Instinct GPUs in AMD Finance environments
 
