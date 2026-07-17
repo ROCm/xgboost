@@ -3,7 +3,7 @@
    :keywords: amd, rocm, finance, financial, fintech, algorithm, gpu, install, setup, env, docker, pip, package, quick, start, lib
 
 *****************************
-Install ROCm XGBoost with pip
+Install XGBoost with pip
 *****************************
 
 .. _xgboost-install-prerequisites:
@@ -12,14 +12,14 @@ Prerequisites
 =============
 
 Before proceeding, ensure that you have installed a supported ROCm version,
-operating system, and Python version that are compatible with the ROCm-Finance
+operating system, and Python version that are compatible with the AMD Finance
 libraries. Verify that your system includes an AMD GPU fully supported by ROCm
-Finance. For guidance, see `ROCm-Finance installation prerequisites
+Finance. For guidance, see `AMD Finance installation prerequisites
 <https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/prerequisites.html>`__.
 
 For a consistent and streamlined setup experience, it's recommended to use
 a ROCm development environment Docker container. See
-`Install ROCm Finance <https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/install.html>`__ for instructions.
+`Install AMD Finance <https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/install.html>`__ for instructions.
 
 Install using pip
 =================

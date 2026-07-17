@@ -3,7 +3,7 @@
    :keywords: amd, rocm, license, contribute, open, source, code, software, reuse, distribute
 
 ********************
-ROCm XGBoost license
+XGBoost license
 ********************
 
 .. literalinclude:: ../../LICENSE

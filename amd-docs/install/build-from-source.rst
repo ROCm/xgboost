@@ -2,21 +2,21 @@
    :description: Build XGBoost with ROCm support from source for AMD GPUs
    :keywords: amd, rocm, finance, financial, fintech, algorithm, gpu, install, setup, env, docker, package, contribute, develop, build, pip, make
 
-******************************
-Build ROCm XGBoost from source
-******************************
+***********************************
+Build XGBoost on ROCm from source
+***********************************
 
 Prerequisites
 =============
 
 Before proceeding, ensure that you have installed a supported ROCm version,
 operating system, and Python environment that are compatible with the
-ROCm-Finance libraries. Verify that your system includes a supported AMD
-Instinct GPU. For guidance, see `ROCm-Finance installation prerequisites
+AMD Finance libraries. Verify that your system includes a supported AMD
+Instinct GPU. For guidance, see `AMD Finance installation prerequisites
 <https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/prerequisites.html>`__.
 
 For a consistent and streamlined setup experience, it's recommended to use
-a ROCm development environment Docker container. See `Install ROCm-Finance
+a ROCm development environment Docker container. See `Install AMD Finance
 <https://rocm.docs.amd.com/projects/rocm-finance/en/docs-26.01/install/install.html>`__
 for instructions.
 
@@ -33,11 +33,11 @@ Build from source
       RUN apt-get update
       RUN apt-get install -y cmake libgtest-dev libgmock-dev
 
-2. Clone the `<https://github.com/ROCm/xgboost>`__ source code from GitHub.
+2. Clone the `<https://github.com/AMD-Ecosystem/xgboost>`__ source code from GitHub.
 
    .. code-block:: shell
 
-      git clone --recurse-submodules https://github.com/rocm/xgboost.git
+      git clone --recurse-submodules https://github.com/AMD-Ecosystem/xgboost.git
 
 3. Create and activate a Python virtual environment.
 
