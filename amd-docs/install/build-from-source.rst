@@ -46,7 +46,7 @@ Build from source
 
    .. code-block:: shell
 
-      python -m venv xgboost-build
+      python3 -m venv xgboost-build
       source xgboost-build/bin/activate
 
 4. Build the shared object library.
@@ -67,7 +67,7 @@ Build from source
       cd xgboost
 
       # Configure with CMake
-      cmake -DUSE_HIP=1 -DUSE_RCCL=1 -DGOOGLE_TEST=1 -S . -B build
+      cmake -DUSE_HIP=1 -DUSE_RCCL=1 -S . -B build
 
       # Build (adjust -j based on your CPU cores)
       cmake --build build -- -j 8
@@ -76,7 +76,6 @@ Build from source
 
    - ``-DUSE_HIP=1``: Enable ROCm/HIP support
    - ``-DUSE_RCCL=1``: Enable RCCL for multi-GPU support
-   - ``-DGOOGLE_TEST=1``: Include unit tests
 
 5. Build and install the Python package.
 
@@ -125,4 +124,5 @@ Build from source
 
    .. code-block:: shell
 
+      export ROCM_HOME=/opt/rocm
       pytest tests/python-gpu
