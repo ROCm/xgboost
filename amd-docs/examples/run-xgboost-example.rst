@@ -55,15 +55,15 @@ Quick example
    import xgboost as xgb
    from sklearn.datasets import load_breast_cancer
    from sklearn.model_selection import train_test_split
-   
+
    # Load data
    X, y = load_breast_cancer(return_X_y=True)
    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-   
+
    # Create DMatrix
    dtrain = xgb.DMatrix(X_train, label=y_train)
    dtest = xgb.DMatrix(X_test, label=y_test)
-   
+
    # Set parameters for AMD GPU
    params = {
        'tree_method': 'hist',
@@ -73,11 +73,11 @@ Quick example
        'objective': 'binary:logistic',
        'eval_metric': 'logloss'
    }
-   
+
    # Train
    model = xgb.train(params, dtrain, num_boost_round=100,
                      evals=[(dtest, 'test')], early_stopping_rounds=10)
-   
+
    # Predict
    predictions = model.predict(dtest)
 
@@ -114,10 +114,10 @@ Run the example
    # Clone the repository
    git clone https://github.com/AMD-Ecosystem/rocm-finance.git
    cd rocm-finance/examples/xgboost
-   
+
    # Install dependencies
    pip install -r requirements.txt
-   
+
    # Run the fraud detection demo
    python xgboost_example.py
 

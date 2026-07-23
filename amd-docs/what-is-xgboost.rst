@@ -68,4 +68,3 @@ on AMD GPUs, including:
   faster iteration on data-intensive workloads
 * **Multi-GPU enterprise deployments**: Scale training across multiple AMD
   Instinct GPUs in AMD Finance environments
-

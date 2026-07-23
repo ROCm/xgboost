@@ -1,8 +1,4 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
+"""Sphinx configuration for AMD-hosted XGBoost documentation."""
 
 import os
 from pathlib import Path
@@ -14,7 +10,7 @@ DOCS_DIR = Path(__file__).parent.resolve()
 project = "XGBoost"
 project_path = str(DOCS_DIR).replace("\\", "/")
 author = "Advanced Micro Devices, Inc."
-copyright = "Copyright (c) %Y Advanced Micro Devices, Inc. All rights reserved."
+copyright = "Copyright (c) %Y Advanced Micro Devices, Inc. All rights reserved."  # pylint: disable=redefined-builtin
 version = RELEASE_VERSION
 release = RELEASE_VERSION
 setting_all_article_info = True

@@ -84,4 +84,3 @@ After installing XGBoost, import and use the library. For example:
    params = {'tree_method': 'hist', 'device': 'cuda', 'max_depth': 3}
    model = xgb.train(params, dtrain, num_boost_round=10)
    print("GPU training successful!")
-

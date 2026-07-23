@@ -85,7 +85,7 @@ Build from source
       cd python-package
       pip install setuptools pytest build wheel
       python3 -m build --wheel .
-      pip install dist/amd_xgboost*.whl 
+      pip install dist/amd_xgboost*.whl
 
 6. Verify the installation.
 
