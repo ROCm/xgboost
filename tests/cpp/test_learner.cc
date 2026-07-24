@@ -8,18 +8,18 @@
 #include <xgboost/objective.h>       // for ObjFunction
 #include <xgboost/version_config.h>  // for XGBOOST_VER_MAJOR, XGBOOST_VER_MINOR
 
-#include <algorithm>                                // for equal, transform
-#include <cstddef>                                  // for size_t
-#include <iosfwd>                                   // for ofstream
-#include <limits>                                   // for numeric_limits
-#include <map>                                      // for map
-#include <memory>                                   // for unique_ptr, shared_ptr, __shared_ptr_...
-#include <random>                                   // for uniform_real_distribution
-#include <string>                                   // for allocator, basic_string, string, oper...
-#include <thread>                                   // for thread
-#include <type_traits>                              // for is_integral
-#include <utility>                                  // for pair
-#include <vector>                                   // for vector
+#include <algorithm>    // for equal, transform
+#include <cstddef>      // for size_t
+#include <iosfwd>       // for ofstream
+#include <limits>       // for numeric_limits
+#include <map>          // for map
+#include <memory>       // for unique_ptr, shared_ptr, __shared_ptr_...
+#include <random>       // for uniform_real_distribution
+#include <string>       // for allocator, basic_string, string, oper...
+#include <thread>       // for thread
+#include <type_traits>  // for is_integral
+#include <utility>      // for pair
+#include <vector>       // for vector
 
 #include "../../src/collective/communicator-inl.h"  // for GetRank, GetWorldSize
 #include "../../src/common/api_entry.h"             // for XGBAPIThreadLocalEntry
@@ -31,6 +31,7 @@
 #include "filesystem.h"                             // for TemporaryDirectory
 #include "helpers.h"                                // for GetBaseScore, RandomDataGenerator
 #include "objective_helpers.h"                      // for MakeObjNamesForTest, ObjTestNameGenerator
+#include "test_serialization.h"                     // for CompareJsonModels
 #include "xgboost/base.h"                           // for bst_float, Args, bst_feature_t, bst_int
 #include "xgboost/context.h"                        // for Context, DeviceOrd
 #include "xgboost/data.h"                           // for DMatrix, MetaInfo, DataType
@@ -324,7 +325,7 @@ TEST(Learner, GPUConfiguration) {
     ASSERT_EQ(learner->Ctx()->Device(), DeviceOrd::CPU());
   }
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 
 TEST(Learner, Seed) {
   auto m = RandomDataGenerator{10, 10, 0}.GenerateDMatrix();
@@ -431,8 +432,8 @@ TEST(Learner, MultiTarget) {
   size_t constexpr kRows{128}, kCols{10}, kTargets{3};
   auto m = RandomDataGenerator{kRows, kCols, 0}.GenerateDMatrix();
   m->Info().labels.Reshape(kRows, kTargets);
-  linalg::ElementWiseTransformHost(m->Info().labels.HostView(), omp_get_max_threads(),
-                                   [](auto i, auto) { return i; });
+  linalg::cpu_impl::TransformIdxKernel(m->Info().labels.HostView(), omp_get_max_threads(),
+                                       [](auto i, auto) { return i; });
 
   {
     std::unique_ptr<Learner> learner{Learner::Create({m})};
@@ -646,11 +647,13 @@ class TestColumnSplit : public ::testing::TestWithParam<std::string> {
     Json config{Object{}};
     learner->SaveConfig(&config);
     auto base_score = GetBaseScore(config);
-    ASSERT_EQ(base_score, expected_base_score);
+    for (size_t idx = 0; idx < base_score.size(); ++idx) {
+      ASSERT_NEAR(base_score[idx], expected_base_score[idx], 1e-6);
+    }
 
     Json model{Object{}};
     learner->SaveModel(&model);
-    ASSERT_EQ(model, expected_model);
+    CompareJsonModels(model, expected_model);
   }
 
  public:

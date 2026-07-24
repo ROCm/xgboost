@@ -2,7 +2,7 @@
 
 import base64
 
-# pylint: disable=fixme, protected-access, no-member, invalid-name
+# pylint: disable=fixme, protected-access, no-member
 # pylint: disable=too-many-lines, too-many-branches
 import json
 import logging
@@ -629,7 +629,7 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
 
         self.logger = get_logger(self.__class__.__name__)
 
-    def setParams(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def setParams(self, **kwargs: Any) -> None:
         """
         Set params for the estimator.
         """
@@ -1183,7 +1183,7 @@ class _SparkXGBEstimator(Estimator, _SparkXGBParams, MLReadable, MLWritable):
             train_call_kwargs_params,
             dmatrix_kwargs,
         )
-        (evals_result, config, booster) = _run_job()
+        evals_result, config, booster = _run_job()
         get_logger(_LOG_TAG).info("Finished xgboost training!")
 
         result_xgb_model = self._convert_to_sklearn_model(

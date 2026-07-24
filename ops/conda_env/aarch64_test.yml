@@ -14,14 +14,12 @@ dependencies:
 - matplotlib
 - dask
 - distributed
-- hypothesis<=6.112
+- hypothesis
 - graphviz
 - python-graphviz
 - codecov
 - cmake
 - ninja
-- boto3
-- jsonschema
 - boto3
 - awscli
 - numba

@@ -36,7 +36,10 @@
 #define cudaEventSynchronize                                hipEventSynchronize
 #define cudaEventDisableTiming                              hipEventDisableTiming
 #define cudaEventDefault                                    hipEventDefault
+//#define cudaEventWaitDefault                                0
 #define cudaEventElapsedTime                                hipEventElapsedTime
+#define cudaEventRecord                                     hipEventRecord
+#define cudaEventWaitDefault                                hipEventWaitDefault
 
 // Device management
 #define cudaGetDevice                                       hipGetDevice
@@ -45,6 +48,7 @@
 #define cudaDeviceSynchronize                               hipDeviceSynchronize
 #define cudaGetDeviceProperties                             hipGetDeviceProperties
 #define cudaDeviceGetAttribute                              hipDeviceGetAttribute
+#define cudaDeviceProp                                      hipDeviceProp_t
 
 // Device attributes
 #define cudaDevAttrMultiProcessorCount                      hipDeviceAttributeMultiprocessorCount
@@ -53,7 +57,8 @@
 #define cudaOccupancyMaxActiveBlocksPerMultiprocessor       hipOccupancyMaxActiveBlocksPerMultiprocessor
 #define cudaDevAttrPageableMemoryAccess                     hipDeviceAttributePageableMemoryAccess 
 #define cudaDevAttrPageableMemoryAccessUsesHostPageTables   hipDeviceAttributePageableMemoryAccessUsesHostPageTables
-#define cudaDevAttrHostNumaId								hipDeviceAttributeHostNumaId
+#define cudaDevAttrMemoryPoolsSupported                     hipDeviceAttributeMemoryPoolsSupported
+#define cudaDevAttrHostNumaId								hipDeviceAttributePciDomainId
 
 // Memory allocation
 #define cudaMalloc                                          hipMalloc

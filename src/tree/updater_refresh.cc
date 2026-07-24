@@ -1,19 +1,20 @@
 /**
- * Copyright 2014-2024, XGBoost Contributors
+ * Copyright 2014-2026, XGBoost Contributors
  * \file updater_refresh.cc
  * \brief refresh the statistics and leaf value on the tree on the dataset
  * \author Tianqi Chen
  */
-#include <xgboost/tree_updater.h>
-
 #include <limits>
 #include <vector>
 
 #include "../collective/allreduce.h"
 #include "../common/threading_utils.h"
 #include "../predictor/predict_fn.h"
+#include "../tree/tree_view.h"  // for ScalarTreeView
 #include "./param.h"
+#include "xgboost/gradient.h"  // for GradientContainer
 #include "xgboost/json.h"
+#include "xgboost/tree_updater.h"
 
 namespace xgboost::tree {
 
@@ -29,69 +30,61 @@ class TreeRefresher : public TreeUpdater {
 
   [[nodiscard]] char const *Name() const override { return "refresh"; }
   [[nodiscard]] bool CanModifyTree() const override { return true; }
-  // update the tree, do pruning
-  void Update(TrainParam const *param, linalg::Matrix<GradientPair> *gpair, DMatrix *p_fmat,
+  // Update the tree, do pruning
+  void Update(TrainParam const *param, GradientContainer *in_gpair, DMatrix *p_fmat,
               common::Span<HostDeviceVector<bst_node_t>> /*out_position*/,
               const std::vector<RegTree *> &trees) override {
     if (trees.size() == 0) {
       return;
     }
+    auto gpair = in_gpair->FullGradOnly();
     CHECK_EQ(gpair->Shape(1), 1) << MTNotImplemented();
     const std::vector<GradientPair> &gpair_h = gpair->Data()->ConstHostVector();
     // Thread local variables.
-    std::vector<std::vector<GradStats> > stemp;
+    std::vector<std::vector<GradStats>> stemp;
     std::vector<RegTree::FVec> fvec_temp;
     // setup temp space for each thread
     const int nthread = ctx_->Threads();
     fvec_temp.resize(nthread, RegTree::FVec());
     stemp.resize(nthread, std::vector<GradStats>());
-    dmlc::OMPException exc;
-#pragma omp parallel num_threads(nthread)
-    {
-      exc.Run([&]() {
-        int tid = omp_get_thread_num();
-        int num_nodes = 0;
+
+    bst_node_t num_nodes = 0;
+    for (auto tree : trees) {
+      num_nodes += tree->NumNodes();
+    }
+    common::ParallelFor(nthread, nthread, [&](auto tid) {
+      stemp[tid].resize(num_nodes);
+      std::fill(stemp[tid].begin(), stemp[tid].end(), GradStats{});
+      fvec_temp[tid].Init(trees.front()->NumFeatures());
+    });
+
+    const MetaInfo &info = p_fmat->Info();
+    // start accumulating statistics
+    for (const auto &batch : p_fmat->GetBatches<SparsePage>()) {
+      auto page = batch.GetView();
+      CHECK_LT(batch.Size(), std::numeric_limits<unsigned>::max());
+      common::ParallelFor(batch.Size(), ctx_->Threads(), [&](auto i) {
+        SparsePage::Inst inst = page[i];
+        const int tid = omp_get_thread_num();
+        const auto ridx = static_cast<bst_uint>(batch.base_rowid + i);
+        RegTree::FVec &feats = fvec_temp[tid];
+        feats.Fill(inst);
+        int offset = 0;
         for (auto tree : trees) {
-          num_nodes += tree->NumNodes();
+          AddStats(*tree, feats, gpair_h, info, ridx, dmlc::BeginPtr(stemp[tid]) + offset);
+          offset += tree->NumNodes();
         }
-        stemp[tid].resize(num_nodes, GradStats());
-        std::fill(stemp[tid].begin(), stemp[tid].end(), GradStats());
-        fvec_temp[tid].Init(trees[0]->NumFeatures());
+        feats.Drop();
       });
     }
-    exc.Rethrow();
 
-    auto get_stats = [&]() {
-      const MetaInfo &info = p_fmat->Info();
-      // start accumulating statistics
-      for (const auto &batch : p_fmat->GetBatches<SparsePage>()) {
-        auto page = batch.GetView();
-        CHECK_LT(batch.Size(), std::numeric_limits<unsigned>::max());
-        const auto nbatch = static_cast<bst_omp_uint>(batch.Size());
-        common::ParallelFor(nbatch, ctx_->Threads(), [&](bst_omp_uint i) {
-          SparsePage::Inst inst = page[i];
-          const int tid = omp_get_thread_num();
-          const auto ridx = static_cast<bst_uint>(batch.base_rowid + i);
-          RegTree::FVec &feats = fvec_temp[tid];
-          feats.Fill(inst);
-          int offset = 0;
-          for (auto tree : trees) {
-            AddStats(*tree, feats, gpair_h, info, ridx,
-                     dmlc::BeginPtr(stemp[tid]) + offset);
-            offset += tree->NumNodes();
-          }
-          feats.Drop();
-        });
+    // aggregate the statistics
+    common::ParallelFor(num_nodes, ctx_->Threads(), [&](int nid) {
+      for (int tid = 1; tid < nthread; ++tid) {
+        stemp[0][nid].Add(stemp[tid][nid]);
       }
-      // aggregate the statistics
-      auto num_nodes = static_cast<int>(stemp[0].size());
-      common::ParallelFor(num_nodes, ctx_->Threads(), [&](int nid) {
-        for (int tid = 1; tid < nthread; ++tid) {
-          stemp[0][nid].Add(stemp[tid][nid]);
-        }
-      });
-    };
-    get_stats();
+    });
+
     // Synchronize the aggregated result.
     auto &sum_grad = stemp[0];
     // x2 for gradient and hessian.
@@ -107,29 +100,24 @@ class TreeRefresher : public TreeUpdater {
   }
 
  private:
-  inline static void AddStats(const RegTree &tree,
-                              const RegTree::FVec &feat,
-                              const std::vector<GradientPair> &gpair,
-                              const MetaInfo&,
-                              const bst_uint ridx,
-                              GradStats *gstats) {
+  inline static void AddStats(const RegTree &tree, const RegTree::FVec &feat,
+                              const std::vector<GradientPair> &gpair, const MetaInfo &,
+                              const bst_uint ridx, GradStats *gstats) {
     // start from groups that belongs to current data
     auto pid = 0;
     gstats[pid].Add(gpair[ridx]);
-    auto const& cats = tree.GetCategoriesMatrix();
     // traverse tree
-    while (!tree[pid].IsLeaf()) {
-      unsigned split_index = tree[pid].SplitIndex();
-      pid = predictor::GetNextNode<true, true>(
-          tree[pid], pid, feat.GetFvalue(split_index), feat.IsMissing(split_index),
-          cats);
+    auto sc_tree = tree.HostScView();
+    while (!sc_tree.IsLeaf(pid)) {
+      unsigned split_index = sc_tree.SplitIndex(pid);
+      pid = predictor::GetNextNode<true, true>(sc_tree, pid, feat.GetFvalue(split_index),
+                                               feat.IsMissing(split_index), sc_tree.cats);
       gstats[pid].Add(gpair[ridx]);
     }
   }
-  inline void Refresh(TrainParam const *param, const GradStats *gstats, int nid, RegTree *p_tree) {
+  void Refresh(TrainParam const *param, const GradStats *gstats, int nid, RegTree *p_tree) {
     RegTree &tree = *p_tree;
-    tree.Stat(nid).base_weight =
-        static_cast<bst_float>(CalcWeight(*param, gstats[nid]));
+    tree.Stat(nid).base_weight = static_cast<bst_float>(CalcWeight(*param, gstats[nid]));
     tree.Stat(nid).sum_hess = static_cast<bst_float>(gstats[nid].sum_hess);
     if (tree[nid].IsLeaf()) {
       if (param->refresh_leaf) {

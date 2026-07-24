@@ -7,19 +7,25 @@ if(USE_DMLC_GTEST)
   endif()
   set(GTEST_LIBRARIES gtest gmock)
 else()
-  find_package(GTest REQUIRED)
+  find_package(GTest QUIET)
+  if(NOT GTest_FOUND)
+    message(STATUS "GTest not found on the system; fetching GoogleTest with FetchContent.")
+    include(FetchContent)
+    FetchContent_Declare(
+      googletest
+      GIT_REPOSITORY https://github.com/google/googletest.git
+      GIT_TAG release-1.14.0
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+  endif()
 endif()
 
 file(GLOB_RECURSE TEST_SOURCES "*.cc")
 
-if(USE_CUDA)
+if(USE_CUDA OR USE_HIP)
   file(GLOB_RECURSE CUDA_TEST_SOURCES "*.cu")
   list(APPEND TEST_SOURCES ${CUDA_TEST_SOURCES})
-endif()
-if(USE_HIP)
-  file(GLOB_RECURSE HIP_TEST_SOURCES "*.cu" "*.hip")
-  list(APPEND TEST_SOURCES ${HIP_TEST_SOURCES})
-  set_source_files_properties(${HIP_TEST_SOURCES} PROPERTIES LANGUAGE HIP)
 endif()
 
 # We will add them back later to separate the definition.
@@ -73,11 +79,6 @@ target_sources(
 if(USE_CUDA AND PLUGIN_RMM)
   target_include_directories(testxgboost PRIVATE ${CUDA_INCLUDE_DIRS})
 endif()
-
-if (USE_HIP AND PLUGIN_RMM)
-  find_package(HIP)
-  target_include_directories(testxgboost PRIVATE ${HIP_INCLUDE_DIRS})
-endif (USE_HIP AND PLUGIN_RMM)
 
 target_include_directories(testxgboost
   PRIVATE

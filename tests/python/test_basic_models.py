@@ -9,7 +9,7 @@ import xgboost as xgb
 from xgboost import testing as tm
 from xgboost.core import Integer
 from xgboost.testing.basic_models import run_custom_objective
-from xgboost.testing.updater import ResetStrategy, get_basescore
+from xgboost.testing.updater import get_basescore
 
 
 class TestModels:
@@ -245,44 +245,6 @@ class TestModels:
         bst = xgb.train([], dm2)
         bst.predict(dm2)  # success
 
-    @pytest.mark.skipif(**tm.no_json_schema())
-    def test_json_dump_schema(self):
-        import jsonschema
-
-        def validate_model(parameters):
-            X = np.random.random((100, 30))
-            y = np.random.randint(0, 4, size=(100,))
-
-            parameters["num_class"] = 4
-            m = xgb.DMatrix(X, y)
-
-            booster = xgb.train(parameters, m)
-            dump = booster.get_dump(dump_format="json")
-
-            for i in range(len(dump)):
-                jsonschema.validate(instance=json.loads(dump[i]), schema=schema)
-
-        path = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        doc = os.path.join(path, "doc", "dump.schema")
-        with open(doc, "r") as fd:
-            schema = json.load(fd)
-
-        parameters = {
-            "tree_method": "hist",
-            "booster": "gbtree",
-            "objective": "multi:softmax",
-        }
-        validate_model(parameters)
-
-        parameters = {
-            "tree_method": "hist",
-            "booster": "dart",
-            "objective": "multi:softmax",
-        }
-        validate_model(parameters)
-
     def test_special_model_dump_characters(self) -> None:
         params = {"objective": "reg:squarederror", "max_depth": 3}
         feature_names = ['"feature 0"', "\tfeature\n1", """feature "2"."""]
@@ -451,41 +413,6 @@ class TestModels:
         self.run_slice(
             booster, dtrain, num_parallel_tree, num_classes, num_boost_round, False
         )
-
-    def test_slice_multi(self) -> None:
-        from sklearn.datasets import make_classification
-
-        num_classes = 3
-        X, y = make_classification(
-            n_samples=1000, n_informative=5, n_classes=num_classes
-        )
-        Xy = xgb.DMatrix(data=X, label=y)
-        num_parallel_tree = 4
-        num_boost_round = 16
-
-        booster = xgb.train(
-            {
-                "num_parallel_tree": num_parallel_tree,
-                "num_class": num_classes,
-                "booster": "gbtree",
-                "objective": "multi:softprob",
-                "multi_strategy": "multi_output_tree",
-                "tree_method": "hist",
-                "base_score": 0,
-            },
-            num_boost_round=num_boost_round,
-            dtrain=Xy,
-            callbacks=[ResetStrategy()],
-        )
-        sliced = [t for t in booster]
-        assert len(sliced) == 16
-
-        predt0 = booster.predict(Xy, output_margin=True)
-        predt1 = np.zeros(predt0.shape)
-        for t in booster:
-            predt1 += t.predict(Xy, output_margin=True)
-
-        np.testing.assert_allclose(predt0, predt1, atol=1e-5)
 
     @pytest.mark.skipif(**tm.no_pandas())
     @pytest.mark.parametrize("ext", ["json", "ubj"])

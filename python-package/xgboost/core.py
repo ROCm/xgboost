@@ -1,4 +1,4 @@
-# pylint: disable=too-many-arguments, too-many-branches, invalid-name
+# pylint: disable=too-many-arguments, too-many-branches
 # pylint: disable=too-many-lines, too-many-locals
 """Core XGBoost Library."""
 
@@ -41,6 +41,7 @@ import scipy.sparse
 from ._data_utils import (
     Categories,
     TransformedDf,
+    _ensure_np_dtype,
     array_interface,
     cuda_array_interface,
     from_array_interface,
@@ -70,13 +71,15 @@ from ._typing import (
     c_bst_ulong,
 )
 from .compat import (
+    _is_cupy_alike,
     import_polars,
     import_pyarrow,
     is_pandas_available,
     is_pyarrow_available,
     py_str,
 )
-from .libpath import find_lib_path, is_sphinx_build
+from .libpath import find_lib_path
+from .objective import Objective, TreeObjective, _grad_arrinf
 
 if TYPE_CHECKING:
     from pandas import DataFrame as PdDataFrame
@@ -267,8 +270,7 @@ def _load_lib() -> ctypes.CDLL:
             os.environ["PATH"] = os.pathsep.join(pathBackup)
     if not lib_success:
         libname = os.path.basename(lib_paths[0])
-        raise XGBoostError(
-            f"""
+        raise XGBoostError(f"""
 XGBoost Library ({libname}) could not be loaded.
 Likely causes:
   * OpenMP runtime is not installed
@@ -280,8 +282,7 @@ Likely causes:
   * You are running 32-bit Python on a 64-bit OS
 
 Error message(s): {os_error_list}
-"""
-        )
+""")
     _register_log_callback(lib)
 
     libver = _lib_version(lib)
@@ -377,30 +378,6 @@ def build_info() -> dict:
     res = json.loads(j_info.value.decode())  # pylint: disable=no-member
     res["libxgboost"] = _LIB.path
     return res
-
-
-def _check_glibc() -> None:
-    if is_sphinx_build():
-        return
-
-    glibc_ver = build_info().get("GLIBC_VERSION", None)
-    if glibc_ver is not None and (
-        glibc_ver[0] < 2 or glibc_ver[0] == 2 and glibc_ver[1] < 28
-    ):
-        warnings.warn(
-            "Your system has an old version of glibc (< 2.28). We will stop supporting "
-            "Linux distros with glibc older than 2.28 after **May 31, 2025**. "
-            "Please upgrade to a recent Linux distro (with glibc >= 2.28) to use "
-            "future versions of XGBoost.\n"
-            "Note: You have installed the 'manylinux2014' variant of XGBoost. Certain "
-            "features such as GPU algorithms or federated learning are not available. "
-            "To use these features, please upgrade to a recent Linux distro with glibc "
-            "2.28+, and install the 'manylinux_2_28' variant.",
-            FutureWarning,
-        )
-
-
-_check_glibc()
 
 
 def _numpy2ctypes_type(dtype: Type[np.number]) -> Type[CNumeric]:
@@ -1094,49 +1071,38 @@ class DMatrix:  # pylint: disable=too-many-instance-attributes,too-many-public-m
                 matrix=self, data=feature_weights, name="feature_weights"
             )
 
-    def get_float_info(self, field: str) -> np.ndarray:
+    def _get_info(self, field: str) -> NumpyOrCupy:
+        """Get meta info."""
+        c_sdata = ctypes.c_char_p()
+        _check_call(
+            _LIB.XGDMatrixGetInfoRef(self.handle, c_str(field), ctypes.byref(c_sdata))
+        )
+        assert c_sdata.value is not None
+        idata = json.loads(c_sdata.value)
+        data = from_array_interface(idata)
+        return data
+
+    def get_float_info(self, field: str) -> NumpyOrCupy:
         """Get float property from the DMatrix.
 
         Parameters
         ----------
         field: str
-            The field name of the information
+            The field name of the information.
 
-        Returns
-        -------
-        info : array
-            a numpy array of float information of the data
         """
-        length = c_bst_ulong()
-        ret = ctypes.POINTER(ctypes.c_float)()
-        _check_call(
-            _LIB.XGDMatrixGetFloatInfo(
-                self.handle, c_str(field), ctypes.byref(length), ctypes.byref(ret)
-            )
-        )
-        return ctypes2numpy(ret, length.value, np.float32)
+        return self._get_info(field)
 
-    def get_uint_info(self, field: str) -> np.ndarray:
+    def get_uint_info(self, field: str) -> NumpyOrCupy:
         """Get unsigned integer property from the DMatrix.
 
         Parameters
         ----------
         field: str
-            The field name of the information
+            The field name of the information.
 
-        Returns
-        -------
-        info : array
-            a numpy array of unsigned integer information of the data
         """
-        length = c_bst_ulong()
-        ret = ctypes.POINTER(ctypes.c_uint)()
-        _check_call(
-            _LIB.XGDMatrixGetUIntInfo(
-                self.handle, c_str(field), ctypes.byref(length), ctypes.byref(ret)
-            )
-        )
-        return ctypes2numpy(ret, length.value, np.uint32)
+        return self._get_info(field)
 
     def set_float_info(self, field: str, data: ArrayLike) -> None:
         """Set float type property into the DMatrix.
@@ -1262,32 +1228,17 @@ class DMatrix:  # pylint: disable=too-many-instance-attributes,too-many-public-m
 
         dispatch_meta_backend(self, group, "group", "uint32")
 
-    def get_label(self) -> np.ndarray:
-        """Get the label of the DMatrix.
+    def get_label(self) -> NumpyOrCupy:
+        """Get the label of the DMatrix."""
+        return self._get_info("label")
 
-        Returns
-        -------
-        label : array
-        """
-        return self.get_float_info("label")
+    def get_weight(self) -> NumpyOrCupy:
+        """Get the weight of the DMatrix."""
+        return self._get_info("weight")
 
-    def get_weight(self) -> np.ndarray:
-        """Get the weight of the DMatrix.
-
-        Returns
-        -------
-        weight : array
-        """
-        return self.get_float_info("weight")
-
-    def get_base_margin(self) -> np.ndarray:
-        """Get the base margin of the DMatrix.
-
-        Returns
-        -------
-        base_margin
-        """
-        return self.get_float_info("base_margin")
+    def get_base_margin(self) -> NumpyOrCupy:
+        """Get the base margin of the DMatrix."""
+        return self._get_info("base_margin")
 
     def get_group(self) -> np.ndarray:
         """Get the group of the DMatrix.
@@ -1296,7 +1247,7 @@ class DMatrix:  # pylint: disable=too-many-instance-attributes,too-many-public-m
         -------
         group
         """
-        group_ptr = self.get_uint_info("group_ptr")
+        group_ptr = self._get_info("group_ptr")
         return np.diff(group_ptr)
 
     def get_data(self) -> scipy.sparse.csr_matrix:
@@ -1944,7 +1895,7 @@ class ExtMemQuantileDMatrix(DMatrix, _RefMixIn):
             self.ref = weakref.ref(ref)
 
 
-Objective = Callable[[np.ndarray, DMatrix], Tuple[np.ndarray, np.ndarray]]
+PlainObj = Callable[[np.ndarray, DMatrix], Tuple[np.ndarray, np.ndarray]]
 Metric = Callable[[np.ndarray, DMatrix], Tuple[str, float]]
 
 
@@ -1977,7 +1928,6 @@ class Booster:
         cache: Optional[Sequence[DMatrix]] = None,
         model_file: Optional[Union["Booster", bytearray, os.PathLike, str]] = None,
     ) -> None:
-        # pylint: disable=invalid-name
         """
         Parameters
         ----------
@@ -1991,7 +1941,7 @@ class Booster:
         cache = cache if cache is not None else []
         for d in cache:
             if not isinstance(d, DMatrix):
-                raise TypeError(f"invalid cache item: {type(d).__name__}", cache)
+                raise TypeError(f"Invalid cache item: {type(d).__name__}", cache)
 
         dmats = c_array(ctypes.c_void_p, [d.handle for d in cache])
         self.handle: Optional[ctypes.c_void_p] = ctypes.c_void_p()
@@ -2093,7 +2043,7 @@ class Booster:
             self.handle = None
 
     def __getstate__(self) -> Dict:
-        # can't pickle ctypes pointers, put model content in bytearray
+        # can't pickle ctypes pointers, put model content in a bytearray
         this = self.__dict__.copy()
         handle = this["handle"]
         if handle is not None:
@@ -2109,7 +2059,7 @@ class Booster:
         return this
 
     def __setstate__(self, state: Dict) -> None:
-        # reconstruct handle from raw data
+        # reconstruct the handle from raw data
         handle = state["handle"]
         if handle is not None:
             buf = handle
@@ -2410,23 +2360,30 @@ class Booster:
                 )
 
     def update(
-        self, dtrain: DMatrix, iteration: int, fobj: Optional[Objective] = None
+        self,
+        dtrain: DMatrix,
+        iteration: int,
+        fobj: Optional[PlainObj] = None,
     ) -> None:
         """Update for one iteration, with objective function calculated
-        internally.  This function should not be called directly by users.
+        internally.
+
+        .. warning::
+
+            This function should not be called directly by users.
 
         Parameters
         ----------
         dtrain :
             Training data.
         iteration :
-            Current iteration number.
+            The current training iteration.
         fobj :
-            Customized objective function.
+            Custom objective function.
 
         """
         if not isinstance(dtrain, DMatrix):
-            raise TypeError(f"invalid training matrix: {type(dtrain).__name__}")
+            raise TypeError(f"Invalid training matrix: {type(dtrain).__name__}")
         self._assign_dmatrix_features(dtrain)
 
         if fobj is None:
@@ -2435,70 +2392,115 @@ class Booster:
                     self.handle, ctypes.c_int(iteration), dtrain.handle
                 )
             )
-        else:
-            pred = self.predict(dtrain, output_margin=True, training=True)
-            grad, hess = fobj(pred, dtrain)
-            self.boost(dtrain, iteration=iteration, grad=grad, hess=hess)
+            return
+
+        # Forward the gradient calculation to the boost method.
+        self.boost(
+            dtrain,
+            iteration=iteration,
+            fobj=fobj,
+        )
 
     def boost(
-        self, dtrain: DMatrix, iteration: int, grad: NumpyOrCupy, hess: NumpyOrCupy
+        self,
+        dtrain: DMatrix,
+        iteration: int,
+        *,
+        grad: Optional[NumpyOrCupy] = None,
+        hess: Optional[NumpyOrCupy] = None,
+        fobj: Optional[PlainObj] = None,
     ) -> None:
         """Boost the booster for one iteration with customized gradient statistics.
-        Like :py:func:`xgboost.Booster.update`, this function should not be called
-        directly by users.
+
+        .. warning::
+
+            Like :py:meth:`.update`, this function should not be called directly by
+            users.
 
         Parameters
         ----------
         dtrain :
             The training DMatrix.
+        iteration :
+            The current training iteration.
         grad :
             The first order of gradient.
         hess :
             The second order of gradient.
+        fobj :
+            A custom objective function. If gradient is None, then an objective function
+            is required.
 
         """
-        from .data import _ensure_np_dtype, _is_cupy_alike
-
         self._assign_dmatrix_features(dtrain)
 
-        def is_flatten(array: NumpyOrCupy) -> bool:
-            return len(array.shape) == 1 or array.shape[1] == 1
-
-        def grad_arrinf(array: NumpyOrCupy) -> bytes:
-            # Can we check for __array_interface__ instead of a specific type instead?
-            msg = (
-                "Expecting `np.ndarray` or `cupy.ndarray` for gradient and hessian."
-                f" Got: {type(array)}"
+        if all(arg is not None for arg in (grad, hess, fobj)):
+            raise ValueError(
+                "Provide either the objective, or the gradient and hessian, not both."
             )
-            if not isinstance(array, np.ndarray) and not _is_cupy_alike(array):
-                raise TypeError(msg)
+        n_samples = dtrain.num_row()
 
-            n_samples = dtrain.num_row()
-            if array.shape[0] != n_samples and is_flatten(array):
-                warnings.warn(
-                    "Since 2.1.0, the shape of the gradient and hessian is required to"
-                    " be (n_samples, n_targets) or (n_samples, n_classes).",
-                    FutureWarning,
+        def train_one_iter(grad: NumpyOrCupy, hess: NumpyOrCupy) -> None:
+            _check_call(
+                _LIB.XGBoosterTrainOneIter(
+                    self.handle,
+                    dtrain.handle,
+                    iteration,
+                    _grad_arrinf(grad, n_samples),
+                    _grad_arrinf(hess, n_samples),
                 )
-                array = array.reshape(n_samples, array.size // n_samples)
+            )
 
-            if isinstance(array, np.ndarray):
-                array, _ = _ensure_np_dtype(array, array.dtype)
-                interface = array_interface(array)
-            elif _is_cupy_alike(array):
-                interface = cuda_array_interface(array)
+        if grad is not None or hess is not None:
+            # Handle the case where gradient is directly provided for compatibility with
+            # XGBoost < 3.2
+            train_one_iter(grad, hess)
+            return
+
+        if fobj is None:
+            raise ValueError(
+                "Invalid input for the boost function. Either the gradient or "
+                "the objective should have a valid value."
+            )
+
+        y_pred = self.predict(dtrain, output_margin=True, training=True)
+
+        vgrad: Optional[ArrayLike]
+        vhess: Optional[ArrayLike]
+
+        if isinstance(fobj, TreeObjective):
+            # full gradient for leaf values
+            vgrad, vhess = fobj(iteration, y_pred, dtrain)
+            # Reduced gradient for split nodes
+            split_grad = fobj.split_grad(iteration, vgrad, vhess)
+            # Switch the role of gradient if there's no split gradient but the tree
+            # objective is used.
+            if split_grad is not None:
+                sgrad, shess = split_grad
             else:
-                raise TypeError(msg)
+                sgrad, shess = vgrad, vhess
+                vgrad, vhess = None, None
+        elif isinstance(fobj, Objective):
+            sgrad, shess = fobj(iteration, y_pred, dtrain)
+            vgrad, vhess = None, None
+        else:
+            # Plain callable
+            sgrad, shess = fobj(y_pred, dtrain)
+            vgrad, vhess = None, None
 
-            return interface
+        if vgrad is None:
+            train_one_iter(sgrad, shess)
+            return
 
         _check_call(
-            _LIB.XGBoosterTrainOneIter(
+            _LIB.XGBoosterTrainOneIterWithSplitGrad(
                 self.handle,
                 dtrain.handle,
                 iteration,
-                grad_arrinf(grad),
-                grad_arrinf(hess),
+                _grad_arrinf(sgrad, n_samples),
+                _grad_arrinf(shess, n_samples),
+                _grad_arrinf(vgrad, n_samples),
+                _grad_arrinf(vhess, n_samples),
             )
         )
 
@@ -2509,7 +2511,6 @@ class Booster:
         feval: Optional[Metric] = None,
         output_margin: bool = True,
     ) -> str:
-        # pylint: disable=invalid-name
         """Evaluate a set of data.
 
         Parameters
@@ -2820,7 +2821,6 @@ class Booster:
             _is_arrow,
             _is_cudf_df,
             _is_cudf_pandas,
-            _is_cupy_alike,
             _is_list,
             _is_np_array_like,
             _is_pandas_df,
@@ -2868,8 +2868,6 @@ class Booster:
                 )
 
         if _is_np_array_like(data):
-            from .data import _ensure_np_dtype
-
             data, _ = _ensure_np_dtype(data, data.dtype)
             _check_call(
                 _LIB.XGBoosterPredictFromDense(

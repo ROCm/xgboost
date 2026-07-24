@@ -1,11 +1,13 @@
 /**
  * Copyright 2019-2025, XGBoost Contributors
  */
+#include "test_serialization.h"
+
 #include <gtest/gtest.h>
 #include <xgboost/base.h>
 #include <xgboost/data.h>
 #include <xgboost/feature_map.h>  // for FeatureMap
-#include <xgboost/json.h>
+#include <xgboost/json.h>         // for Json
 #include <xgboost/learner.h>
 
 #include <string>
@@ -47,7 +49,14 @@ void CompareJSON(Json l, Json r) {
 
     for (auto const& kv : l_obj) {
       ASSERT_NE(r_obj.find(kv.first), r_obj.cend());
-      CompareJSON(l_obj.at(kv.first), r_obj.at(kv.first));
+      // Floating point array saved as a string.
+      if (kv.first == "base_score") {
+        auto l_v = Json::Load(get<String const>(l_obj.at(kv.first)));
+        auto r_v = Json::Load(get<String const>(r_obj.at(kv.first)));
+        CompareJSON(l_v, r_v);
+      } else {
+        CompareJSON(l_obj.at(kv.first), r_obj.at(kv.first));
+      }
     }
     break;
   }
@@ -120,6 +129,8 @@ void CompareJSON(Json l, Json r) {
   }
   }
 }
+
+void CompareJsonModels(Json l, Json r) { CompareJSON(std::move(l), std::move(r)); }
 
 void TestLearnerSerialization(Args args, FeatureMap const& fmap, std::shared_ptr<DMatrix> p_dmat) {
   for (auto& batch : p_dmat->GetBatches<SparsePage>()) {
@@ -378,7 +389,7 @@ TEST_F(SerializationTest, CPUCoordDescent) {
                            fmap_, p_dmat_);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_F(SerializationTest, GpuHist) {
   TestLearnerSerialization({{"booster", "gbtree"},
                             {"seed", "0"},
@@ -460,7 +471,7 @@ TEST_F(SerializationTest, GPUCoordDescent) {
                             {"updater", "coord_descent"}},
                            fmap_, p_dmat_);
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 
 class L1SerializationTest : public SerializationTest {};
 
@@ -491,7 +502,7 @@ TEST_F(L1SerializationTest, Hist) {
                            fmap_, p_dmat_);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_F(L1SerializationTest, GpuHist) {
   TestLearnerSerialization({{"booster", "gbtree"},
                             {"objective", "reg:absoluteerror"},
@@ -501,7 +512,7 @@ TEST_F(L1SerializationTest, GpuHist) {
                             {"tree_method", "hist"}},
                            fmap_, p_dmat_);
 }
-#endif  //  defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  //  defined(XGBOOST_USE_CUDA)
 
 class LogitSerializationTest : public SerializationTest {
  protected:
@@ -587,7 +598,7 @@ TEST_F(LogitSerializationTest, CPUCoordDescent) {
                            fmap_, p_dmat_);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_F(LogitSerializationTest, GpuHist) {
   TestLearnerSerialization({{"booster", "gbtree"},
                             {"objective", "binary:logistic"},
@@ -627,7 +638,7 @@ TEST_F(LogitSerializationTest, GPUCoordDescent) {
                             {"updater", "coord_descent"}},
                            fmap_, p_dmat_);
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 
 class MultiClassesSerializationTest : public SerializationTest {
  protected:
@@ -733,7 +744,7 @@ TEST_F(MultiClassesSerializationTest, CPUCoordDescent) {
                            fmap_, p_dmat_);
 }
 
-#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#if defined(XGBOOST_USE_CUDA)
 TEST_F(MultiClassesSerializationTest, GpuHist) {
   TestLearnerSerialization({{"booster", "gbtree"},
                             {"num_class", std::to_string(kClasses)},
@@ -780,5 +791,5 @@ TEST_F(MultiClassesSerializationTest, GPUCoordDescent) {
                             {"device", "cuda"}},
                            fmap_, p_dmat_);
 }
-#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#endif  // defined(XGBOOST_USE_CUDA)
 }       // namespace xgboost

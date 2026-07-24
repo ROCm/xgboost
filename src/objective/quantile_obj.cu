@@ -1,5 +1,5 @@
 /**
- * Copyright 2023-2025, XGBoost contributors
+ * Copyright 2023-2026, XGBoost contributors
  */
 #include <array>                            // std::array
 #include <cstddef>                          // std::size_t
@@ -20,14 +20,17 @@
 
 #if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
-#include "../common/linalg_op.cuh"  // ElementWiseKernel
 #include "../common/stats.cuh"      // SegmentedQuantile
 
 #endif                              // defined(XGBOOST_USE_CUDA)
 
-#if defined(XGBOOST_USE_SYCL)
-#include "../../plugin/sycl/common/linalg_op.h"  // ElementWiseKernel
+#include "../common/linalg_op.h"            // ElementWiseKernel,cbegin,cend
+#include "../common/quantile_loss_utils.h"  // QuantileLossParam
+
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#include "../common/linalg_op.cuh"  // ElementWiseKernel (Context) for GPU
 #endif
+#include "../common/stats.h"                // Quantile,WeightedQuantile
 
 namespace xgboost::obj {
 class QuantileRegression : public ObjFunction {
@@ -167,10 +170,18 @@ class QuantileRegression : public ObjFunction {
 
   void UpdateTreeLeaf(HostDeviceVector<bst_node_t> const& position, MetaInfo const& info,
                       float learning_rate, HostDeviceVector<float> const& prediction,
-                      std::int32_t group_idx, RegTree* p_tree) const override {
-    auto alpha = param_.quantile_alpha[group_idx];
-    ::xgboost::obj::UpdateTreeLeaf(ctx_, position, group_idx, info, learning_rate, prediction,
-                                   alpha, p_tree);
+                      bst_target_t group_idx, RegTree* p_tree) const override {
+    auto const& alphas = param_.quantile_alpha.Get();
+    if (p_tree->IsMultiTarget()) {
+      CHECK_EQ(group_idx, 0);
+      // Pass all the alphas
+      ::xgboost::obj::UpdateTreeLeaf(ctx_, position, group_idx, info, learning_rate, prediction,
+                                     alphas, p_tree);
+    } else {
+      // Use only the alpha for the current group.
+      ::xgboost::obj::UpdateTreeLeaf(ctx_, position, group_idx, info, learning_rate, prediction,
+                                     std::vector{alphas[group_idx]}, p_tree);
+    }
   }
 
   void Configure(Args const& args) override {

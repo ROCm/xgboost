@@ -66,6 +66,7 @@ java/xgboost4j-demo/data/
 java/xgboost4j-demo/tmp/
 java/xgboost4j-demo/model/
 nb-configuration*
+*.xml.versionsBackup
 
 # Eclipse
 .project
@@ -165,15 +166,3 @@ Rplots.pdf
 # nsys
 *.nsys-rep
 rmm_log.dev*
-
-# documentation artifacts
-_build/
-_images/
-__pycache__/
-_static/
-_templates/
-_toc.yml
-docBin/
-_doxygen/
-_readthedocs/
-__pycache__/

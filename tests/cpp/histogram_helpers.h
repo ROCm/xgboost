@@ -1,9 +1,9 @@
 /**
- * Copyright 2020-2023, XGBoost contributors
+ * Copyright 2020-2025, XGBoost contributors
  */
 #pragma once
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 #include "../../src/data/ellpack_page.cuh"
 #endif
 
@@ -12,7 +12,7 @@
 #include "./helpers.h"  // for RandomDataGenerator
 
 namespace xgboost {
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__)
 namespace detail {
 class HistogramCutsWrapper : public common::HistogramCuts {
  public:
@@ -52,5 +52,16 @@ inline std::unique_ptr<EllpackPageImpl> BuildEllpackPage(Context const* ctx, int
 
   return page;
 }
+
+/**
+ * @brief Create an ellpack page with evenly distributed values across histogram bins.
+ *
+ * @note The last bin contains all the extra values if @ref n_samples is not divisible by
+ *       @ref n_bins_per_feat. Otherwise, all bins contain the same number of values.
+ */
+[[nodiscard]] std::unique_ptr<EllpackPageImpl> MakeEllpackForTest(Context const* ctx,
+                                                                  bst_idx_t n_samples,
+                                                                  bst_feature_t n_features,
+                                                                  bst_bin_t n_bins_per_feat);
 #endif
 }  // namespace xgboost

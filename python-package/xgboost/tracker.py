@@ -115,7 +115,12 @@ class RabitTracker:
             _check_call(_LIB.XGTrackerFree(handle))
 
     def __del__(self) -> None:
-        self.free()
+        try:
+            self.free()
+        except Exception:
+            # Silently ignore exceptions during cleanup to avoid segfaults in Python 3.12+
+            # Exceptions in __del__ during garbage collection can cause crashes
+            pass
 
     def start(self) -> None:
         """Start the tracker. Once started, the client still need to call the

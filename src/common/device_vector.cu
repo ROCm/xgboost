@@ -5,14 +5,16 @@
 
 #include "../collective/communicator-inl.h"  // for GetRank
 #include "common.h"                          // for HumanMemUnit
-#include "cuda_dr_utils.h"
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
+#include "cuda_dr_utils.h"  // for GrowOnlyVirtualMemVec (cudr::, safe_cu)
+#endif
 #include "device_helpers.cuh"  // for CurrentDevice
 #include "device_vector.cuh"
 #include "transform_iterator.h"  // for MakeIndexTransformIter
 
 namespace dh {
 namespace detail {
-#if defined(XGBOOST_USE_CUDA)
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 void ThrowOOMError(std::string const &err, std::size_t bytes) {
   auto device = CurrentDevice();
   auto rank = xgboost::collective::GetRank();
@@ -23,8 +25,9 @@ void ThrowOOMError(std::string const &err, std::size_t bytes) {
      << "- Requested memory: " << HumanMemUnit(bytes) << std::endl;
   LOG(FATAL) << ss.str();
 }
-#endif
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 
+#if defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 [[nodiscard]] std::size_t GrowOnlyVirtualMemVec::PhyCapacity() const {
   auto it = xgboost::common::MakeIndexTransformIter(
       [&](std::size_t i) { return this->handles_[i]->size; });
@@ -55,11 +58,11 @@ void GrowOnlyVirtualMemVec::Reserve(std::size_t new_size) {
   if (failed) {
     // Failed to reserve the requested address.
     // Slow path, try to reserve a new address with full size.
-    range = std::make_unique<VaRange>(aligned_size, hipDeviceptr_t{0}, &status, &failed);
+    range = std::make_unique<VaRange>(aligned_size, static_cast<CUdeviceptr>(0), &status, &failed);
     safe_cu(status);
     CHECK(!failed);
 
-    // New allocation is successful. Map the pyhsical address to the virtual address.
+    // New allocation is successful. Map the physical address to the virtual address.
     // First unmap the existing ptr.
     if (this->DevPtr() != 0) {
       // Unmap the existing ptr.
@@ -109,12 +112,6 @@ GrowOnlyVirtualMemVec::GrowOnlyVirtualMemVec(CUmemLocationType type)
       [&](std::size_t i) { return this->va_ranges_[i]->Size(); });
   return std::accumulate(it, it + this->va_ranges_.size(), static_cast<std::size_t>(0));
 }
+#endif  // defined(XGBOOST_USE_CUDA) || defined(XGBOOST_USE_HIP)
 }  // namespace detail
-
-#if defined(XGBOOST_USE_RMM)
-LoggingResource *GlobalLoggingResource() {
-  static auto mr{std::make_unique<LoggingResource>()};
-  return mr.get();
-}
-#endif  // defined(XGBOOST_USE_RMM)
 }  // namespace dh

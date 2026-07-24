@@ -18,8 +18,6 @@ CONFIG = {
     "USE_OPENMP": "ON",
     "USE_CUDA": "OFF",
     "USE_NCCL": "OFF",
-    "USE_HIP": "OFF",
-    "USE_RCCL": "OFF",
     "JVM_BINDINGS": "ON",
     "LOG_CAPI_INVOCATION": "OFF",
     "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -82,7 +80,7 @@ def native_build(cli_args: argparse.Namespace) -> None:
 
     print("building Java wrapper", flush=True)
     with cd(".."):
-        build_dir = 'build-gpu' if cli_args.use_cuda == 'ON' or cli_args.use_hip == 'ON' else 'build'
+        build_dir = "build-gpu" if cli_args.use_cuda == "ON" else "build"
         maybe_makedirs(build_dir)
 
         if sys.platform == "linux":
@@ -99,10 +97,6 @@ def native_build(cli_args: argparse.Namespace) -> None:
             CONFIG["USE_CUDA"] = "ON"
             CONFIG["USE_NCCL"] = "ON"
             CONFIG["USE_DLOPEN_NCCL"] = "OFF"
-        elif cli_args.use_hip== 'ON':
-            CONFIG['USE_HIP'] = 'ON'
-            CONFIG['USE_RCCL'] = 'ON'
-            CONFIG["USE_DLOPEN_RCCL"] = "OFF"
 
         args = ["-D{0}:BOOL={1}".format(k, v) for k, v in CONFIG.items()]
         if sys.platform != "win32":
@@ -174,10 +168,10 @@ def native_build(cli_args: argparse.Namespace) -> None:
 
     # for xgboost4j-spark
     maybe_makedirs("xgboost4j-spark/src/test/resources")
-    with cd("../demo/CLI/regression"):
+    with cd("../demo/data/regression"):
         run(f'"{sys.executable}" mapfeat.py')
         run(f'"{sys.executable}" mknfold.py machine.txt 1')
-    for file in glob.glob("../demo/CLI/regression/machine.txt.t*"):
+    for file in glob.glob("../demo/data/regression/machine.txt.t*"):
         cp(file, "xgboost4j-spark/src/test/resources")
     for file in glob.glob("../demo/data/agaricus.*"):
         cp(file, "xgboost4j-spark/src/test/resources")

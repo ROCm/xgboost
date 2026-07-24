@@ -18,6 +18,13 @@ sys.path.append("tests/python")
 import test_quantile_dmatrix as tqd
 
 
+def _device_quantile_rng_seed(*, use_cupy: bool = True) -> int:
+    """CuPy + HIP/ROCm: use ROCm-oriented seed; otherwise upstream default 1994."""
+    if use_cupy and xgb.build_info().get("USE_HIP", False):
+        return 64
+    return 1994
+
+
 class TestQuantileDMatrix:
     cputest = tqd.TestQuantileDMatrix()
 
@@ -25,7 +32,7 @@ class TestQuantileDMatrix:
     def test_dmatrix_feature_weights(self) -> None:
         import cupy as cp
 
-        rng = cp.random.RandomState(np.uint64(1994))
+        rng = cp.random.RandomState(np.uint64(_device_quantile_rng_seed()))
         data = rng.randn(5, 5)
         m = xgb.DMatrix(data)
 
@@ -36,7 +43,7 @@ class TestQuantileDMatrix:
             cp.array(m.get_float_info("feature_weights")),
             feature_weights.astype(np.float32),
         )
-    @pytest.mark.skipif(**tm.is_rocm_64())
+
     def test_categorical_strings(self) -> None:
         check_categorical_strings("cuda")
 
@@ -58,6 +65,7 @@ class TestQuantileDMatrix:
             n_features=n_features,
             n_batches=1,
             use_cupy=on_device,
+            random_state=_device_quantile_rng_seed(use_cupy=on_device),
         )
 
         tree_method = "hist"
@@ -135,7 +143,11 @@ class TestQuantileDMatrix:
         n_samples = 64
         n_features = 3
         X, y, w = tm.make_batches(
-            n_samples, n_features=n_features, n_batches=1, use_cupy=False
+            n_samples,
+            n_features=n_features,
+            n_batches=1,
+            use_cupy=False,
+            random_state=_device_quantile_rng_seed(use_cupy=False),
         )
         # from CPU
         Xy = xgb.QuantileDMatrix(X[0], y[0], weight=w[0], max_bin=max_bin)
@@ -170,7 +182,7 @@ class TestQuantileDMatrix:
     def test_metainfo(self) -> None:
         import cupy as cp
 
-        rng = cp.random.RandomState(np.uint64(1994))
+        rng = cp.random.RandomState(np.uint64(_device_quantile_rng_seed()))
 
         rows = 10
         cols = 3
@@ -194,7 +206,7 @@ class TestQuantileDMatrix:
     def test_ref_dmatrix(self) -> None:
         import cupy as cp
 
-        rng = cp.random.RandomState(np.uint64(1994))
+        rng = cp.random.RandomState(np.uint64(_device_quantile_rng_seed()))
         self.cputest.run_ref_dmatrix(rng, "cuda", False)
 
     @given(
@@ -203,7 +215,7 @@ class TestQuantileDMatrix:
         strategies.fractions(0, 0.99),
     )
     @settings(print_blob=True, deadline=None)
-    def test_to_csr(self, n_samples, n_features, sparsity) -> None:
+    def test_to_csr(self, n_samples: int, n_features: int, sparsity: float) -> None:
         import cupy as cp
 
         X, y = tm.make_sparse_regression(n_samples, n_features, sparsity, False)
@@ -254,8 +266,9 @@ class TestQuantileDMatrix:
     def test_check_inf(self) -> None:
         import cupy as cp
 
-        rng = cp.random.default_rng(1994)
+        rng = cp.random.default_rng(_device_quantile_rng_seed())
         check_inf(rng)
 
     def test_mixed_sparsity(self) -> None:
         run_mixed_sparsity("cuda")
+

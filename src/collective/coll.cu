@@ -1,7 +1,7 @@
 /**
  * Copyright 2023-2025, XGBoost Contributors
  */
-#if defined(XGBOOST_USE_NCCL) || defined(XGBOOST_USE_RCCL)
+#if defined(XGBOOST_USE_NCCL)
 #include <chrono>       // for chrono, chrono_literals
 #include <cstddef>      // for size_t
 #include <cstdint>      // for int8_t, int64_t
@@ -13,10 +13,11 @@
 #include <type_traits>  // for invoke_result_t, is_same_v, enable_if_t
 #include <utility>      // for move
 
-#if defined(XGBOOST_USE_NCCL)
+#if defined(XGBOOST_USE_HIP)
+#include <hip/hip_runtime.h>             // for hipStreamWaitEvent, hipStreamQuery
+#include <rccl/rccl.h>                   // for ncclHalf, ncclFloat32, ...
+#else
 #include "nccl.h"                        // for ncclHalf, ncclFloat32, ...
-#elif defined(XGBOOST_USE_RCCL)
-#include <rccl/rccl.h>                   // for ncclHalf, ncclFloat32, ...#endif
 #endif
 
 #include "../common/device_helpers.cuh"  // for CUDAStreamView, CUDAEvent, device_vector
@@ -97,13 +98,21 @@ template <typename Fn, typename R = std::invoke_result_t<Fn, dh::CUDAStreamView>
     common::ThreadPool* pool, NCCLComm const* nccl, std::shared_ptr<NcclStub> stub,
     dh::CUDAStreamView stream, Fn&& fn) {
   dh::CUDAEvent e0;
+#if defined(XGBOOST_USE_HIP)
+  e0.Record(dh::CUDAStreamView{nccl->Stream()});
+#else
   e0.Record(nccl->Stream());
+#endif
   stream.Wait(e0);
 
   auto cleanup = common::MakeCleanup([&] {
     dh::CUDAEvent e1;
     e1.Record(stream);
+#if defined(XGBOOST_USE_HIP)
+    dh::safe_cuda(hipStreamWaitEvent(static_cast<hipStream_t>(nccl->Stream()), e1, 0));
+#else
     nccl->Stream().Wait(e1);
+#endif
   });
 
   Chan chan;
@@ -111,7 +120,11 @@ template <typename Fn, typename R = std::invoke_result_t<Fn, dh::CUDAStreamView>
   auto busy_wait = [&](ncclResult_t* async_error) {
     using std::chrono_literals::operator""ms;
     do {
+#if defined(XGBOOST_USE_HIP)
+      auto rc = GetCUDAResult(hipStreamSynchronize(static_cast<hipStream_t>(stream)));
+#else
       auto rc = GetCUDAResult(stream.Sync(false));
+#endif
       if (!rc.OK()) {
         return rc;
       }
@@ -215,16 +228,31 @@ void RunBitwiseAllreduce(dh::CUDAStreamView stream, common::Span<std::int8_t> ou
   // Then reduce locally.
   switch (op) {
     case Op::kBitwiseAND:
+#if defined(XGBOOST_USE_HIP)
+      RunBitwiseAllreduce(dh::CUDAStreamView{pcomm->Stream()}, data, device_buffer,
+                          thrust::bit_and<std::int8_t>(), pcomm->World(), data.size());
+#else
       RunBitwiseAllreduce(pcomm->Stream(), data, device_buffer, thrust::bit_and<std::int8_t>(),
                           pcomm->World(), data.size());
+#endif
       break;
     case Op::kBitwiseOR:
+#if defined(XGBOOST_USE_HIP)
+      RunBitwiseAllreduce(dh::CUDAStreamView{pcomm->Stream()}, data, device_buffer,
+                          thrust::bit_or<std::int8_t>(), pcomm->World(), data.size());
+#else
       RunBitwiseAllreduce(pcomm->Stream(), data, device_buffer, thrust::bit_or<std::int8_t>(),
                           pcomm->World(), data.size());
+#endif
       break;
     case Op::kBitwiseXOR:
+#if defined(XGBOOST_USE_HIP)
+      RunBitwiseAllreduce(dh::CUDAStreamView{pcomm->Stream()}, data, device_buffer,
+                          thrust::bit_xor<std::int8_t>(), pcomm->World(), data.size());
+#else
       RunBitwiseAllreduce(pcomm->Stream(), data, device_buffer, thrust::bit_xor<std::int8_t>(),
                           pcomm->World(), data.size());
+#endif
       break;
     default:
       LOG(FATAL) << "Not a bitwise reduce operation.";
@@ -262,16 +290,30 @@ ncclRedOp_t GetNCCLRedOp(Op const& op) {
 
   return Success() << [&] {
     if (IsBitwiseOp(op)) {
+#if defined(XGBOOST_USE_HIP)
+      return BitwiseAllReduce(&this->pool_, nccl, data, op, dh::CUDAStreamView{this->stream_.View()});
+#else
       return BitwiseAllReduce(&this->pool_, nccl, data, op, this->stream_.View());
+#endif
     } else {
       return DispatchDType(type, [&](auto t) {
         using T = decltype(t);
         auto rdata = common::RestoreType<T>(data);
+#if defined(XGBOOST_USE_HIP)
         return AsyncLaunch(
-            &this->pool_, nccl, stub, this->stream_.View(), [&](dh::CUDAStreamView s) {
+            &this->pool_, nccl, stub, dh::CUDAStreamView{this->stream_.View()},
+            [&](dh::CUDAStreamView s) {
               return stub->Allreduce(data.data(), data.data(), rdata.size(), GetNCCLType(type),
                                      GetNCCLRedOp(op), nccl->Handle(), s);
             });
+#else
+        return AsyncLaunch(
+            &this->pool_, nccl, stub, this->stream_.View(),
+            [&](dh::CUDAStreamView s) {
+              return stub->Allreduce(data.data(), data.data(), rdata.size(), GetNCCLType(type),
+                                     GetNCCLRedOp(op), nccl->Handle(), s);
+            });
+#endif
       });
     }
   } << [&] {
@@ -289,11 +331,19 @@ ncclRedOp_t GetNCCLRedOp(Op const& op) {
   auto stub = nccl->Stub();
 
   return Success() << [&] {
+#if defined(XGBOOST_USE_HIP)
+    return AsyncLaunch(&this->pool_, nccl, stub, dh::CUDAStreamView{this->stream_.View()},
+                       [data, nccl, root, stub](dh::CUDAStreamView s) {
+                         return stub->Broadcast(data.data(), data.data(), data.size_bytes(),
+                                                ncclInt8, root, nccl->Handle(), s);
+                       });
+#else
     return AsyncLaunch(&this->pool_, nccl, stub, this->stream_.View(),
                        [data, nccl, root, stub](dh::CUDAStreamView s) {
                          return stub->Broadcast(data.data(), data.data(), data.size_bytes(),
                                                 ncclInt8, root, nccl->Handle(), s);
                        });
+#endif
   } << [&] {
     return nccl->Block();
   };
@@ -310,11 +360,19 @@ ncclRedOp_t GetNCCLRedOp(Op const& op) {
 
   auto send = data.subspan(comm.Rank() * size, size);
   return Success() << [&] {
+#if defined(XGBOOST_USE_HIP)
+    return AsyncLaunch(&this->pool_, nccl, stub, dh::CUDAStreamView{this->stream_.View()},
+                       [send, data, size, nccl, stub](dh::CUDAStreamView s) {
+                         return stub->Allgather(send.data(), data.data(), size, ncclInt8,
+                                                nccl->Handle(), s);
+                       });
+#else
     return AsyncLaunch(&this->pool_, nccl, stub, this->stream_.View(),
                        [send, data, size, nccl, stub](dh::CUDAStreamView s) {
                          return stub->Allgather(send.data(), data.data(), size, ncclInt8,
                                                 nccl->Handle(), s);
                        });
+#endif
   } << [&] {
     return nccl->Block();
   };
@@ -384,9 +442,17 @@ Result BroadcastAllgatherV(NCCLComm const* comm, dh::CUDAStreamView s,
       };
     }
     case AllgatherVAlgo::kBcast: {
-      return AsyncLaunch(&this->pool_, nccl, stub, this->stream_.View(), [&](dh::CUDAStreamView s) {
-        return cuda_impl::BroadcastAllgatherV(nccl, s, data, sizes, recv);
-      });
+#if defined(XGBOOST_USE_HIP)
+      return AsyncLaunch(&this->pool_, nccl, stub, dh::CUDAStreamView{this->stream_.View()},
+                         [&](dh::CUDAStreamView s) {
+                           return cuda_impl::BroadcastAllgatherV(nccl, s, data, sizes, recv);
+                         });
+#else
+      return AsyncLaunch(&this->pool_, nccl, stub, this->stream_.View(),
+                         [&](dh::CUDAStreamView s) {
+                           return cuda_impl::BroadcastAllgatherV(nccl, s, data, sizes, recv);
+                         });
+#endif
     }
     default: {
       return Fail("Unknown algorithm for allgather-v");

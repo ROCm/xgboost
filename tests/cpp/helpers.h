@@ -20,27 +20,27 @@
 #include <vector>
 
 
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIP__)
 #include "../../src/collective/communicator-inl.h"  // for GetRank
 #include "../../src/common/cuda_rt_utils.h"         // for AllVisibleGPUs
-#endif  // defined(__CUDACC__)
+#endif
 
 #include "filesystem.h"  // for TemporaryDirectory
 #include "xgboost/linalg.h"
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__) || defined(__HIP__)
 #define DeclareUnifiedTest(name) GPU ## name
 #else
 #define DeclareUnifiedTest(name) name
 #endif
 
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIP__)
 #define GPUIDX (curt::AllVisibleGPUs() == 1 ? 0 : collective::GetRank())
 #else
 #define GPUIDX (-1)
 #endif
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
+#if defined(__CUDACC__) || defined(__HIP__)
 #define DeclareUnifiedDistributedTest(name) MGPU ## name
 #else
 #define DeclareUnifiedDistributedTest(name) name
@@ -57,6 +57,18 @@ template <typename Float>
 Float RelError(Float l, Float r) {
   static_assert(std::is_floating_point_v<Float>);
   return std::abs(1.0f - l / r);
+}
+
+template <typename T, typename V = std::remove_cv_t<T>>
+void AssertVecEq(std::vector<T> h_vec, std::vector<V> const& exp, float atol = 1e-5) {
+  ASSERT_EQ(h_vec.size(), exp.size());
+  for (std::size_t i = 0; i < h_vec.size(); ++i) {
+    if constexpr (std::is_floating_point_v<V>) {
+      ASSERT_NEAR(h_vec[i], exp[i], atol) << "i:" << i;
+    } else {
+      ASSERT_EQ(h_vec[i], exp[i]);
+    }
+  }
 }
 
 bool FileExists(const std::string& filename);
@@ -394,13 +406,12 @@ inline HostDeviceVector<GradientPair> GenerateRandomGradients(const size_t n_row
   return gpair;
 }
 
-inline linalg::Matrix<GradientPair> GenerateRandomGradients(Context const* ctx, bst_idx_t n_rows,
-                                                            bst_target_t n_targets,
-                                                            float lower = 0.0f,
-                                                            float upper = 1.0f) {
+inline auto GenerateRandomGradients(Context const* ctx, bst_idx_t n_rows, bst_target_t n_targets,
+                                    float lower = 0.0f, float upper = 1.0f) {
   auto g = GenerateRandomGradients(n_rows * n_targets, lower, upper);
-  linalg::Matrix<GradientPair> gpair({n_rows, static_cast<bst_idx_t>(n_targets)}, ctx->Device());
-  gpair.Data()->Copy(g);
+  GradientContainer gpair;
+  gpair.gpair = linalg::Matrix<GradientPair>{{n_rows, static_cast<bst_idx_t>(n_targets)}, ctx->Device()};
+  gpair.gpair.Data()->Copy(g);
   return gpair;
 }
 
@@ -445,6 +456,10 @@ class CudaArrayIterForTest : public ArrayIterForTest {
  public:
   explicit CudaArrayIterForTest(float sparsity, size_t rows = Rows(), size_t cols = Cols(),
                                 size_t batches = Batches());
+  explicit CudaArrayIterForTest(Context const* ctx, HostDeviceVector<float> const& data,
+                                std::size_t n_samples, bst_feature_t n_features,
+                                std::size_t n_batches)
+      : ArrayIterForTest{ctx, data, n_samples, n_features, n_batches} {};
   int Next() override;
   ~CudaArrayIterForTest() override = default;
 };

@@ -1,4 +1,5 @@
 import json
+from typing import Any, Dict, Type
 
 import numpy as np
 import pytest
@@ -6,6 +7,7 @@ import pytest
 import xgboost as xgb
 from xgboost import testing as tm
 from xgboost.testing.data import run_base_margin_info
+from xgboost.testing.utils import assert_allclose
 
 cp = pytest.importorskip("cupy")
 
@@ -18,7 +20,9 @@ def test_array_interface() -> None:
     np.testing.assert_equal(cp.asnumpy(arr), cp.asnumpy(ret))
 
 
-def dmatrix_from_cupy(input_type, DMatrixT, missing=np.nan):
+def dmatrix_from_cupy(
+    input_type: Any, DMatrixT: Type[xgb.DMatrix], missing: float = np.nan
+) -> xgb.DMatrix:
     """Test constructing DMatrix from cupy"""
     kRows = 80
     kCols = 3
@@ -44,7 +48,7 @@ def dmatrix_from_cupy(input_type, DMatrixT, missing=np.nan):
     return dtrain
 
 
-def _test_from_cupy(DMatrixT):
+def _test_from_cupy(DMatrixT: Type[xgb.DMatrix]) -> None:
     """Test constructing DMatrix from cupy"""
     dmatrix_from_cupy(np.float16, DMatrixT, np.nan)
     dmatrix_from_cupy(np.float32, DMatrixT, np.nan)
@@ -64,7 +68,7 @@ def _test_from_cupy(DMatrixT):
         DMatrixT(X, label=y)
 
 
-def _test_cupy_training(DMatrixT):
+def _test_cupy_training(DMatrixT: Type[xgb.DMatrix]) -> None:
     np.random.seed(1)
     cp.random.seed(np.uint64(1))
     X = cp.random.randn(50, 10, dtype="float32")
@@ -74,13 +78,13 @@ def _test_cupy_training(DMatrixT):
     base_margin = np.random.random(50)
     cupy_base_margin = cp.array(base_margin)
 
-    evals_result_cupy = {}
+    evals_result_cupy: Dict[str, Any] = {}
     dtrain_cp = DMatrixT(X, y, weight=cupy_weights, base_margin=cupy_base_margin)
     params = {"tree_method": "hist", "device": "cuda:0"}
     xgb.train(
         params, dtrain_cp, evals=[(dtrain_cp, "train")], evals_result=evals_result_cupy
     )
-    evals_result_np = {}
+    evals_result_np: Dict[str, Any] = {}
     dtrain_np = xgb.DMatrix(
         cp.asnumpy(X), cp.asnumpy(y), weight=weights, base_margin=base_margin
     )
@@ -92,7 +96,7 @@ def _test_cupy_training(DMatrixT):
     )
 
 
-def _test_cupy_metainfo(DMatrixT):
+def _test_cupy_metainfo(DMatrixT: Type[xgb.DMatrix]) -> None:
     n = 100
     X = np.random.random((n, 2))
     dmat_cupy = DMatrixT(cp.array(X))
@@ -111,25 +115,27 @@ def _test_cupy_metainfo(DMatrixT):
     dmat_cupy.set_info(group=cupy_uints)
 
     # Test setting info with cupy
-    assert np.array_equal(
-        dmat.get_float_info("weight"), dmat_cupy.get_float_info("weight")
-    )
-    assert np.array_equal(
-        dmat.get_float_info("label"), dmat_cupy.get_float_info("label")
-    )
-    assert np.array_equal(
-        dmat.get_float_info("base_margin"), dmat_cupy.get_float_info("base_margin")
-    )
+    assert_allclose("cuda", dmat.get_weight(), dmat_cupy.get_weight())
+    assert_allclose("cuda", dmat.get_label(), dmat_cupy.get_label())
+    assert_allclose("cuda", dmat.get_base_margin(), dmat_cupy.get_base_margin())
     assert np.array_equal(
         dmat.get_uint_info("group_ptr"), dmat_cupy.get_uint_info("group_ptr")
     )
 
     run_base_margin_info(cp.asarray, DMatrixT, "cuda")
 
+    dmat_cupy = DMatrixT(cp.array(X))
+    y = dmat_cupy.get_label()
+    assert y.size == 0
+    y = cp.array(X)
+    dmat_cupy.set_label(y)
+    y1 = dmat_cupy.get_label()
+    assert_allclose("cuda", y1, y)
+
 
 @pytest.mark.skipif(**tm.no_cupy())
 @pytest.mark.skipif(**tm.no_sklearn())
-def test_cupy_training_with_sklearn():
+def test_cupy_training_with_sklearn() -> None:
     np.random.seed(1)
     cp.random.seed(np.uint64(1))
     X = cp.random.randn(50, 10, dtype="float32")
@@ -156,37 +162,38 @@ class TestFromCupy:
     Arrow specification."""
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_simple_dmat_from_cupy(self):
+    def test_simple_dmat_from_cupy(self) -> None:
         _test_from_cupy(xgb.DMatrix)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_device_dmat_from_cupy(self):
+    def test_quantile_dmat_from_cupy(self) -> None:
         _test_from_cupy(xgb.QuantileDMatrix)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_cupy_training_device_dmat(self):
+    def test_cupy_training_quantile_dmat(self) -> None:
         _test_cupy_training(xgb.QuantileDMatrix)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_cupy_training_simple_dmat(self):
+    def test_cupy_training_simple_dmat(self) -> None:
         _test_cupy_training(xgb.DMatrix)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_cupy_metainfo_simple_dmat(self):
+    def test_cupy_metainfo_simple_dmat(self) -> None:
         _test_cupy_metainfo(xgb.DMatrix)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_cupy_metainfo_device_dmat(self):
+    def test_cupy_metainfo_quantile_dmat(self) -> None:
         _test_cupy_metainfo(xgb.QuantileDMatrix)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_dlpack_simple_dmat(self):
+    def test_dlpack_simple_dmat(self) -> None:
         n = 100
         X = cp.random.random((n, 2))
-        xgb.DMatrix(X.toDlpack())
+        capsule = X.__dlpack__()
+        xgb.DMatrix(capsule)
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_cupy_categorical(self):
+    def test_cupy_categorical(self) -> None:
         n_features = 10
         X, y = tm.make_categorical(10, n_features, n_categories=4, onehot=False)
         X = cp.asarray(X.values.astype(cp.float32))
@@ -198,10 +205,10 @@ class TestFromCupy:
         np.testing.assert_equal(np.array(Xy.feature_types), np.array(feature_types))
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_dlpack_device_dmat(self):
+    def test_dlpack_quantile_dmat(self) -> None:
         n = 100
         X = cp.random.random((n, 2))
-        m = xgb.QuantileDMatrix(X.toDlpack())
+        m = xgb.QuantileDMatrix(X.__dlpack__())
 
         with pytest.raises(
             xgb.core.XGBoostError, match="Slicing DMatrix is not supported"
@@ -209,7 +216,7 @@ class TestFromCupy:
             m.slice(rindex=[0, 1, 2])
 
     @pytest.mark.skipif(**tm.no_cupy())
-    def test_qid(self):
+    def test_qid(self) -> None:
         rng = cp.random.RandomState(np.uint64(1994))
         rows = 100
         cols = 10
@@ -225,7 +232,7 @@ class TestFromCupy:
 
     @pytest.mark.skipif(**tm.no_cupy())
     @pytest.mark.mgpu
-    def test_specified_device(self):
+    def test_specified_device(self) -> None:
         cp.cuda.runtime.setDevice(0)
         dtrain = dmatrix_from_cupy(np.float32, xgb.QuantileDMatrix, np.nan)
         with pytest.raises(xgb.core.XGBoostError, match="Invalid device ordinal"):
