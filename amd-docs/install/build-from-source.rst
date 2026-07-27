@@ -110,7 +110,7 @@ Build from source
 
             pip install pytest joblib hypothesis scikit-learn rich fastrlock cachetools fsspec packaging \
               numba==0.60 pandas==2.2.3 pyarrow==19.0 typing-extensions>=4.0.0
-            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.1.1/simple/
+            pip install amd-cupy amd-hipdf --index-url=https://pypi.amd.com/rocm-7.0.2/simple/
 
       .. tab-item:: ROCm 7.0.2
 
